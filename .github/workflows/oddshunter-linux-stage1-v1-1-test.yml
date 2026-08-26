@@ -1,0 +1,86 @@
+name: OddsHunter Linux Stage1 V1.1 Test
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  stage1_v1_1:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Descargar repositorio
+        uses: actions/checkout@v6
+
+      - name: Configurar Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Descomprimir Stage1 V1.1
+        run: |
+          rm -rf oddshunter-linux-stage1-v1-1
+          mkdir -p oddshunter-linux-stage1-v1-1
+          unzip -q ODDSHUNTER_CLOUD_LINUX_STAGE1_V1_1.zip -d oddshunter-linux-stage1-v1-1
+          test -f oddshunter-linux-stage1-v1-1/cloud_preflight.py
+          test -f oddshunter-linux-stage1-v1-1/futbol24_client.py
+          if [ -f oddshunter-linux-stage1-v1-1/data/oddshunter.db ]; then
+            echo "ERROR: oddshunter.db no debe estar incluido"
+            exit 1
+          fi
+          echo "ZIP_STAGE1_V1_1=PASS"
+          echo "ODDSHUNTER_DB_INCLUDED=NO"
+
+      - name: Instalar runtime Linux y Chromium
+        working-directory: oddshunter-linux-stage1-v1-1
+        run: |
+          chmod +x install_cloud_linux.sh run_cloud_preflight.sh
+          ./install_cloud_linux.sh
+
+      - name: Ejecutar preflight real Futbol24 + Flashscore
+        id: preflight
+        working-directory: oddshunter-linux-stage1-v1-1
+        env:
+          ODDSHUNTER_BROWSER_HEADLESS: "1"
+          ODDSHUNTER_CHROMIUM_SANDBOX: "0"
+        run: |
+          ./run_cloud_preflight.sh
+
+      - name: Resumen certificado
+        if: always()
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          p = Path("oddshunter-linux-stage1-v1-1/artifacts/cloud_stage1_preflight.json")
+          if not p.exists():
+              print("RESULTADO=NO_REPORT")
+              raise SystemExit(1)
+
+          d = json.loads(p.read_text(encoding="utf-8"))
+          snap = ((d.get("network") or {}).get("futbol24") or {}).get("snapshot") or {}
+
+          print("STATIC_PASS =", d.get("static_pass"))
+          print("NETWORK_PASS =", d.get("network_pass"))
+          print("OVERALL_PASS =", d.get("overall_pass"))
+          print("SOFASCORE_ENABLED =", (d.get("source_policy") or {}).get("sofascore_enabled"))
+          print("FUTBOL24_STATE =", snap.get("state"))
+          print("FUTBOL24_SCORE =", snap.get("home_goals"), "-", snap.get("away_goals"))
+          print("NETWORK_CHECKS =", d.get("network_checks"))
+
+          if d.get("overall_pass") is not True:
+              raise SystemExit(1)
+          PY
+
+      - name: Guardar evidencia
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: oddshunter-linux-stage1-v1-1-report
+          path: oddshunter-linux-stage1-v1-1/artifacts/
+          if-no-files-found: warn
+          retention-days: 7
