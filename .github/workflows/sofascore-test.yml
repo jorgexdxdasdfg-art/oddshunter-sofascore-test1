@@ -1,0 +1,61 @@
+name: SofaScore Cloud Test
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    env:
+      ODDSHUNTER_COLAB_OUTPUT: ${{ github.workspace }}/artifacts/oddshunter_cloud_test
+
+    steps:
+      - name: Descargar repositorio
+        uses: actions/checkout@v6
+
+      - name: Configurar Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Instalar Playwright y Chromium
+        run: |
+          python -m pip install --upgrade pip
+          pip install playwright
+          python -m playwright install --with-deps chromium
+          command -v xvfb-run
+          python -m playwright install --list
+
+      - name: Probar SofaScore headed con Xvfb
+        id: sofascore
+        continue-on-error: true
+        env:
+          ODDSHUNTER_COLAB_PROFILE: ${{ runner.temp }}/oddshunter_sofascore_profile
+        run: |
+          xvfb-run -a python colab_sofascore_hybrid_test.py \
+            --headed \
+            --event-id 16283049
+
+      - name: Mostrar reporte en el log
+        if: always()
+        run: |
+          echo "Resultado del paso: ${{ steps.sofascore.outcome }}"
+          if [ -f "$ODDSHUNTER_COLAB_OUTPUT/session_report.json" ]; then
+            cat "$ODDSHUNTER_COLAB_OUTPUT/session_report.json"
+          else
+            echo "No se generó session_report.json"
+          fi
+
+      - name: Guardar evidencia
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: sofascore-test-report
+          path: artifacts/oddshunter_cloud_test/
+          if-no-files-found: warn
+          retention-days: 7
