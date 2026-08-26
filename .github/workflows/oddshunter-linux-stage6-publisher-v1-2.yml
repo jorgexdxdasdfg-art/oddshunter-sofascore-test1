@@ -1,0 +1,302 @@
+name: OddsHunter Linux Stage6 Publisher V1.2
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  stage6_publisher:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Descargar repositorio
+        uses: actions/checkout@v6
+
+      - name: Configurar Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Gate de paquetes exactos
+        id: packages
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          test -f ODDSHUNTER_CLOUD_LINUX_STAGE4_STAGE5_V4.zip
+          test -f ODDSHUNTER_CLOUD_WORKING_STATE.zip
+          test -f ODDSHUNTER_CLOUD_STAGE6_PUBLISHER_V1_2.zip
+
+          echo "V4_SHA=$(sha256sum ODDSHUNTER_CLOUD_LINUX_STAGE4_STAGE5_V4.zip | awk '{print toupper($1)}')"
+          echo "STAGE6_SHA=$(sha256sum ODDSHUNTER_CLOUD_STAGE6_PUBLISHER_V1_2.zip | awk '{print toupper($1)}')"
+
+          test "$(sha256sum ODDSHUNTER_CLOUD_LINUX_STAGE4_STAGE5_V4.zip | awk '{print toupper($1)}')" = "A230D5947A2B02A74505DB72D4E01BE303B990B3DFDD2339BB80F69B70F56C95"
+          test "$(sha256sum ODDSHUNTER_CLOUD_STAGE6_PUBLISHER_V1_2.zip | awk '{print toupper($1)}')" = "9F60DDF611EC85D052C0F7AEB46B7F9C7E18134630141A35B8F2BE900DD2933C"
+          echo "PACKAGE_GATE=PASS"
+
+      - name: Descomprimir runtime V4
+        if: steps.packages.outcome == 'success'
+        run: |
+          set -euo pipefail
+          rm -rf oddshunter-cloud-stage6
+          mkdir -p oddshunter-cloud-stage6
+          unzip -q ODDSHUNTER_CLOUD_LINUX_STAGE4_STAGE5_V4.zip -d oddshunter-cloud-stage6
+          test -f oddshunter-cloud-stage6/cloud_stage5_cycle.py
+          test -f oddshunter-cloud-stage6/cloud_incremental_result_sync.py
+          echo "RUNTIME_V4=PASS"
+
+      - name: Montar working state certificado
+        id: working_state
+        if: steps.packages.outcome == 'success'
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path, PurePosixPath
+          import hashlib
+          import json
+          import shutil
+          import zipfile
+
+          src = Path("ODDSHUNTER_CLOUD_WORKING_STATE.zip")
+          dst = Path("oddshunter-cloud-stage6").resolve()
+
+          with zipfile.ZipFile(src, "r") as z:
+              for info in z.infolist():
+                  raw = info.filename.replace("\\", "/")
+                  pp = PurePosixPath(raw)
+                  if pp.is_absolute() or ".." in pp.parts:
+                      raise RuntimeError(f"Ruta insegura: {info.filename!r}")
+                  if not pp.parts:
+                      continue
+                  out = dst.joinpath(*pp.parts).resolve()
+                  if dst != out and dst not in out.parents:
+                      raise RuntimeError(f"Ruta fuera del destino: {info.filename!r}")
+                  if info.is_dir() or raw.endswith("/"):
+                      out.mkdir(parents=True, exist_ok=True)
+                      continue
+                  out.parent.mkdir(parents=True, exist_ok=True)
+                  with z.open(info, "r") as rf, out.open("wb") as wf:
+                      shutil.copyfileobj(rf, wf)
+
+          db = dst / "data" / "oddshunter.db"
+          manifest_path = dst / "CLOUD_WORKING_STATE_MANIFEST.json"
+          if not db.is_file() or not manifest_path.is_file():
+              raise RuntimeError("Working state incompleto")
+
+          h = hashlib.sha256(db.read_bytes()).hexdigest().upper()
+          manifest = json.loads(manifest_path.read_text(encoding="utf-8-sig"))
+          manifest_sha = str(manifest.get("working_copy_sha") or "").upper()
+          expected = "B38364FCADE43896D3CA7DD6B055B3C2A192322A8AE63A64449184E69B0E6B75"
+          print("WORKING_DB_SHA =", h)
+          print("MANIFEST_DB_SHA =", manifest_sha)
+          if h != manifest_sha:
+              raise RuntimeError("SHA de working DB != manifiesto")
+          if h != expected:
+              raise RuntimeError("Stage6 V1 exige exactamente la working DB certificada de Stage4/5 V4")
+          print("WORKING_STATE_GATE=PASS")
+          print("OFFICIAL_WINDOWS_DB_PRESENT=NO")
+          PY
+
+      - name: Instalar publicador Stage6
+        id: stage6_package
+        if: steps.working_state.outcome == 'success'
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          unzip -q -o ODDSHUNTER_CLOUD_STAGE6_PUBLISHER_V1_2.zip -d oddshunter-cloud-stage6
+          test -f oddshunter-cloud-stage6/cloud_stage6_publish.py
+          test -f oddshunter-cloud-stage6/STAGE6_MANIFEST.json
+          python -m py_compile oddshunter-cloud-stage6/cloud_stage6_publish.py
+          python - <<'PY'
+          import json
+          import sys
+          sys.path.insert(0, "oddshunter-cloud-stage6")
+          import cloud_stage6_publish as m
+          arg = m.encode_arg(2.32)
+          if arg.get("type") != "float":
+              raise RuntimeError(f"Tipo Hrana inesperado: {arg}")
+          if not isinstance(arg.get("value"), (int, float)) or isinstance(arg.get("value"), bool):
+              raise RuntimeError(f"float.value NO es numérico: {arg}")
+          wire = json.dumps({"args": [arg]})
+          if '"value": "2.32"' in wire:
+              raise RuntimeError("Regresión V1: float volvió a serializarse como string")
+          print("HRANA_FLOAT_ARG =", arg)
+          print("HRANA_FLOAT_ARG_GATE=PASS")
+          PY
+          python - <<'PY'
+          from pathlib import Path
+          src = Path("oddshunter-cloud-stage6/cloud_stage6_publish.py").read_text(encoding="utf-8")
+          required = '"official_windows_db_untouched": True,'
+          forbidden = '"official_windows_db_touched": False,'
+          factual = '"official_pc_db_touched": False,'
+          if required not in src:
+              raise RuntimeError("Falta criterio positivo official_windows_db_untouched=True")
+          if forbidden in src:
+              raise RuntimeError("Regresión V1.1: criterio negativo vuelve a participar en all(criteria.values())")
+          if factual not in src:
+              raise RuntimeError("Falta conservar official_pc_db_touched=False en reporte")
+          print("STAGE6_BOOLEAN_GATE=PASS")
+          PY
+          cat oddshunter-cloud-stage6/STAGE6_MANIFEST.json
+          echo "STAGE6_PACKAGE=PASS"
+
+      - name: Gate de secrets Turso
+        id: secrets
+        if: steps.stage6_package.outcome == 'success'
+        continue-on-error: true
+        env:
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "${TURSO_DATABASE_URL:-}"
+          test -n "${TURSO_AUTH_TOKEN:-}"
+          echo "TURSO_SECRETS_PRESENT=YES"
+          echo "TURSO_SECRETS_PRINTED=NO"
+
+      - name: Stage6 preflight Turso READ ONLY
+        id: preflight
+        if: steps.secrets.outcome == 'success'
+        continue-on-error: true
+        working-directory: oddshunter-cloud-stage6
+        env:
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+        run: |
+          set -euo pipefail
+          python cloud_stage6_publish.py --preflight-only
+
+      - name: Instalar runtime Linux + Chromium
+        id: runtime
+        if: steps.preflight.outcome == 'success'
+        continue-on-error: true
+        working-directory: oddshunter-cloud-stage6
+        run: |
+          set -euo pipefail
+          chmod +x install_cloud_linux.sh run_cloud_preflight.sh
+          ./install_cloud_linux.sh
+
+      - name: Stage5 V4 producer del mismo run
+        id: stage5
+        if: steps.runtime.outcome == 'success'
+        continue-on-error: true
+        working-directory: oddshunter-cloud-stage6
+        env:
+          ODDSHUNTER_RUNTIME_MODE: "cloud"
+          ODDSHUNTER_ALLOW_WORK_DB_WRITE: "1"
+          ODDSHUNTER_DISABLE_TRAINING: "1"
+          ODDSHUNTER_BROWSER_HEADLESS: "1"
+          ODDSHUNTER_CHROMIUM_SANDBOX: "0"
+          ODDSHUNTER_FLASHSCORE_MAX_MATCHES_PER_CYCLE: "4"
+        run: |
+          set -euo pipefail
+          source .venv-cloud/bin/activate
+          python cloud_stage5_cycle.py
+
+      - name: Stage6 publish working SQLite a Turso
+        id: stage6
+        if: steps.stage5.outcome == 'success'
+        continue-on-error: true
+        working-directory: oddshunter-cloud-stage6
+        env:
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+          ODDSHUNTER_STAGE6_ALLOW_TURSO_WRITE: "1"
+          ODDSHUNTER_DISABLE_TRAINING: "1"
+        run: |
+          set -euo pipefail
+          source .venv-cloud/bin/activate
+          python cloud_stage6_publish.py
+
+      - name: Resumen Stage6
+        if: always()
+        run: |
+          echo "============================================================"
+          echo "PACKAGES=${{ steps.packages.outcome }}"
+          echo "WORKING_STATE=${{ steps.working_state.outcome }}"
+          echo "STAGE6_PACKAGE=${{ steps.stage6_package.outcome }}"
+          echo "SECRETS=${{ steps.secrets.outcome }}"
+          echo "PREFLIGHT=${{ steps.preflight.outcome }}"
+          echo "RUNTIME=${{ steps.runtime.outcome }}"
+          echo "STAGE5_PRODUCER=${{ steps.stage5.outcome }}"
+          echo "STAGE6_PUBLISHER=${{ steps.stage6.outcome }}"
+          echo "============================================================"
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          root = Path("oddshunter-cloud-stage6/artifacts")
+          s5 = root / "cloud_stage5_cycle.json"
+          s6 = root / "cloud_stage6_publisher.json"
+
+          if s5.exists():
+              d = json.loads(s5.read_text(encoding="utf-8"))
+              print("STAGE5_PASS =", d.get("stage5_pass"))
+              print("STAGE5_SYNC_RESULT_COUNTS =", d.get("sync_result_counts"))
+              print("STAGE5_DB_SHA_AFTER =", d.get("db_sha_after"))
+          else:
+              print("STAGE5_REPORT=NO_REPORT")
+
+          if s6.exists():
+              d = json.loads(s6.read_text(encoding="utf-8"))
+              print("STAGE6_PASS =", d.get("stage6_pass"))
+              print("REMOTE_BEFORE =", d.get("remote_before"))
+              print("CORE_ROWS_PUBLISHED =", d.get("core_rows_published"))
+              print("MOBILE =", d.get("mobile"))
+              print("REMOTE_AFTER =", d.get("remote_after"))
+              print("WORKING_DB_UNCHANGED_BY_PUBLISHER =", (d.get("criteria") or {}).get("working_db_unchanged_by_publisher"))
+              print("NEXT_WORKING_STATE =", d.get("next_working_state"))
+              print("CRITERIA =", d.get("criteria"))
+          else:
+              print("STAGE6_REPORT=NO_REPORT")
+          PY
+
+      - name: Guardar evidencia Stage6
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: oddshunter-cloud-stage6-publisher-v1-2-report
+          path: oddshunter-cloud-stage6/artifacts/
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Gate final Stage6
+        if: always()
+        run: |
+          if [ "${{ steps.packages.outcome }}" != "success" ]; then
+            echo "FINAL=FAIL_STAGE6_PACKAGES"
+            exit 1
+          fi
+          if [ "${{ steps.working_state.outcome }}" != "success" ]; then
+            echo "FINAL=FAIL_STAGE6_WORKING_STATE"
+            exit 1
+          fi
+          if [ "${{ steps.stage6_package.outcome }}" != "success" ]; then
+            echo "FINAL=FAIL_STAGE6_PACKAGE"
+            exit 1
+          fi
+          if [ "${{ steps.secrets.outcome }}" != "success" ]; then
+            echo "FINAL=FAIL_STAGE6_TURSO_SECRETS"
+            exit 1
+          fi
+          if [ "${{ steps.preflight.outcome }}" != "success" ]; then
+            echo "FINAL=FAIL_STAGE6_PREFLIGHT"
+            exit 1
+          fi
+          if [ "${{ steps.runtime.outcome }}" != "success" ]; then
+            echo "FINAL=FAIL_STAGE6_RUNTIME"
+            exit 1
+          fi
+          if [ "${{ steps.stage5.outcome }}" != "success" ]; then
+            echo "FINAL=FAIL_STAGE5_PRODUCER"
+            exit 1
+          fi
+          if [ "${{ steps.stage6.outcome }}" != "success" ]; then
+            echo "FINAL=FAIL_STAGE6_PUBLISHER"
+            exit 1
+          fi
+
+          echo "FINAL=PASS_STAGE6_PUBLISHER"
