@@ -1,0 +1,160 @@
+name: OddsHunter Linux Stage2 + Stage3
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  stage2_stage3:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Descargar repositorio
+        uses: actions/checkout@v6
+
+      - name: Configurar Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Descomprimir paquete Stage2 + Stage3
+        run: |
+          rm -rf oddshunter-cloud-stage23
+          mkdir -p oddshunter-cloud-stage23
+          unzip -q ODDSHUNTER_CLOUD_LINUX_STAGE2_STAGE3.zip -d oddshunter-cloud-stage23
+
+          test -f oddshunter-cloud-stage23/cloud_preflight.py
+          test -f oddshunter-cloud-stage23/cloud_match_discovery.py
+          test -f oddshunter-cloud-stage23/cloud_stage3_certify.py
+          test -f oddshunter-cloud-stage23/futbol24_client.py
+          test -f oddshunter-cloud-stage23/flashscore_xg_client.py
+
+          if [ -f oddshunter-cloud-stage23/data/oddshunter.db ]; then
+            echo "ERROR: oddshunter.db NO debe estar en este paquete"
+            exit 1
+          fi
+
+          echo "PACKAGE=PASS"
+          echo "ODDSHUNTER_DB_INCLUDED=NO"
+
+      - name: Instalar runtime Linux + Chromium
+        working-directory: oddshunter-cloud-stage23
+        run: |
+          chmod +x install_cloud_linux.sh run_cloud_preflight.sh
+          ./install_cloud_linux.sh
+
+      - name: Gate Stage1 V1.1
+        id: stage1
+        continue-on-error: true
+        working-directory: oddshunter-cloud-stage23
+        env:
+          ODDSHUNTER_BROWSER_HEADLESS: "1"
+          ODDSHUNTER_CHROMIUM_SANDBOX: "0"
+        run: |
+          ./run_cloud_preflight.sh
+
+      - name: Stage2 descubrir próximos partidos
+        id: stage2
+        if: steps.stage1.outcome == 'success'
+        continue-on-error: true
+        working-directory: oddshunter-cloud-stage23
+        run: |
+          source .venv-cloud/bin/activate
+          python cloud_match_discovery.py --past-days 8 --future-days 14
+
+      - name: Stage3 certificar varios partidos y ligas
+        id: stage3
+        if: steps.stage1.outcome == 'success' && steps.stage2.outcome == 'success'
+        continue-on-error: true
+        working-directory: oddshunter-cloud-stage23
+        env:
+          ODDSHUNTER_BROWSER_HEADLESS: "1"
+          ODDSHUNTER_CHROMIUM_SANDBOX: "0"
+          ODDSHUNTER_FLASHSCORE_MAX_MATCHES_PER_CYCLE: "4"
+        run: |
+          source .venv-cloud/bin/activate
+          python cloud_stage3_certify.py --past-days 8 --future-days 14
+
+      - name: Resumen completo
+        if: always()
+        run: |
+          echo "============================================================"
+          echo "STAGE1_OUTCOME=${{ steps.stage1.outcome }}"
+          echo "STAGE2_OUTCOME=${{ steps.stage2.outcome }}"
+          echo "STAGE3_OUTCOME=${{ steps.stage3.outcome }}"
+          echo "============================================================"
+
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          root = Path("oddshunter-cloud-stage23/artifacts")
+
+          def load(name):
+              p = root / name
+              if not p.exists():
+                  print(f"{name}: NO_REPORT")
+                  return None
+              return json.loads(p.read_text(encoding="utf-8"))
+
+          s1 = load("cloud_stage1_preflight.json")
+          if s1:
+              snap = ((s1.get("network") or {}).get("futbol24") or {}).get("snapshot") or {}
+              print("STAGE1_STATIC_PASS =", s1.get("static_pass"))
+              print("STAGE1_NETWORK_PASS =", s1.get("network_pass"))
+              print("STAGE1_OVERALL_PASS =", s1.get("overall_pass"))
+              print("STAGE1_FUTBOL24_SCORE =", snap.get("home_goals"), "-", snap.get("away_goals"))
+
+          s2 = load("cloud_stage2_discovery.json")
+          if s2:
+              print("STAGE2_PASS =", s2.get("stage2_pass"))
+              print("STAGE2_UPCOMING =", s2.get("upcoming_count"))
+              print("STAGE2_UPCOMING_COMPETITIONS =", s2.get("upcoming_competitions"))
+              print("STAGE2_FINISHED =", s2.get("finished_count"))
+              print("STAGE2_FINISHED_COMPETITIONS =", s2.get("finished_competitions"))
+              print("STAGE2_CRITERIA =", s2.get("criteria"))
+
+          s3 = load("cloud_stage3_certification.json")
+          if s3:
+              print("STAGE3_PASS =", s3.get("stage3_pass"))
+              print("STAGE3_COUNTS =", s3.get("counts"))
+              print("STAGE3_FLASH_PASS =", (s3.get("flashscore_regression") or {}).get("pass"))
+              print("STAGE3_LIVE_OBSERVATION =", s3.get("live_observation"))
+              print("STAGE3_CRITERIA =", s3.get("criteria"))
+          PY
+
+      - name: Guardar evidencia Stage1 + Stage2 + Stage3
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: oddshunter-cloud-stage2-stage3-report
+          path: oddshunter-cloud-stage23/artifacts/
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Gate final
+        if: always()
+        run: |
+          echo "Stage1=${{ steps.stage1.outcome }}"
+          echo "Stage2=${{ steps.stage2.outcome }}"
+          echo "Stage3=${{ steps.stage3.outcome }}"
+
+          if [ "${{ steps.stage1.outcome }}" != "success" ]; then
+            echo "FINAL=FAIL_STAGE1"
+            exit 1
+          fi
+
+          if [ "${{ steps.stage2.outcome }}" != "success" ]; then
+            echo "FINAL=FAIL_STAGE2"
+            exit 1
+          fi
+
+          if [ "${{ steps.stage3.outcome }}" != "success" ]; then
+            echo "FINAL=FAIL_STAGE3"
+            exit 1
+          fi
+
+          echo "FINAL=PASS_STAGE1_STAGE2_STAGE3"
