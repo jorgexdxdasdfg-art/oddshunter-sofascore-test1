@@ -1,0 +1,421 @@
+name: OddsHunter Linux Stage7 End-to-End V1
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  stage7_end_to_end:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    steps:
+      - name: Descargar repositorio
+        uses: actions/checkout@v6
+
+      - name: Configurar Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Gate de paquetes exactos
+        id: packages
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          test -f ODDSHUNTER_CLOUD_LINUX_STAGE4_STAGE5_V4.zip
+          test -f ODDSHUNTER_CLOUD_STAGE6_PUBLISHER_V1_2.zip
+          test -f ODDSHUNTER_CLOUD_STAGE7_END_TO_END_V1.zip
+
+          test "$(sha256sum ODDSHUNTER_CLOUD_LINUX_STAGE4_STAGE5_V4.zip | awk '{print toupper($1)}')" = "A230D5947A2B02A74505DB72D4E01BE303B990B3DFDD2339BB80F69B70F56C95"
+          test "$(sha256sum ODDSHUNTER_CLOUD_STAGE6_PUBLISHER_V1_2.zip | awk '{print toupper($1)}')" = "9F60DDF611EC85D052C0F7AEB46B7F9C7E18134630141A35B8F2BE900DD2933C"
+          test "$(sha256sum ODDSHUNTER_CLOUD_STAGE7_END_TO_END_V1.zip | awk '{print toupper($1)}')" = "FCCB6A233589C2F3562CF175C60BA45E5A3740568673DF0B41419AE0C0AFFB84"
+
+          echo "V4_PACKAGE_GATE=PASS"
+          echo "STAGE6_PACKAGE_GATE=PASS"
+          echo "STAGE7_PACKAGE_GATE=PASS"
+
+      - name: Descargar working state Stage6 certificado
+        id: download_stage6_base
+        if: steps.packages.outcome == 'success'
+        continue-on-error: true
+        uses: actions/download-artifact@v5
+        with:
+          artifact-ids: 9607438463
+          path: stage7-base
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: 32970390866
+
+      - name: Gate de artifact Stage6
+        id: stage6_base
+        if: steps.download_stage6_base.outcome == 'success'
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          test -f stage7-base/cloud_stage6_publisher.json
+          test -f stage7-base/ODDSHUNTER_CLOUD_WORKING_STATE_STAGE6.zip
+
+          STATE_SHA="$(sha256sum stage7-base/ODDSHUNTER_CLOUD_WORKING_STATE_STAGE6.zip | awk '{print toupper($1)}')"
+          echo "STAGE6_WORKING_STATE_SHA=$STATE_SHA"
+          test "$STATE_SHA" = "CA39C0706D19AEA5B154C59D593EA736C1E2F9A48FCE5837373F910EB7BDCB26"
+
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          p = Path("stage7-base/cloud_stage6_publisher.json")
+          d = json.loads(p.read_text(encoding="utf-8-sig"))
+          if d.get("stage6_pass") is not True:
+              raise RuntimeError("Artifact base no tiene STAGE6_PASS=True")
+          n = d.get("next_working_state") or {}
+          expected = "CA39C0706D19AEA5B154C59D593EA736C1E2F9A48FCE5837373F910EB7BDCB26"
+          if str(n.get("sha256") or "").upper() != expected:
+              raise RuntimeError("SHA del next_working_state no coincide")
+          criteria = d.get("criteria") or {}
+          if not criteria or not all(v is True for v in criteria.values()):
+              raise RuntimeError("Artifact Stage6 no tiene todos sus criterios True")
+          print("SOURCE_STAGE6_RUN_ID=32970390866")
+          print("SOURCE_STAGE6_ARTIFACT_ID=9607438463")
+          print("SOURCE_STAGE6_GATE=PASS")
+          PY
+
+      - name: Descomprimir runtime V4
+        id: runtime_package
+        if: steps.stage6_base.outcome == 'success'
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          rm -rf oddshunter-cloud-stage7
+          mkdir -p oddshunter-cloud-stage7
+          unzip -q ODDSHUNTER_CLOUD_LINUX_STAGE4_STAGE5_V4.zip -d oddshunter-cloud-stage7
+          test -f oddshunter-cloud-stage7/cloud_stage5_cycle.py
+          test -f oddshunter-cloud-stage7/cloud_incremental_result_sync.py
+          echo "RUNTIME_V4=PASS"
+
+      - name: Montar working state Stage6
+        id: working_state
+        if: steps.runtime_package.outcome == 'success'
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path, PurePosixPath
+          import hashlib
+          import json
+          import shutil
+          import zipfile
+
+          src = Path("stage7-base/ODDSHUNTER_CLOUD_WORKING_STATE_STAGE6.zip")
+          dst = Path("oddshunter-cloud-stage7").resolve()
+
+          with zipfile.ZipFile(src, "r") as z:
+              for info in z.infolist():
+                  raw = info.filename.replace("\\", "/")
+                  pp = PurePosixPath(raw)
+                  if pp.is_absolute() or ".." in pp.parts:
+                      raise RuntimeError(f"Ruta insegura: {info.filename!r}")
+                  if not pp.parts:
+                      continue
+                  out = dst.joinpath(*pp.parts).resolve()
+                  if dst != out and dst not in out.parents:
+                      raise RuntimeError(f"Ruta fuera del destino: {info.filename!r}")
+                  if info.is_dir() or raw.endswith("/"):
+                      out.mkdir(parents=True, exist_ok=True)
+                      continue
+                  out.parent.mkdir(parents=True, exist_ok=True)
+                  with z.open(info, "r") as rf, out.open("wb") as wf:
+                      shutil.copyfileobj(rf, wf)
+
+          db = dst / "data" / "oddshunter.db"
+          mf = dst / "CLOUD_WORKING_STATE_MANIFEST.json"
+          if not db.is_file() or not mf.is_file():
+              raise RuntimeError("Working state Stage6 incompleto")
+
+          db_sha = hashlib.sha256(db.read_bytes()).hexdigest().upper()
+          manifest = json.loads(mf.read_text(encoding="utf-8-sig"))
+          expected_db = "960286BA8C6AA399A23948C6C7E9081331F2C1E2DB9FD91C0E130C41090B2058"
+
+          print("STAGE7_BASE_DB_SHA =", db_sha)
+          print("STAGE7_BASE_MANIFEST_SHA =", manifest.get("working_copy_sha"))
+
+          if db_sha != expected_db:
+              raise RuntimeError("DB Stage6 base SHA inesperado")
+          if str(manifest.get("working_copy_sha") or "").upper() != db_sha:
+              raise RuntimeError("Manifest working_copy_sha != DB")
+          if manifest.get("source_stage") != "Stage6":
+              raise RuntimeError("Manifest no proviene de Stage6")
+          if manifest.get("stage6_pass") is not True:
+              raise RuntimeError("Manifest Stage6 no está PASS")
+
+          checks = manifest.get("working_copy_checks") or {}
+          if checks.get("quick_check") != "ok":
+              raise RuntimeError("quick_check base != ok")
+          if int(checks.get("foreign_key_errors") or 0) != 0:
+              raise RuntimeError("FK base != 0")
+
+          print("STAGE7_WORKING_STATE_GATE=PASS")
+          print("OFFICIAL_WINDOWS_DB_PRESENT=NO")
+          PY
+
+      - name: Instalar publisher Stage6 + certifier Stage7
+        id: stage7_package
+        if: steps.working_state.outcome == 'success'
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          unzip -q -o ODDSHUNTER_CLOUD_STAGE6_PUBLISHER_V1_2.zip -d oddshunter-cloud-stage7
+          unzip -q -o ODDSHUNTER_CLOUD_STAGE7_END_TO_END_V1.zip -d oddshunter-cloud-stage7
+
+          test -f oddshunter-cloud-stage7/cloud_stage6_publish.py
+          test -f oddshunter-cloud-stage7/cloud_stage7_certify.py
+          test -f oddshunter-cloud-stage7/STAGE7_MANIFEST.json
+
+          python -m py_compile oddshunter-cloud-stage7/cloud_stage6_publish.py
+          python -m py_compile oddshunter-cloud-stage7/cloud_stage7_certify.py
+          python oddshunter-cloud-stage7/cloud_stage7_certify.py --self-test
+
+          python - <<'PY'
+          import json
+          import sys
+          sys.path.insert(0, "oddshunter-cloud-stage7")
+          import cloud_stage6_publish as m
+          arg = m.encode_arg(2.32)
+          if arg.get("type") != "float":
+              raise RuntimeError(f"Tipo Hrana inesperado: {arg}")
+          if not isinstance(arg.get("value"), (int, float)) or isinstance(arg.get("value"), bool):
+              raise RuntimeError(f"float.value NO es numérico: {arg}")
+          wire = json.dumps({"args": [arg]})
+          if '"value": "2.32"' in wire:
+              raise RuntimeError("Regresión Hrana: float serializado como string")
+          print("HRANA_FLOAT_ARG_GATE=PASS")
+          PY
+
+          python - <<'PY'
+          from pathlib import Path
+          src = Path("oddshunter-cloud-stage7/cloud_stage6_publish.py").read_text(encoding="utf-8")
+          if '"official_windows_db_untouched": True,' not in src:
+              raise RuntimeError("Falta criterio positivo official_windows_db_untouched=True")
+          if '"official_windows_db_touched": False,' in src:
+              raise RuntimeError("Regresión booleana Stage6")
+          if '"official_pc_db_touched": False,' not in src:
+              raise RuntimeError("Falta dato factual official_pc_db_touched=False")
+          print("STAGE6_BOOLEAN_GATE=PASS")
+          PY
+
+          cat oddshunter-cloud-stage7/STAGE7_MANIFEST.json
+          echo "STAGE7_PACKAGE=PASS"
+
+      - name: Gate de secrets Turso
+        id: secrets
+        if: steps.stage7_package.outcome == 'success'
+        continue-on-error: true
+        env:
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "${TURSO_DATABASE_URL:-}"
+          test -n "${TURSO_AUTH_TOKEN:-}"
+          echo "TURSO_SECRETS_PRESENT=YES"
+          echo "TURSO_SECRETS_PRINTED=NO"
+
+      - name: Stage7 preflight Turso READ ONLY
+        id: preflight
+        if: steps.secrets.outcome == 'success'
+        continue-on-error: true
+        working-directory: oddshunter-cloud-stage7
+        env:
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+        run: |
+          set -euo pipefail
+          python cloud_stage6_publish.py --preflight-only
+
+      - name: Instalar runtime Linux + Chromium
+        id: runtime
+        if: steps.preflight.outcome == 'success'
+        continue-on-error: true
+        working-directory: oddshunter-cloud-stage7
+        run: |
+          set -euo pipefail
+          chmod +x install_cloud_linux.sh run_cloud_preflight.sh
+          ./install_cloud_linux.sh
+
+      - name: Stage5 V4 producer end-to-end
+        id: stage5
+        if: steps.runtime.outcome == 'success'
+        continue-on-error: true
+        working-directory: oddshunter-cloud-stage7
+        env:
+          ODDSHUNTER_RUNTIME_MODE: "cloud"
+          ODDSHUNTER_ALLOW_WORK_DB_WRITE: "1"
+          ODDSHUNTER_DISABLE_TRAINING: "1"
+          ODDSHUNTER_BROWSER_HEADLESS: "1"
+          ODDSHUNTER_CHROMIUM_SANDBOX: "0"
+          ODDSHUNTER_FLASHSCORE_MAX_MATCHES_PER_CYCLE: "4"
+        run: |
+          set -euo pipefail
+          source .venv-cloud/bin/activate
+          python cloud_stage5_cycle.py
+
+      - name: Stage6 publisher hacia Turso
+        id: stage6
+        if: steps.stage5.outcome == 'success'
+        continue-on-error: true
+        working-directory: oddshunter-cloud-stage7
+        env:
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+          ODDSHUNTER_STAGE6_ALLOW_TURSO_WRITE: "1"
+          ODDSHUNTER_DISABLE_TRAINING: "1"
+        run: |
+          set -euo pipefail
+          source .venv-cloud/bin/activate
+          python cloud_stage6_publish.py
+
+      - name: Stage7 certificar Vercel + integridad end-to-end
+        id: stage7
+        if: steps.stage6.outcome == 'success'
+        continue-on-error: true
+        working-directory: oddshunter-cloud-stage7
+        env:
+          ODDSHUNTER_MOBILE_BASE_URL: "https://oddshunter-mobile.vercel.app"
+          ODDSHUNTER_DISABLE_TRAINING: "1"
+        run: |
+          set -euo pipefail
+          source .venv-cloud/bin/activate
+          python cloud_stage7_certify.py
+
+      - name: Resumen Stage7
+        if: always()
+        run: |
+          echo "============================================================"
+          echo "PACKAGES=${{ steps.packages.outcome }}"
+          echo "DOWNLOAD_STAGE6_BASE=${{ steps.download_stage6_base.outcome }}"
+          echo "STAGE6_BASE=${{ steps.stage6_base.outcome }}"
+          echo "RUNTIME_PACKAGE=${{ steps.runtime_package.outcome }}"
+          echo "WORKING_STATE=${{ steps.working_state.outcome }}"
+          echo "STAGE7_PACKAGE=${{ steps.stage7_package.outcome }}"
+          echo "SECRETS=${{ steps.secrets.outcome }}"
+          echo "PREFLIGHT=${{ steps.preflight.outcome }}"
+          echo "RUNTIME=${{ steps.runtime.outcome }}"
+          echo "STAGE5=${{ steps.stage5.outcome }}"
+          echo "STAGE6=${{ steps.stage6.outcome }}"
+          echo "STAGE7=${{ steps.stage7.outcome }}"
+          echo "============================================================"
+
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          root = Path("oddshunter-cloud-stage7/artifacts")
+          for filename in (
+              "cloud_stage5_cycle.json",
+              "cloud_stage6_publisher.json",
+              "cloud_stage7_certification.json",
+          ):
+              p = root / filename
+              print("\n---", filename, "---")
+              if not p.exists():
+                  print("NO_REPORT")
+                  continue
+              d = json.loads(p.read_text(encoding="utf-8-sig"))
+              if filename == "cloud_stage5_cycle.json":
+                  print("STAGE5_PASS =", d.get("stage5_pass"))
+                  print("SYNC_RESULT_COUNTS =", d.get("sync_result_counts"))
+                  disc = d.get("discovery") or {}
+                  print("DISCOVERY_UPCOMING =", disc.get("upcoming_count"))
+                  print("DISCOVERY_FINISHED =", disc.get("finished_count"))
+                  print("DB_SHA_AFTER =", d.get("db_sha_after"))
+              elif filename == "cloud_stage6_publisher.json":
+                  print("STAGE6_PASS =", d.get("stage6_pass"))
+                  print("REMOTE_AFTER =", d.get("remote_after"))
+                  print("CORE_ROWS_PUBLISHED =", d.get("core_rows_published"))
+                  print("MOBILE =", d.get("mobile"))
+              else:
+                  print("STAGE7_PASS =", d.get("stage7_pass"))
+                  print("VERCEL_HEALTH =", d.get("vercel_health"))
+                  print("VERCEL_TARGET_PROBES =", d.get("vercel_target_probes"))
+                  print("WORKING_SQLITE =", d.get("working_sqlite"))
+                  print("NEXT_WORKING_STATE =", d.get("next_working_state"))
+                  print("CRITERIA =", d.get("criteria"))
+          PY
+
+      - name: Limpiar working-state intermedio Stage6
+        if: steps.stage7.outcome == 'success'
+        run: |
+          rm -f oddshunter-cloud-stage7/artifacts/ODDSHUNTER_CLOUD_WORKING_STATE_STAGE6.zip
+          echo "INTERMEDIATE_STAGE6_STATE_REMOVED=YES"
+
+      - name: Guardar evidencia Stage7
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: oddshunter-cloud-stage7-end-to-end-v1-report
+          path: oddshunter-cloud-stage7/artifacts/
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Gate final Stage7
+        if: always()
+        run: |
+          if [ "${{ steps.packages.outcome }}" != "success" ]; then
+            echo "FINAL=FAIL_STAGE7_PACKAGES"; exit 1
+          fi
+          if [ "${{ steps.download_stage6_base.outcome }}" != "success" ]; then
+            echo "FINAL=FAIL_STAGE7_BASE_DOWNLOAD"; exit 1
+          fi
+          if [ "${{ steps.stage6_base.outcome }}" != "success" ]; then
+            echo "FINAL=FAIL_STAGE7_BASE_GATE"; exit 1
+          fi
+          if [ "${{ steps.runtime_package.outcome }}" != "success" ]; then
+            echo "FINAL=FAIL_STAGE7_RUNTIME_PACKAGE"; exit 1
+          fi
+          if [ "${{ steps.working_state.outcome }}" != "success" ]; then
+            echo "FINAL=FAIL_STAGE7_WORKING_STATE"; exit 1
+          fi
+          if [ "${{ steps.stage7_package.outcome }}" != "success" ]; then
+            echo "FINAL=FAIL_STAGE7_PACKAGE"; exit 1
+          fi
+          if [ "${{ steps.secrets.outcome }}" != "success" ]; then
+            echo "FINAL=FAIL_STAGE7_TURSO_SECRETS"; exit 1
+          fi
+          if [ "${{ steps.preflight.outcome }}" != "success" ]; then
+            echo "FINAL=FAIL_STAGE7_PREFLIGHT"; exit 1
+          fi
+          if [ "${{ steps.runtime.outcome }}" != "success" ]; then
+            echo "FINAL=FAIL_STAGE7_RUNTIME"; exit 1
+          fi
+          if [ "${{ steps.stage5.outcome }}" != "success" ]; then
+            echo "FINAL=FAIL_STAGE7_STAGE5"; exit 1
+          fi
+          if [ "${{ steps.stage6.outcome }}" != "success" ]; then
+            echo "FINAL=FAIL_STAGE7_STAGE6"; exit 1
+          fi
+          if [ "${{ steps.stage7.outcome }}" != "success" ]; then
+            echo "FINAL=FAIL_STAGE7_CERTIFICATION"; exit 1
+          fi
+
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          p = Path("oddshunter-cloud-stage7/artifacts/cloud_stage7_certification.json")
+          if not p.is_file():
+              raise RuntimeError("Falta cloud_stage7_certification.json")
+          d = json.loads(p.read_text(encoding="utf-8-sig"))
+          if d.get("stage7_pass") is not True:
+              raise RuntimeError("stage7_pass != True")
+          criteria = d.get("criteria") or {}
+          if not criteria or not all(v is True for v in criteria.values()):
+              raise RuntimeError(f"Criterios Stage7 no cerrados: {criteria}")
+          state = d.get("next_working_state") or {}
+          if not state.get("sha256"):
+              raise RuntimeError("Falta next working state Stage7")
+          print("STAGE7_REPORT_GATE=PASS")
+          print("STAGE7_NEXT_WORKING_STATE_SHA =", state.get("sha256"))
+          PY
+
+          echo "FINAL=PASS_STAGE7_END_TO_END"
