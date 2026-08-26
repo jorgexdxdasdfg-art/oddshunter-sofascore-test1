@@ -1,0 +1,108 @@
+name: OddsHunter Linux Stage1 Test
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  stage1:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Descargar repositorio
+        uses: actions/checkout@v6
+
+      - name: Configurar Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Descomprimir OddsHunter Linux Stage1
+        run: |
+          rm -rf oddshunter-linux-stage1
+          mkdir -p oddshunter-linux-stage1
+          unzip -q ODDSHUNTER_CLOUD_LINUX_STAGE1.zip -d oddshunter-linux-stage1
+          echo "FILES=$(find oddshunter-linux-stage1 -type f | wc -l)"
+          test -f oddshunter-linux-stage1/cloud_preflight.py
+          test -f oddshunter-linux-stage1/futbol24_client.py
+          test -f oddshunter-linux-stage1/flashscore_xg_client.py
+          test -f oddshunter-linux-stage1/install_cloud_linux.sh
+          test -f oddshunter-linux-stage1/run_cloud_preflight.sh
+          if [ -f oddshunter-linux-stage1/data/oddshunter.db ]; then
+            echo "ERROR: oddshunter.db no debe estar incluido"
+            exit 1
+          fi
+          echo "ZIP_STAGE1=PASS"
+          echo "ODDSHUNTER_DB_INCLUDED=NO"
+
+      - name: Instalar runtime Linux y Chromium
+        working-directory: oddshunter-linux-stage1
+        run: |
+          chmod +x install_cloud_linux.sh run_cloud_preflight.sh
+          ./install_cloud_linux.sh
+
+      - name: Ejecutar preflight Futbol24 + Flashscore
+        id: preflight
+        continue-on-error: true
+        working-directory: oddshunter-linux-stage1
+        env:
+          ODDSHUNTER_BROWSER_HEADLESS: "1"
+          ODDSHUNTER_CHROMIUM_SANDBOX: "0"
+        run: |
+          ./run_cloud_preflight.sh
+
+      - name: Mostrar resultado completo
+        if: always()
+        run: |
+          echo "PREFLIGHT_STEP_OUTCOME=${{ steps.preflight.outcome }}"
+          echo "============================================================"
+          if [ -f oddshunter-linux-stage1/artifacts/cloud_stage1_preflight.json ]; then
+            cat oddshunter-linux-stage1/artifacts/cloud_stage1_preflight.json
+          else
+            echo "NO SE GENERO cloud_stage1_preflight.json"
+          fi
+          echo "============================================================"
+
+      - name: Resumen corto
+        if: always()
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          p = Path("oddshunter-linux-stage1/artifacts/cloud_stage1_preflight.json")
+          if not p.exists():
+              print("RESULTADO=NO_REPORT")
+              raise SystemExit(0)
+
+          d = json.loads(p.read_text(encoding="utf-8"))
+
+          print("STATIC_PASS =", d.get("static_pass"))
+          print("SOFASCORE_ENABLED =", d.get("source_policy", {}).get("sofascore_enabled"))
+          print("STATUS_SCORE_ORDER =", d.get("source_policy", {}).get("status_score_order"))
+          print("TEAM_METRIC_ORDER =", d.get("source_policy", {}).get("team_metric_order"))
+          print("BROWSER =", d.get("static", {}).get("browser_executable"))
+
+          net = d.get("network", {})
+          f24 = net.get("futbol24", {})
+          flash = net.get("flashscore", {})
+
+          print("FUTBOL24_SNAPSHOT =", bool(f24.get("snapshot")))
+          print("FUTBOL24_XG =", f24.get("xg"))
+          print("FUTBOL24_METRIC_KEYS =", sorted((f24.get("metrics") or {}).keys()))
+
+          print("FLASHSCORE_XG =", flash.get("xg"))
+          print("FLASHSCORE_METRIC_KEYS =", sorted((flash.get("metrics") or {}).keys()))
+          PY
+
+      - name: Guardar evidencia
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: oddshunter-linux-stage1-report
+          path: oddshunter-linux-stage1/artifacts/
+          if-no-files-found: warn
+          retention-days: 7
