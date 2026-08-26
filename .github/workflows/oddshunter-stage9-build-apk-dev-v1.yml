@@ -1,0 +1,316 @@
+name: OddsHunter Stage9 Build APK DEV V1
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build_apk_dev:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Gate paquete Stage9
+        id: package
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          test -f ODDSHUNTER_STAGE9_ANDROID_APK_DEV_V1.zip
+          ACTUAL="$(sha256sum ODDSHUNTER_STAGE9_ANDROID_APK_DEV_V1.zip | awk '{print toupper($1)}')"
+          echo "STAGE9_PACKAGE_SHA=$ACTUAL"
+          test "$ACTUAL" = "4F83B32706E747B3453A581FF12B6AAB71634366E63491ECD49DB1B39302323E"
+
+          rm -rf stage9-android
+          mkdir -p stage9-android
+          python3 -m zipfile -e ODDSHUNTER_STAGE9_ANDROID_APK_DEV_V1.zip stage9-android
+
+          test -f stage9-android/package.json
+          test -f stage9-android/capacitor.config.json
+          test -f stage9-android/scripts/verify-config.mjs
+          test -f stage9-android/www/index.html
+
+          echo "STAGE9_PACKAGE_GATE=PASS"
+
+      - name: Setup Node
+        if: steps.package.outcome == 'success'
+        uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+
+      - name: Setup Java 21
+        if: steps.package.outcome == 'success'
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Verificar configuración APK DEV
+        id: config
+        if: steps.package.outcome == 'success'
+        continue-on-error: true
+        working-directory: stage9-android
+        run: |
+          set -euo pipefail
+          node scripts/verify-config.mjs
+
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          cap = json.loads(Path("capacitor.config.json").read_text())
+          assert cap["server"]["url"] == "https://oddshunter-mobile.vercel.app"
+          assert cap["server"]["cleartext"] is False
+          assert cap["android"]["allowMixedContent"] is False
+          print("STAGE9_HTTPS_ONLY_GATE=PASS")
+          print("STAGE9_GOOGLE_PLAY_GATE=NOT_REQUESTED")
+          print("STAGE9_AAB_GATE=NOT_REQUIRED")
+          PY
+
+      - name: Health real Vercel y Turso
+        id: health
+        if: steps.config.outcome == 'success'
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          mkdir -p stage9-evidence
+
+          curl --fail --silent --show-error --location             --retry 5 --retry-delay 3 --retry-all-errors             --connect-timeout 15 --max-time 45             -H 'Cache-Control: no-cache'             https://oddshunter-mobile.vercel.app/api/health             -o stage9-evidence/vercel-health.json
+
+          curl --fail --silent --show-error --location             --retry 5 --retry-delay 3 --retry-all-errors             --connect-timeout 15 --max-time 45             https://oddshunter-mobile.vercel.app/             -o stage9-evidence/vercel-home.html
+
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          d = json.loads(Path("stage9-evidence/vercel-health.json").read_text())
+          checks = {
+              "ok": d.get("ok") is True,
+              "source_turso": d.get("source") == "turso",
+              "read_only": d.get("read_only") is True,
+              "remote_health": d.get("remote_health") is True,
+              "tables": int(d.get("tables") or 0) >= 32,
+              "analysis_docs": int(d.get("analysis_docs") or 0) > 0,
+              "mobile_events": int(d.get("mobile_events") or 0) > 0,
+          }
+          print("STAGE9_VERCEL_HEALTH =", d)
+          print("STAGE9_VERCEL_CHECKS =", checks)
+          if not all(checks.values()):
+              raise RuntimeError(checks)
+
+          home = Path("stage9-evidence/vercel-home.html")
+          if home.stat().st_size < 500:
+              raise RuntimeError("Vercel home demasiado pequeña")
+          print("STAGE9_VERCEL_HOME=PASS")
+          print("STAGE9_REMOTE_HEALTH_GATE=PASS")
+          PY
+
+      - name: Instalar Capacitor exacto
+        id: npm
+        if: steps.health.outcome == 'success'
+        continue-on-error: true
+        working-directory: stage9-android
+        run: |
+          set -euo pipefail
+          npm install --no-audit --no-fund
+
+          node - <<'NODE'
+          const fs = require("fs");
+          const path = require("path");
+          const pkgs = [
+            "@capacitor/core",
+            "@capacitor/android",
+            "@capacitor/cli",
+          ];
+          for (const p of pkgs) {
+            const file = path.join("node_modules", ...p.split("/"), "package.json");
+            const v = JSON.parse(fs.readFileSync(file, "utf8")).version;
+            console.log(`${p}=${v}`);
+            if (v !== "8.5.0") throw new Error(`${p} version mismatch`);
+          }
+          console.log("STAGE9_CAPACITOR_VERSION_GATE=PASS");
+          NODE
+
+      - name: Crear proyecto Android
+        id: android
+        if: steps.npm.outcome == 'success'
+        continue-on-error: true
+        working-directory: stage9-android
+        run: |
+          set -euo pipefail
+          npx cap add android
+          npx cap sync android
+
+          test -f android/gradlew
+          test -f android/app/src/main/AndroidManifest.xml
+          test -f android/app/src/main/assets/capacitor.config.json
+
+          chmod +x android/gradlew
+
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          p = Path("android/app/src/main/assets/capacitor.config.json")
+          d = json.loads(p.read_text())
+          assert d["appId"] == "com.oddshunter.mobile"
+          assert d["appName"] == "OddsHunter"
+          assert d["server"]["url"] == "https://oddshunter-mobile.vercel.app"
+          assert d["server"]["cleartext"] is False
+
+          manifest = Path("android/app/src/main/AndroidManifest.xml").read_text()
+          if "android.permission.INTERNET" not in manifest:
+              raise RuntimeError("AndroidManifest sin INTERNET")
+          print("STAGE9_ANDROID_CONFIG_GATE=PASS")
+          PY
+
+      - name: Construir OddsHunter APK
+        id: build
+        if: steps.android.outcome == 'success'
+        continue-on-error: true
+        working-directory: stage9-android/android
+        run: |
+          set -euo pipefail
+          ./gradlew --no-daemon --stacktrace assembleDebug
+
+          APK="app/build/outputs/apk/debug/app-debug.apk"
+          test -s "$APK"
+
+          mkdir -p ../../stage9-output
+          cp "$APK" ../../stage9-output/OddsHunter-DEV.apk
+
+          SHA="$(sha256sum ../../stage9-output/OddsHunter-DEV.apk | awk '{print toupper($1)}')"
+          SIZE="$(stat -c%s ../../stage9-output/OddsHunter-DEV.apk)"
+
+          echo "STAGE9_APK_SHA256=$SHA"
+          echo "STAGE9_APK_BYTES=$SIZE"
+          echo "STAGE9_APK_BUILD=PASS"
+
+      - name: Verificar firma e identidad APK
+        id: apkverify
+        if: steps.build.outcome == 'success'
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          APK="stage9-output/OddsHunter-DEV.apk"
+          test -s "$APK"
+
+          APKSIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
+          test -x "$APKSIGNER"
+          "$APKSIGNER" verify --verbose --print-certs "$APK"             | tee stage9-output/apksigner.txt
+
+          AAPT="$(find "$ANDROID_HOME/build-tools" -type f -name aapt | sort -V | tail -n 1)"
+          test -x "$AAPT"
+          "$AAPT" dump badging "$APK"             | tee stage9-output/aapt-badging.txt
+
+          grep -F "package: name='com.oddshunter.mobile'" stage9-output/aapt-badging.txt >/dev/null
+          grep -F "application-label:'OddsHunter'" stage9-output/aapt-badging.txt >/dev/null
+
+          echo "STAGE9_APK_SIGNATURE=PASS"
+          echo "STAGE9_APK_IDENTITY=PASS"
+
+      - name: Crear reporte Stage9
+        if: always()
+        run: |
+          mkdir -p stage9-output
+          python3 - <<'PY'
+          import hashlib
+          import json
+          from pathlib import Path
+
+          apk = Path("stage9-output/OddsHunter-DEV.apk")
+          health_path = Path("stage9-evidence/vercel-health.json")
+
+          report = {
+              "stage": "Stage9",
+              "mode": "development_apk_only",
+              "google_play": False,
+              "aab_required": False,
+              "app_name": "OddsHunter",
+              "app_id": "com.oddshunter.mobile",
+              "frontend_url": "https://oddshunter-mobile.vercel.app",
+              "capacitor_version": "8.5.0",
+              "step_outcomes": {
+                  "package": "${{ steps.package.outcome }}",
+                  "config": "${{ steps.config.outcome }}",
+                  "health": "${{ steps.health.outcome }}",
+                  "npm": "${{ steps.npm.outcome }}",
+                  "android": "${{ steps.android.outcome }}",
+                  "build": "${{ steps.build.outcome }}",
+                  "apkverify": "${{ steps.apkverify.outcome }}",
+              },
+              "apk": None,
+              "vercel_health": None,
+          }
+
+          if apk.is_file():
+              report["apk"] = {
+                  "filename": apk.name,
+                  "sha256": hashlib.sha256(apk.read_bytes()).hexdigest().upper(),
+                  "bytes": apk.stat().st_size,
+              }
+
+          if health_path.is_file():
+              try:
+                  report["vercel_health"] = json.loads(health_path.read_text())
+              except Exception:
+                  pass
+
+          report["stage9_pass"] = (
+              report["apk"] is not None
+              and all(v == "success" for v in report["step_outcomes"].values())
+          )
+
+          Path("stage9-output/cloud_stage9_apk_dev.json").write_text(
+              json.dumps(report, indent=2) + "\n"
+          )
+          print(json.dumps(report, indent=2))
+          PY
+
+      - name: Subir APK DEV
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: OddsHunter-Android-DEV-APK
+          path: |
+            stage9-output/OddsHunter-DEV.apk
+            stage9-output/cloud_stage9_apk_dev.json
+            stage9-output/apksigner.txt
+            stage9-output/aapt-badging.txt
+            stage9-evidence/vercel-health.json
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Gate final Stage9 APK DEV
+        if: always()
+        run: |
+          if [ "${{ steps.package.outcome }}" != "success" ]; then echo "FINAL=FAIL_STAGE9_PACKAGE"; exit 1; fi
+          if [ "${{ steps.config.outcome }}" != "success" ]; then echo "FINAL=FAIL_STAGE9_CONFIG"; exit 1; fi
+          if [ "${{ steps.health.outcome }}" != "success" ]; then echo "FINAL=FAIL_STAGE9_REMOTE_HEALTH"; exit 1; fi
+          if [ "${{ steps.npm.outcome }}" != "success" ]; then echo "FINAL=FAIL_STAGE9_NPM"; exit 1; fi
+          if [ "${{ steps.android.outcome }}" != "success" ]; then echo "FINAL=FAIL_STAGE9_ANDROID"; exit 1; fi
+          if [ "${{ steps.build.outcome }}" != "success" ]; then echo "FINAL=FAIL_STAGE9_BUILD"; exit 1; fi
+          if [ "${{ steps.apkverify.outcome }}" != "success" ]; then echo "FINAL=FAIL_STAGE9_APK_VERIFY"; exit 1; fi
+
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          p = Path("stage9-output/cloud_stage9_apk_dev.json")
+          if not p.is_file():
+              raise RuntimeError("Falta reporte Stage9")
+          d = json.loads(p.read_text())
+          if d.get("stage9_pass") is not True:
+              raise RuntimeError(d)
+          apk = d.get("apk") or {}
+          if not apk.get("sha256") or int(apk.get("bytes") or 0) <= 0:
+              raise RuntimeError("APK inválida en reporte")
+          print("STAGE9_REPORT_GATE=PASS")
+          print("STAGE9_APK_SHA256 =", apk["sha256"])
+          print("STAGE9_APK_BYTES =", apk["bytes"])
+          PY
+
+          echo "FINAL=PASS_STAGE9_APK_DEV"
