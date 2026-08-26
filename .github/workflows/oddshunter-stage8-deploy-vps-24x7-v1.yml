@@ -1,0 +1,362 @@
+name: OddsHunter Stage8 Deploy VPS 24x7 V1
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  deploy_stage8:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Configurar Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Gate paquetes Stage8
+        id: packages
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          test -f ODDSHUNTER_CLOUD_LINUX_STAGE4_STAGE5_V4.zip
+          test -f ODDSHUNTER_CLOUD_STAGE6_PUBLISHER_V1_2.zip
+          test -f ODDSHUNTER_CLOUD_STAGE8_VPS_24X7_V1.zip
+
+          test "$(sha256sum ODDSHUNTER_CLOUD_LINUX_STAGE4_STAGE5_V4.zip | awk '{print toupper($1)}')" = "A230D5947A2B02A74505DB72D4E01BE303B990B3DFDD2339BB80F69B70F56C95"
+          test "$(sha256sum ODDSHUNTER_CLOUD_STAGE6_PUBLISHER_V1_2.zip | awk '{print toupper($1)}')" = "9F60DDF611EC85D052C0F7AEB46B7F9C7E18134630141A35B8F2BE900DD2933C"
+          test "$(sha256sum ODDSHUNTER_CLOUD_STAGE8_VPS_24X7_V1.zip | awk '{print toupper($1)}')" = "6345A02FEA6D1EA429754514557371081E450210A2F613DB1518F3FAE6C51188"
+
+          rm -rf stage8-package
+          mkdir -p stage8-package
+          unzip -q ODDSHUNTER_CLOUD_STAGE8_VPS_24X7_V1.zip -d stage8-package
+          python -m py_compile stage8-package/stage8_daemon.py stage8-package/stage8_health.py
+          bash -n stage8-package/stage8_install.sh
+          python stage8-package/stage8_daemon.py --self-test
+          python stage8-package/stage8_health.py --self-test
+          echo "STAGE8_PACKAGE_GATE=PASS"
+
+      - name: Descargar working state Stage7 certificado
+        id: download_stage7
+        if: steps.packages.outcome == 'success'
+        continue-on-error: true
+        uses: actions/download-artifact@v5
+        with:
+          artifact-ids: 9607872792
+          path: stage8-base
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: 32971592299
+
+      - name: Gate base Stage7
+        id: stage7_base
+        if: steps.download_stage7.outcome == 'success'
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          test -f stage8-base/cloud_stage7_certification.json
+          test -f stage8-base/ODDSHUNTER_CLOUD_WORKING_STATE_STAGE7.zip
+
+          STATE_SHA="$(sha256sum stage8-base/ODDSHUNTER_CLOUD_WORKING_STATE_STAGE7.zip | awk '{print toupper($1)}')"
+          echo "STAGE7_WORKING_STATE_SHA=$STATE_SHA"
+          test "$STATE_SHA" = "64546C16BA9676CE0243D2560EEE3193272451D6246D7712BD58CAF886C8CA26"
+
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          d = json.loads(Path("stage8-base/cloud_stage7_certification.json").read_text(encoding="utf-8-sig"))
+          if d.get("stage7_pass") is not True:
+              raise RuntimeError("Stage7 source no está PASS")
+          criteria = d.get("criteria") or {}
+          if not criteria or not all(v is True for v in criteria.values()):
+              raise RuntimeError("Stage7 source tiene criterios no True")
+          state = d.get("next_working_state") or {}
+          expected = "64546C16BA9676CE0243D2560EEE3193272451D6246D7712BD58CAF886C8CA26"
+          if str(state.get("sha256") or "").upper() != expected:
+              raise RuntimeError("Stage7 next working state SHA mismatch")
+          print("SOURCE_STAGE7_RUN_ID=32971592299")
+          print("SOURCE_STAGE7_ARTIFACT_ID=9607872792")
+          print("SOURCE_STAGE7_GATE=PASS")
+          PY
+
+      - name: Gate secrets VPS + Turso
+        id: secrets
+        if: steps.stage7_base.outcome == 'success'
+        continue-on-error: true
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+          VPS_SSH_PRIVATE_KEY: ${{ secrets.VPS_SSH_PRIVATE_KEY }}
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "${VPS_HOST:-}"
+          test -n "${VPS_USER:-}"
+          test -n "${VPS_SSH_PRIVATE_KEY:-}"
+          test -n "${TURSO_DATABASE_URL:-}"
+          test -n "${TURSO_AUTH_TOKEN:-}"
+          echo "STAGE8_SECRETS_PRESENT=YES"
+          echo "STAGE8_SECRETS_PRINTED=NO"
+
+      - name: Preparar SSH
+        id: ssh
+        if: steps.secrets.outcome == 'success'
+        continue-on-error: true
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_SSH_PRIVATE_KEY: ${{ secrets.VPS_SSH_PRIVATE_KEY }}
+          VPS_PORT_SECRET: ${{ secrets.VPS_PORT }}
+        run: |
+          set -euo pipefail
+          PORT="${VPS_PORT_SECRET:-22}"
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "$VPS_SSH_PRIVATE_KEY" > ~/.ssh/oddshunter_stage8
+          chmod 600 ~/.ssh/oddshunter_stage8
+          ssh-keygen -y -f ~/.ssh/oddshunter_stage8 >/dev/null
+          ssh-keyscan -p "$PORT" -H "$VPS_HOST" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+          echo "VPS_PORT=$PORT" >> "$GITHUB_ENV"
+          echo "STAGE8_SSH_KEY_GATE=PASS"
+
+      - name: VPS preflight READ ONLY
+        id: vps_preflight
+        if: steps.ssh.outcome == 'success'
+        continue-on-error: true
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+        run: |
+          set -euo pipefail
+          SSH=(ssh -i ~/.ssh/oddshunter_stage8 -p "$VPS_PORT" -o BatchMode=yes -o StrictHostKeyChecking=yes "$VPS_USER@$VPS_HOST")
+
+          "${SSH[@]}" 'set -euo pipefail
+            source /etc/os-release
+            test "${ID:-}" = "ubuntu"
+            test "${VERSION_ID:-}" = "24.04"
+            test "$(uname -m)" = "x86_64"
+            test "$(nproc)" -ge 2
+            test "$(awk "/MemTotal/ {print \$2}" /proc/meminfo)" -ge 3500000
+            if [ "$(id -u)" -ne 0 ]; then sudo -n true; fi
+            command -v systemctl >/dev/null
+            echo "STAGE8_REMOTE_PREFLIGHT=PASS"'
+
+      - name: Preparar bundle de deploy
+        id: bundle
+        if: steps.vps_preflight.outcome == 'success'
+        continue-on-error: true
+        env:
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+        run: |
+          set -euo pipefail
+          rm -rf stage8-deploy
+          mkdir -p stage8-deploy
+
+          cp ODDSHUNTER_CLOUD_LINUX_STAGE4_STAGE5_V4.zip stage8-deploy/
+          cp ODDSHUNTER_CLOUD_STAGE6_PUBLISHER_V1_2.zip stage8-deploy/
+          cp ODDSHUNTER_CLOUD_STAGE8_VPS_24X7_V1.zip stage8-deploy/
+          cp stage8-base/ODDSHUNTER_CLOUD_WORKING_STATE_STAGE7.zip stage8-deploy/
+
+          umask 077
+          {
+            printf 'TURSO_DATABASE_URL=%q\n' "$TURSO_DATABASE_URL"
+            printf 'TURSO_AUTH_TOKEN=%q\n' "$TURSO_AUTH_TOKEN"
+            printf 'ODDSHUNTER_MOBILE_BASE_URL=%q\n' "https://oddshunter-mobile.vercel.app"
+            printf 'ODDSHUNTER_RUNTIME_MODE=%q\n' "cloud"
+            printf 'ODDSHUNTER_ALLOW_WORK_DB_WRITE=%q\n' "1"
+            printf 'ODDSHUNTER_DISABLE_TRAINING=%q\n' "1"
+            printf 'ODDSHUNTER_BROWSER_HEADLESS=%q\n' "1"
+            printf 'ODDSHUNTER_CHROMIUM_SANDBOX=%q\n' "0"
+            printf 'ODDSHUNTER_FLASHSCORE_MAX_MATCHES_PER_CYCLE=%q\n' "4"
+            printf 'ODDSHUNTER_CYCLE_INTERVAL_SECONDS=%q\n' "900"
+            printf 'ODDSHUNTER_FAILURE_RETRY_SECONDS=%q\n' "120"
+            printf 'ODDSHUNTER_STATE_ROOT=%q\n' "/var/lib/oddshunter"
+            printf 'PLAYWRIGHT_BROWSERS_PATH=%q\n' "/opt/oddshunter/ms-playwright"
+            printf 'HOME=%q\n' "/var/lib/oddshunter"
+          } > stage8-deploy/oddshunter.env
+          chmod 600 stage8-deploy/oddshunter.env
+
+          echo "STAGE8_DEPLOY_BUNDLE=PASS"
+
+      - name: Copiar bundle al VPS
+        id: copy
+        if: steps.bundle.outcome == 'success'
+        continue-on-error: true
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+        run: |
+          set -euo pipefail
+          REMOTE_DIR="/tmp/oddshunter-stage8-${GITHUB_RUN_ID}"
+          echo "REMOTE_DIR=$REMOTE_DIR" >> "$GITHUB_ENV"
+          SSH=(ssh -i ~/.ssh/oddshunter_stage8 -p "$VPS_PORT" -o BatchMode=yes -o StrictHostKeyChecking=yes "$VPS_USER@$VPS_HOST")
+          SCP=(scp -i ~/.ssh/oddshunter_stage8 -P "$VPS_PORT" -o BatchMode=yes -o StrictHostKeyChecking=yes)
+
+          "${SSH[@]}" "rm -rf '$REMOTE_DIR' && mkdir -p '$REMOTE_DIR'"
+          "${SCP[@]}" stage8-deploy/* "$VPS_USER@$VPS_HOST:$REMOTE_DIR/"
+          echo "STAGE8_COPY_TO_VPS=PASS"
+
+      - name: Instalar Stage8 en VPS
+        id: install
+        if: steps.copy.outcome == 'success'
+        continue-on-error: true
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+        run: |
+          set -euo pipefail
+          mkdir -p stage8-artifacts
+          SSH=(ssh -i ~/.ssh/oddshunter_stage8 -p "$VPS_PORT" -o BatchMode=yes -o StrictHostKeyChecking=yes "$VPS_USER@$VPS_HOST")
+
+          set -o pipefail
+          "${SSH[@]}" "set -euo pipefail
+            cd '$REMOTE_DIR'
+            rm -rf stage8-package
+            mkdir -p stage8-package
+            unzip -q ODDSHUNTER_CLOUD_STAGE8_VPS_24X7_V1.zip -d stage8-package
+            if [ \"\$(id -u)\" -eq 0 ]; then
+              bash stage8-package/stage8_install.sh --bundle-root '$REMOTE_DIR'
+            else
+              sudo -n bash stage8-package/stage8_install.sh --bundle-root '$REMOTE_DIR'
+            fi" | tee stage8-artifacts/stage8_install.log
+
+      - name: Certificar primer ciclo real 24x7
+        id: certify
+        if: steps.install.outcome == 'success'
+        continue-on-error: true
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+        run: |
+          set -euo pipefail
+          mkdir -p stage8-artifacts
+          SSH=(ssh -i ~/.ssh/oddshunter_stage8 -p "$VPS_PORT" -o BatchMode=yes -o StrictHostKeyChecking=yes "$VPS_USER@$VPS_HOST")
+          SCP=(scp -i ~/.ssh/oddshunter_stage8 -P "$VPS_PORT" -o BatchMode=yes -o StrictHostKeyChecking=yes)
+
+          "${SSH[@]}" "set -euo pipefail
+            if [ \"\$(id -u)\" -eq 0 ]; then SUDO=''; else SUDO='sudo -n'; fi
+            \$SUDO /usr/local/bin/oddshunter-stage8-health --wait-seconds 1800 --poll-seconds 15 --json > '$REMOTE_DIR/stage8_health.json'
+            \$SUDO systemctl is-active oddshunter.service
+            \$SUDO systemctl is-enabled oddshunter.service
+            test \"\$(\$SUDO systemctl show oddshunter.service -p Restart --value)\" = \"always\"
+            \$SUDO journalctl -u oddshunter.service -n 500 --no-pager > '$REMOTE_DIR/oddshunter_journal.log'
+            echo STAGE8_REMOTE_CERTIFICATION=PASS"
+
+          "${SCP[@]}" "$VPS_USER@$VPS_HOST:$REMOTE_DIR/stage8_health.json" stage8-artifacts/
+          "${SCP[@]}" "$VPS_USER@$VPS_HOST:$REMOTE_DIR/oddshunter_journal.log" stage8-artifacts/
+
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          p = Path("stage8-artifacts/stage8_health.json")
+          d = json.loads(p.read_text(encoding="utf-8-sig"))
+          if d.get("stage8_pass") is not True:
+              raise RuntimeError(f"stage8_pass != True: {d.get('criteria')}")
+          c = d.get("criteria") or {}
+          if not c or not all(v is True for v in c.values()):
+              raise RuntimeError(f"Criterios Stage8 incompletos: {c}")
+          print("STAGE8_PASS = True")
+          print("STAGE8_CRITERIA_GATE=PASS")
+          PY
+
+      - name: Crear reporte deploy Stage8
+        if: always()
+        run: |
+          mkdir -p stage8-artifacts
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          health_path = Path("stage8-artifacts/stage8_health.json")
+          health = {}
+          if health_path.is_file():
+              try:
+                  health = json.loads(health_path.read_text(encoding="utf-8-sig"))
+              except Exception as exc:
+                  health = {"parse_error": f"{type(exc).__name__}: {exc}"}
+
+          report = {
+              "stage": "Stage8",
+              "source_stage7_run_id": 32971592299,
+              "source_stage7_artifact_id": 9607872792,
+              "source_stage7_working_state_sha256":
+                  "64546C16BA9676CE0243D2560EEE3193272451D6246D7712BD58CAF886C8CA26",
+              "stage8_package_sha256": "6345A02FEA6D1EA429754514557371081E450210A2F613DB1518F3FAE6C51188",
+              "workflow_run_id": "${{ github.run_id }}",
+              "step_outcomes": {
+                  "packages": "${{ steps.packages.outcome }}",
+                  "download_stage7": "${{ steps.download_stage7.outcome }}",
+                  "stage7_base": "${{ steps.stage7_base.outcome }}",
+                  "secrets": "${{ steps.secrets.outcome }}",
+                  "ssh": "${{ steps.ssh.outcome }}",
+                  "vps_preflight": "${{ steps.vps_preflight.outcome }}",
+                  "bundle": "${{ steps.bundle.outcome }}",
+                  "copy": "${{ steps.copy.outcome }}",
+                  "install": "${{ steps.install.outcome }}",
+                  "certify": "${{ steps.certify.outcome }}",
+              },
+              "health": health,
+              "stage8_pass": health.get("stage8_pass") is True,
+          }
+          Path("stage8-artifacts/cloud_stage8_deployment.json").write_text(
+              json.dumps(report, ensure_ascii=False, indent=2) + "\n",
+              encoding="utf-8",
+          )
+          PY
+
+      - name: Subir evidencia Stage8
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: oddshunter-cloud-stage8-vps-24x7-v1-report
+          path: stage8-artifacts/
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Limpiar archivos temporales remotos
+        if: always() && steps.ssh.outcome == 'success'
+        continue-on-error: true
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+        run: |
+          if [ -n "${REMOTE_DIR:-}" ]; then
+            ssh -i ~/.ssh/oddshunter_stage8 -p "$VPS_PORT" -o BatchMode=yes -o StrictHostKeyChecking=yes               "$VPS_USER@$VPS_HOST" "rm -rf '$REMOTE_DIR'" || true
+          fi
+
+      - name: Gate final Stage8
+        if: always()
+        run: |
+          if [ "${{ steps.packages.outcome }}" != "success" ]; then echo "FINAL=FAIL_STAGE8_PACKAGES"; exit 1; fi
+          if [ "${{ steps.download_stage7.outcome }}" != "success" ]; then echo "FINAL=FAIL_STAGE8_STAGE7_DOWNLOAD"; exit 1; fi
+          if [ "${{ steps.stage7_base.outcome }}" != "success" ]; then echo "FINAL=FAIL_STAGE8_STAGE7_BASE"; exit 1; fi
+          if [ "${{ steps.secrets.outcome }}" != "success" ]; then echo "FINAL=FAIL_STAGE8_SECRETS"; exit 1; fi
+          if [ "${{ steps.ssh.outcome }}" != "success" ]; then echo "FINAL=FAIL_STAGE8_SSH"; exit 1; fi
+          if [ "${{ steps.vps_preflight.outcome }}" != "success" ]; then echo "FINAL=FAIL_STAGE8_VPS_PREFLIGHT"; exit 1; fi
+          if [ "${{ steps.bundle.outcome }}" != "success" ]; then echo "FINAL=FAIL_STAGE8_BUNDLE"; exit 1; fi
+          if [ "${{ steps.copy.outcome }}" != "success" ]; then echo "FINAL=FAIL_STAGE8_COPY"; exit 1; fi
+          if [ "${{ steps.install.outcome }}" != "success" ]; then echo "FINAL=FAIL_STAGE8_INSTALL"; exit 1; fi
+          if [ "${{ steps.certify.outcome }}" != "success" ]; then echo "FINAL=FAIL_STAGE8_CERTIFICATION"; exit 1; fi
+
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          d = json.loads(Path("stage8-artifacts/cloud_stage8_deployment.json").read_text(encoding="utf-8-sig"))
+          if d.get("stage8_pass") is not True:
+              raise RuntimeError("cloud_stage8_deployment stage8_pass != True")
+          h = d.get("health") or {}
+          c = h.get("criteria") or {}
+          if not c or not all(v is True for v in c.values()):
+              raise RuntimeError(f"Criterios Stage8 no cerrados: {c}")
+          print("STAGE8_REPORT_GATE=PASS")
+          PY
+
+          echo "FINAL=PASS_STAGE8_VPS_24X7"
