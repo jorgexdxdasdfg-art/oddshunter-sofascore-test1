@@ -1,0 +1,140 @@
+name: OddsHunter Linux Stage4 + Stage5
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  stage4_stage5:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Descargar repositorio
+        uses: actions/checkout@v6
+
+      - name: Configurar Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Descomprimir runtime Stage4 + Stage5
+        run: |
+          rm -rf oddshunter-cloud-stage45
+          mkdir -p oddshunter-cloud-stage45
+          unzip -q ODDSHUNTER_CLOUD_LINUX_STAGE4_STAGE5.zip -d oddshunter-cloud-stage45
+          test -f oddshunter-cloud-stage45/cloud_stage4_db_certify.py
+          test -f oddshunter-cloud-stage45/cloud_stage5_cycle.py
+          echo "RUNTIME_PACKAGE=PASS"
+
+      - name: Montar SOLO copia cloud del estado OddsHunter
+        run: |
+          test -f ODDSHUNTER_CLOUD_WORKING_STATE.zip
+          unzip -qo ODDSHUNTER_CLOUD_WORKING_STATE.zip -d oddshunter-cloud-stage45
+          test -f oddshunter-cloud-stage45/data/oddshunter.db
+          test -f oddshunter-cloud-stage45/CLOUD_WORKING_STATE_MANIFEST.json
+          echo "WORKING_DB_COPY=PASS"
+          echo "OFFICIAL_WINDOWS_DB_PRESENT=NO"
+
+      - name: Mostrar manifiesto de copia
+        run: |
+          cat oddshunter-cloud-stage45/CLOUD_WORKING_STATE_MANIFEST.json
+
+      - name: Instalar runtime Linux + Chromium
+        working-directory: oddshunter-cloud-stage45
+        run: |
+          chmod +x install_cloud_linux.sh run_cloud_preflight.sh
+          ./install_cloud_linux.sh
+
+      - name: Stage4 - SQLite cloud + motor OddsHunter
+        id: stage4
+        continue-on-error: true
+        working-directory: oddshunter-cloud-stage45
+        env:
+          ODDSHUNTER_RUNTIME_MODE: "cloud"
+          ODDSHUNTER_DISABLE_TRAINING: "1"
+          ODDSHUNTER_BROWSER_HEADLESS: "1"
+          ODDSHUNTER_CHROMIUM_SANDBOX: "0"
+        run: |
+          source .venv-cloud/bin/activate
+          python cloud_stage4_db_certify.py
+
+      - name: Stage5 - ciclo cloud real sobre working DB
+        id: stage5
+        if: steps.stage4.outcome == 'success'
+        continue-on-error: true
+        working-directory: oddshunter-cloud-stage45
+        env:
+          ODDSHUNTER_RUNTIME_MODE: "cloud"
+          ODDSHUNTER_ALLOW_WORK_DB_WRITE: "1"
+          ODDSHUNTER_DISABLE_TRAINING: "1"
+          ODDSHUNTER_BROWSER_HEADLESS: "1"
+          ODDSHUNTER_CHROMIUM_SANDBOX: "0"
+          ODDSHUNTER_FLASHSCORE_MAX_MATCHES_PER_CYCLE: "4"
+        run: |
+          source .venv-cloud/bin/activate
+          python cloud_stage5_cycle.py
+
+      - name: Resumen
+        if: always()
+        run: |
+          echo "============================================================"
+          echo "STAGE4_OUTCOME=${{ steps.stage4.outcome }}"
+          echo "STAGE5_OUTCOME=${{ steps.stage5.outcome }}"
+          echo "============================================================"
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          root=Path("oddshunter-cloud-stage45/artifacts")
+          for name in ("cloud_stage4_db_certification.json","cloud_stage5_cycle.json"):
+              p=root/name
+              print("\n---",name,"---")
+              if not p.exists():
+                  print("NO_REPORT")
+                  continue
+              d=json.loads(p.read_text(encoding="utf-8"))
+              if "stage4_pass" in d:
+                  print("STAGE4_PASS =",d.get("stage4_pass"))
+                  print("DB_BEFORE =",d.get("db_before"))
+                  print("DB_AFTER =",d.get("db_after"))
+                  print("ACTIVE_LEAGUES_PRESENT =",d.get("registry_active_leagues_present_in_db"))
+                  print("PROBES =",[(x.get("competition_key"),x.get("analysis_status"),x.get("shots_returncode")) for x in d.get("probes",[])])
+                  print("CRITERIA =",d.get("criteria"))
+              if "stage5_pass" in d:
+                  print("STAGE5_PASS =",d.get("stage5_pass"))
+                  print("SEED_COMPETITIONS =",d.get("seed_competitions"))
+                  disc=d.get("discovery") or {}
+                  print("DISCOVERY_UPCOMING =",disc.get("upcoming_count"))
+                  print("DISCOVERY_FINISHED =",disc.get("finished_count"))
+                  print("RESULT_SYNC =",[(x.get("competition_key"),x.get("event_id"),x.get("returncode")) for x in d.get("result_sync",[])])
+                  print("ANALYSIS =",[(x.get("competition_key"),x.get("analysis_status"),x.get("shots_returncode")) for x in d.get("analysis",[])])
+                  print("DB_BEFORE =",d.get("db_before"))
+                  print("DB_AFTER =",d.get("db_after"))
+                  print("CRITERIA =",d.get("criteria"))
+          PY
+
+      - name: Guardar evidencia
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: oddshunter-cloud-stage4-stage5-report
+          path: oddshunter-cloud-stage45/artifacts/
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Gate final
+        if: always()
+        run: |
+          echo "Stage4=${{ steps.stage4.outcome }}"
+          echo "Stage5=${{ steps.stage5.outcome }}"
+          if [ "${{ steps.stage4.outcome }}" != "success" ]; then
+            echo "FINAL=FAIL_STAGE4"
+            exit 1
+          fi
+          if [ "${{ steps.stage5.outcome }}" != "success" ]; then
+            echo "FINAL=FAIL_STAGE5"
+            exit 1
+          fi
+          echo "FINAL=PASS_STAGE4_STAGE5"
