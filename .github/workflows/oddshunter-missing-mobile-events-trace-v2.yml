@@ -1,0 +1,346 @@
+name: OddsHunter Missing Mobile Events TRACE V2
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  trace_v2:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Preparar SSH
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_SSH_PRIVATE_KEY: ${{ secrets.VPS_SSH_PRIVATE_KEY }}
+          VPS_PORT_SECRET: ${{ secrets.VPS_PORT }}
+        run: |
+          set -euo pipefail
+          test -n "${VPS_HOST:-}"
+          test -n "${VPS_SSH_PRIVATE_KEY:-}"
+
+          PORT="${VPS_PORT_SECRET:-22}"
+          echo "VPS_PORT=$PORT" >> "$GITHUB_ENV"
+
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "$VPS_SSH_PRIVATE_KEY" > ~/.ssh/oddshunter_trace_v2
+          chmod 600 ~/.ssh/oddshunter_trace_v2
+          ssh-keygen -y -f ~/.ssh/oddshunter_trace_v2 >/dev/null
+          ssh-keyscan -p "$PORT" -H "$VPS_HOST" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+
+          echo "SSH_PREP=PASS"
+
+      - name: Auditar targets con permisos correctos y exportar runtime
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+        run: |
+          set -euo pipefail
+          test -n "${VPS_USER:-}"
+          mkdir -p trace_v2_output
+
+          ssh \
+            -i ~/.ssh/oddshunter_trace_v2 \
+            -p "$VPS_PORT" \
+            -o BatchMode=yes \
+            -o StrictHostKeyChecking=yes \
+            "$VPS_USER@$VPS_HOST" 'bash -s' <<'REMOTE' | tee trace_v2_output/TARGET_PRESENCE_V2.txt
+          set -euo pipefail
+
+          if [ "$(id -u)" -eq 0 ]; then
+            SUDO=""
+          else
+            SUDO="sudo -n"
+          fi
+
+          CURRENT_DIR="$(readlink -f /opt/oddshunter/current)"
+          DB="$CURRENT_DIR/data/oddshunter.db"
+          PY="$CURRENT_DIR/.venv-cloud/bin/python"
+
+          echo "================================================================"
+          echo "ODDSHUNTER MISSING MOBILE EVENTS TRACE V2"
+          echo "================================================================"
+          echo "CURRENT_DIR=$CURRENT_DIR"
+          echo "DB=$DB"
+
+          echo
+          echo "========== 1. SERVICE / UNIT =========="
+          $SUDO systemctl is-active oddshunter.service
+          $SUDO systemctl show oddshunter.service \
+            -p ActiveState -p SubState -p MainPID -p NRestarts \
+            -p User -p Group -p ExecStart --no-pager
+
+          echo
+          echo "========== 2. DB FILE PERMISSIONS =========="
+          $SUDO ls -ld "$CURRENT_DIR" "$CURRENT_DIR/data"
+          $SUDO ls -l "$DB"
+
+          echo
+          echo "========== 3. TARGETS IN SQLITE - ALL EVENT-ID-LIKE TABLES =========="
+          $SUDO -u oddshunter "$PY" - "$DB" <<'PY'
+          import sqlite3, sys, json
+
+          db=sys.argv[1]
+          targets=(16835069,15285812,16390710)
+
+          con=sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+          con.row_factory=sqlite3.Row
+
+          qc=con.execute("PRAGMA quick_check").fetchone()[0]
+          fk=len(con.execute("PRAGMA foreign_key_check").fetchall())
+          print("quick_check =", qc)
+          print("foreign_key_errors =", fk)
+          if qc != "ok" or fk != 0:
+              raise SystemExit("DB_INTEGRITY_GATE=FAIL")
+
+          tables=[r[0] for r in con.execute(
+              "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
+          )]
+          print("tables =", len(tables))
+
+          hit_total=0
+          hit_ids=set()
+
+          for table in tables:
+              cols=[r[1] for r in con.execute(f'PRAGMA table_info("{table}")')]
+              event_cols=[c for c in cols if c.lower() in {
+                  "sofascore_id","event_id","source_event_id","provider_event_id"
+              }]
+              for col in event_cols:
+                  placeholders=",".join("?" for _ in targets)
+                  try:
+                      rows=con.execute(
+                          f'SELECT * FROM "{table}" '
+                          f'WHERE CAST("{col}" AS INTEGER) IN ({placeholders}) LIMIT 50',
+                          targets
+                      ).fetchall()
+                  except sqlite3.Error as exc:
+                      print("QUERY_ERROR", table, col, type(exc).__name__, exc)
+                      continue
+
+                  if rows:
+                      hit_total += len(rows)
+                      print(f"\nTABLE={table} COLUMN={col} HITS={len(rows)}")
+                      for row in rows:
+                          d=dict(row)
+                          for key in ("sofascore_id","event_id","source_event_id","provider_event_id"):
+                              try:
+                                  if key in d and d[key] is not None and int(d[key]) in targets:
+                                      hit_ids.add(int(d[key]))
+                              except Exception:
+                                  pass
+                          print(json.dumps(d, ensure_ascii=False, default=str))
+
+          print("\nSQLITE_TARGET_HITS_TOTAL =", hit_total)
+          print("SQLITE_TARGET_IDS_FOUND =", sorted(hit_ids))
+          print("SQLITE_TARGET_IDS_MISSING =", sorted(set(targets)-hit_ids))
+          print("SQLITE_SCAN_GATE=PASS")
+          con.close()
+          PY
+
+          echo
+          echo "========== 4. TARGET IDS IN RELEASE TEXT/JSON FILES =========="
+          $SUDO -u oddshunter "$PY" - "$CURRENT_DIR" <<'PY'
+          from pathlib import Path
+          import sys
+
+          root=Path(sys.argv[1])
+          targets=("16835069","15285812","16390710")
+          roots=[root/"data", root/"artifacts"]
+
+          skip_ext={".db",".zip",".png",".jpg",".jpeg",".webp",".pyc",".so"}
+          skip_parts={".venv-cloud","__pycache__"}
+
+          hits={t:[] for t in targets}
+
+          for base in roots:
+              if not base.exists():
+                  continue
+              for p in base.rglob("*"):
+                  if not p.is_file():
+                      continue
+                  if p.suffix.lower() in skip_ext:
+                      continue
+                  if any(part in skip_parts for part in p.parts):
+                      continue
+                  try:
+                      if p.stat().st_size > 8_000_000:
+                          continue
+                      text=p.read_text(encoding="utf-8-sig", errors="ignore")
+                  except Exception:
+                      continue
+                  for t in targets:
+                      if t in text:
+                          rel=str(p.relative_to(root))
+                          if rel not in hits[t]:
+                              hits[t].append(rel)
+
+          for t in targets:
+              print(f"\nEVENT_ID={t}")
+              print("FILES_FOUND =", len(hits[t]))
+              for p in hits[t][:100]:
+                  print(" ",p)
+
+          print("RELEASE_SCAN_GATE=PASS")
+          PY
+
+          echo
+          echo "========== 5. UPCOMING/NEXT CATALOG CONTEXT =========="
+          $SUDO -u oddshunter "$PY" - "$CURRENT_DIR" <<'PY'
+          from pathlib import Path
+          import json, sys
+
+          root=Path(sys.argv[1])
+          targets={16835069,15285812,16390710}
+
+          files=[]
+          comp=root/"data"/"competitions"
+          if comp.exists():
+              files.extend(comp.glob("*/matches_upcoming.json"))
+              files.extend(comp.glob("*/next_match_by_team.json"))
+              files.extend(comp.glob("*/matches_finished.json"))
+
+          print("catalog_files_scanned =", len(files))
+          hits=0
+          found=set()
+
+          def walk(obj):
+              if isinstance(obj, dict):
+                  eid=None
+                  for k in ("event_id","sofascore_id"):
+                      try:
+                          v=obj.get(k)
+                          if v is not None and int(v) in targets:
+                              eid=int(v)
+                              break
+                      except Exception:
+                          pass
+                  if eid is not None:
+                      yield eid,obj
+                  for v in obj.values():
+                      yield from walk(v)
+              elif isinstance(obj, list):
+                  for v in obj:
+                      yield from walk(v)
+
+          for p in files:
+              try:
+                  data=json.loads(p.read_text(encoding="utf-8-sig"))
+              except Exception:
+                  continue
+              seen=set()
+              for eid,obj in walk(data):
+                  signature=json.dumps(obj, sort_keys=True, ensure_ascii=False, default=str)
+                  key=(eid,signature)
+                  if key in seen:
+                      continue
+                  seen.add(key)
+                  found.add(eid)
+                  hits += 1
+                  print("\nFILE =", p.relative_to(root))
+                  print("EVENT_ID =", eid)
+                  print(json.dumps(obj, ensure_ascii=False, indent=2, default=str))
+
+          print("\nCATALOG_TARGET_HITS =", hits)
+          print("CATALOG_TARGET_IDS_FOUND =", sorted(found))
+          print("CATALOG_TARGET_IDS_MISSING =", sorted(targets-found))
+          print("CATALOG_SCAN_GATE=PASS")
+          PY
+
+          echo
+          echo "========== 6. CURRENT SOURCE SHAS =========="
+          for F in \
+            cloud_stage5_cycle.py \
+            cloud_incremental_result_sync.py \
+            cloud_stage6_publish.py \
+            stage8_daemon.py \
+            stage8_health.py \
+            futbol24_client.py
+          do
+            P="$CURRENT_DIR/$F"
+            if $SUDO test -f "$P"; then
+              $SUDO sha256sum "$P"
+            else
+              echo "MISSING $P"
+            fi
+          done
+
+          echo
+          echo "========== 7. EXPORT SOURCE TO /tmp =========="
+          TMP="/tmp/oddshunter_trace_v2_export"
+          rm -rf "$TMP"
+          mkdir -p "$TMP"
+
+          for F in \
+            cloud_incremental_result_sync.py \
+            cloud_stage6_publish.py \
+            stage8_daemon.py \
+            stage8_health.py \
+            futbol24_client.py
+          do
+            P="$CURRENT_DIR/$F"
+            if $SUDO test -f "$P"; then
+              $SUDO -u oddshunter cat "$P" > "$TMP/$F"
+              echo "EXPORTED $F"
+            else
+              echo "SKIP_MISSING $F"
+            fi
+          done
+
+          echo
+          echo "TRACE_V2_DONE=YES"
+          REMOTE
+
+          for F in \
+            cloud_incremental_result_sync.py \
+            cloud_stage6_publish.py \
+            stage8_daemon.py \
+            stage8_health.py \
+            futbol24_client.py
+          do
+            scp \
+              -i ~/.ssh/oddshunter_trace_v2 \
+              -P "$VPS_PORT" \
+              -o BatchMode=yes \
+              -o StrictHostKeyChecking=yes \
+              "$VPS_USER@$VPS_HOST:/tmp/oddshunter_trace_v2_export/$F" \
+              "trace_v2_output/$F" 2>/dev/null || true
+          done
+
+          echo "EXPORT_RUNTIME_V2=PASS"
+
+      - name: Validar evidencia local
+        run: |
+          set -euo pipefail
+          test -f trace_v2_output/TARGET_PRESENCE_V2.txt
+          grep -q "SQLITE_SCAN_GATE=PASS" trace_v2_output/TARGET_PRESENCE_V2.txt
+          grep -q "RELEASE_SCAN_GATE=PASS" trace_v2_output/TARGET_PRESENCE_V2.txt
+          grep -q "CATALOG_SCAN_GATE=PASS" trace_v2_output/TARGET_PRESENCE_V2.txt
+          grep -q "TRACE_V2_DONE=YES" trace_v2_output/TARGET_PRESENCE_V2.txt
+          test -f trace_v2_output/cloud_incremental_result_sync.py
+          test -f trace_v2_output/cloud_stage6_publish.py
+          echo "EVIDENCE_GATE=PASS"
+
+      - name: Subir evidencia
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: oddshunter-missing-mobile-events-trace-v2
+          path: trace_v2_output/
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Gate final
+        if: always()
+        run: |
+          if [ "${{ job.status }}" = "success" ]; then
+            echo "FINAL=PASS_MISSING_MOBILE_EVENTS_TRACE_V2"
+          else
+            echo "FINAL=FAIL_MISSING_MOBILE_EVENTS_TRACE_V2"
+            exit 1
+          fi
