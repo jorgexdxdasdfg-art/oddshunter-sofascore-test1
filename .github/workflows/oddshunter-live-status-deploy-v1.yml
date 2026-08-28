@@ -1,0 +1,187 @@
+name: OddsHunter LIVE STATUS DEPLOY V1
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Probar sincronizador live
+        run: |
+          set -eEuo pipefail
+          python -m pip install --quiet pytest
+          python -m py_compile cloud_live_status_sync.py
+          python -m pytest -q tests/test_cloud_live_status_sync.py tests/test_futbol24_resolver.py
+
+      - name: Preparar SSH
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_SSH_PRIVATE_KEY: ${{ secrets.VPS_SSH_PRIVATE_KEY }}
+          VPS_PORT_SECRET: ${{ secrets.VPS_PORT }}
+        run: |
+          set -eEuo pipefail
+          test -n "${VPS_HOST:-}"
+          test -n "${VPS_SSH_PRIVATE_KEY:-}"
+          PORT="${VPS_PORT_SECRET:-22}"
+          echo "VPS_PORT=$PORT" >> "$GITHUB_ENV"
+          install -d -m 0700 ~/.ssh
+          printf '%s\n' "$VPS_SSH_PRIVATE_KEY" > ~/.ssh/oddshunter_live
+          chmod 0600 ~/.ssh/oddshunter_live
+          ssh-keyscan -p "$PORT" -H "$VPS_HOST" > ~/.ssh/known_hosts
+
+      - name: Copiar archivos al VPS
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+        run: |
+          set -eEuo pipefail
+          scp -i ~/.ssh/oddshunter_live -P "$VPS_PORT" \
+            -o BatchMode=yes -o StrictHostKeyChecking=yes \
+            cloud_live_status_sync.py \
+            "$VPS_USER@$VPS_HOST:/tmp/cloud_live_status_sync_V1.py"
+          scp -i ~/.ssh/oddshunter_live -P "$VPS_PORT" \
+            -o BatchMode=yes -o StrictHostKeyChecking=yes \
+            deploy/oddshunter-live-sync.service \
+            deploy/oddshunter-live-sync.timer \
+            "$VPS_USER@$VPS_HOST:/tmp/"
+
+      - name: Instalar, ejecutar y verificar
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+        run: |
+          set -eEuo pipefail
+          ssh -i ~/.ssh/oddshunter_live -p "$VPS_PORT" \
+            -o BatchMode=yes -o StrictHostKeyChecking=yes \
+            "$VPS_USER@$VPS_HOST" 'bash -s' <<'REMOTE' | tee live_deploy_evidence.txt
+          set -eEuo pipefail
+          if [ "$(id -u)" -eq 0 ]; then SUDO=""; else SUDO="sudo -n"; fi
+
+          CUR="$(readlink -f /opt/oddshunter/current)"
+          DB="$CUR/data/oddshunter.db"
+          PY="$CUR/.venv-cloud/bin/python"
+          STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
+          BACKUP="/var/lib/oddshunter/data/oddshunter.db.PRE_LIVE_V1_$STAMP"
+
+          test -f "$DB"
+          test -x "$PY"
+          test -f /etc/oddshunter/oddshunter.env
+          echo "CURRENT=$CUR"
+          echo "DB_BACKUP=$BACKUP"
+          $SUDO cp -a "$DB" "$BACKUP"
+
+          if [ -f "$CUR/cloud_live_status_sync.py" ]; then
+            $SUDO cp -a "$CUR/cloud_live_status_sync.py" \
+              "$CUR/cloud_live_status_sync.py.PRE_LIVE_V1_$STAMP"
+          fi
+          $SUDO install -o root -g root -m 0644 \
+            /tmp/cloud_live_status_sync_V1.py "$CUR/cloud_live_status_sync.py"
+          $SUDO install -o root -g root -m 0644 \
+            /tmp/oddshunter-live-sync.service /etc/systemd/system/oddshunter-live-sync.service
+          $SUDO install -o root -g root -m 0644 \
+            /tmp/oddshunter-live-sync.timer /etc/systemd/system/oddshunter-live-sync.timer
+
+          $SUDO -u oddshunter env PYTHONDONTWRITEBYTECODE=1 \
+            "$PY" -m py_compile "$CUR/cloud_live_status_sync.py"
+          echo "LIVE_SYNC_INSTALL=PASS"
+
+          # Bootstrap the exact matches reported from the phone plus a small
+          # recent sample. The temporary override disappears after this run.
+          $SUDO install -d -m 0755 /run/systemd/system/oddshunter-live-sync.service.d
+          $SUDO tee /run/systemd/system/oddshunter-live-sync.service.d/bootstrap.conf >/dev/null <<'UNIT'
+          [Service]
+          Environment=ODDSHUNTER_LIVE_PRIORITY_EVENT_IDS=16821936,16708159,16316771,16629463
+          Environment=ODDSHUNTER_LIVE_NEAR_LIMIT=2
+          Environment=ODDSHUNTER_LIVE_OVERDUE_LIMIT=2
+          Environment=ODDSHUNTER_LIVE_RECONCILE_HOURS=72
+          Environment=ODDSHUNTER_LIVE_RECONCILE_LIMIT=40
+          UNIT
+
+          $SUDO systemctl daemon-reload
+          if ! $SUDO systemctl start oddshunter-live-sync.service; then
+            $SUDO journalctl -u oddshunter-live-sync.service -n 200 --no-pager
+            exit 31
+          fi
+          $SUDO journalctl -u oddshunter-live-sync.service -n 120 --no-pager
+          $SUDO rm -f /run/systemd/system/oddshunter-live-sync.service.d/bootstrap.conf
+          $SUDO systemctl daemon-reload
+          $SUDO systemctl enable --now oddshunter-live-sync.timer
+
+          test "$($SUDO systemctl is-enabled oddshunter-live-sync.timer)" = "enabled"
+          test "$($SUDO systemctl is-active oddshunter-live-sync.timer)" = "active"
+          $SUDO systemctl list-timers oddshunter-live-sync.timer --no-pager
+
+          $SUDO -u oddshunter "$PY" - "$DB" <<'PY'
+          import sqlite3,sys
+          ids=(16821936,16708159,16316771,16629463)
+          con=sqlite3.connect(f"file:{sys.argv[1]}?mode=ro",uri=True)
+          con.row_factory=sqlite3.Row
+          print("quick_check =",con.execute("PRAGMA quick_check").fetchone()[0])
+          print("foreign_key_errors =",len(con.execute("PRAGMA foreign_key_check").fetchall()))
+          for row in con.execute(
+              "SELECT sofascore_id,kickoff,status,home_goals,away_goals "
+              "FROM matches WHERE sofascore_id IN (?,?,?,?) ORDER BY sofascore_id",
+              ids,
+          ):
+              print("TARGET_LOCAL =",dict(row))
+          con.close()
+          PY
+
+          # Discover whether the Vercel frontend source also exists on this
+          # host; this is read-only and never prints credentials.
+          FRONTEND_MATCHES="$($SUDO grep -RIl --exclude='*.log' --exclude='*.db*' \
+            --exclude='*.zip' 'Turso OK · solo lectura' /opt/oddshunter 2>/dev/null | head -20 || true)"
+          if [ -n "$FRONTEND_MATCHES" ]; then
+            echo "FRONTEND_SOURCE_FOUND=YES"
+            printf '%s\n' "$FRONTEND_MATCHES"
+          else
+            echo "FRONTEND_SOURCE_FOUND=NO"
+          fi
+          echo "LIVE_TIMER_DEPLOY=PASS"
+          REMOTE
+
+      - name: Verificar API móvil
+        run: |
+          set -eEuo pipefail
+          python - <<'PY'
+          import json,time,urllib.request
+          targets={16821936,16708159,16316771,16629463}
+          found={}
+          for offset in (-2,-1,0):
+              url=f"https://oddshunter-mobile.vercel.app/api/day?offset={offset}&limit=1000&cb={time.time_ns()}"
+              req=urllib.request.Request(url,headers={"Cache-Control":"no-cache"})
+              with urllib.request.urlopen(req,timeout=45) as response:
+                  rows=json.load(response)
+              for row in rows:
+                  if int(row.get("event_id") or 0) in targets:
+                      found[int(row["event_id"])]=row
+          for event_id in sorted(targets):
+              row=found.get(event_id)
+              print("TARGET_API =",json.dumps(row,ensure_ascii=False,sort_keys=True))
+              if row is None:
+                  raise SystemExit(f"API_TARGET_MISSING={event_id}")
+          health_url=f"https://oddshunter-mobile.vercel.app/api/health?cb={time.time_ns()}"
+          with urllib.request.urlopen(health_url,timeout=45) as response:
+              health=json.load(response)
+          print("HEALTH =",health)
+          if health.get("ok") is not True or health.get("source") != "turso":
+              raise SystemExit("MOBILE_HEALTH_FAIL")
+          print("MOBILE_API_VERIFY=PASS")
+          PY
+
+      - name: Subir evidencia
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: oddshunter-live-status-v1-evidence
+          path: live_deploy_evidence.txt
+          if-no-files-found: ignore

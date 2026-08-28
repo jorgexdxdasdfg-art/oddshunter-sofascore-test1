@@ -1,0 +1,12 @@
+[Unit]
+Description=Refresh OddsHunter live scores every minute
+
+[Timer]
+OnBootSec=30s
+OnUnitActiveSec=60s
+AccuracySec=5s
+Persistent=true
+Unit=oddshunter-live-sync.service
+
+[Install]
+WantedBy=timers.target
