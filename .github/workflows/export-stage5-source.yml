@@ -1,0 +1,61 @@
+name: Export Stage5 Source READ ONLY
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Preparar SSH
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+          VPS_SSH_PRIVATE_KEY: ${{ secrets.VPS_SSH_PRIVATE_KEY }}
+          VPS_PORT_SECRET: ${{ secrets.VPS_PORT }}
+        run: |
+          set -euo pipefail
+
+          PORT="${VPS_PORT_SECRET:-22}"
+
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+
+          printf '%s\n' "$VPS_SSH_PRIVATE_KEY" > ~/.ssh/oddshunter_key
+          chmod 600 ~/.ssh/oddshunter_key
+
+          ssh-keyscan -p "$PORT" -H "$VPS_HOST" > ~/.ssh/known_hosts
+
+          echo "VPS_PORT=$PORT" >> "$GITHUB_ENV"
+
+      - name: Copiar cloud_stage5_cycle.py desde VPS
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+        run: |
+          set -euo pipefail
+
+          scp \
+            -i ~/.ssh/oddshunter_key \
+            -P "$VPS_PORT" \
+            -o BatchMode=yes \
+            -o StrictHostKeyChecking=yes \
+            "$VPS_USER@$VPS_HOST:/opt/oddshunter/releases/20260826T205856Z/cloud_stage5_cycle.py" \
+            ./cloud_stage5_cycle.py
+
+          test -f cloud_stage5_cycle.py
+
+          echo "SOURCE_EXPORT=PASS"
+          sha256sum cloud_stage5_cycle.py
+
+      - name: Subir archivo
+        uses: actions/upload-artifact@v4
+        with:
+          name: oddshunter-cloud-stage5-source
+          path: cloud_stage5_cycle.py
+          retention-days: 7
