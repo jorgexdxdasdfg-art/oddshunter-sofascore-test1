@@ -1,0 +1,114 @@
+name: OddsHunter Stage8 Health READ ONLY V1
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  health_readonly:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Gate secrets VPS
+        id: secrets
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+          VPS_SSH_PRIVATE_KEY: ${{ secrets.VPS_SSH_PRIVATE_KEY }}
+          VPS_PORT_SECRET: ${{ secrets.VPS_PORT }}
+        run: |
+          set -euo pipefail
+          test -n "${VPS_HOST:-}"
+          test -n "${VPS_USER:-}"
+          test -n "${VPS_SSH_PRIVATE_KEY:-}"
+          PORT="${VPS_PORT_SECRET:-22}"
+          echo "VPS_PORT=$PORT" >> "$GITHUB_ENV"
+          echo "SECRETS_GATE=PASS"
+          echo "SECRETS_PRINTED=NO"
+
+      - name: Preparar SSH
+        id: ssh
+        if: steps.secrets.outcome == 'success'
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_SSH_PRIVATE_KEY: ${{ secrets.VPS_SSH_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "$VPS_SSH_PRIVATE_KEY" > ~/.ssh/oddshunter_health
+          chmod 600 ~/.ssh/oddshunter_health
+          ssh-keygen -y -f ~/.ssh/oddshunter_health >/dev/null
+          ssh-keyscan -p "$VPS_PORT" -H "$VPS_HOST" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+          echo "SSH_GATE=PASS"
+
+      - name: Auditar Stage8 VPS sin modificar nada
+        id: audit
+        if: steps.ssh.outcome == 'success'
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+        run: |
+          set -euo pipefail
+          ssh -i ~/.ssh/oddshunter_health -p "$VPS_PORT" -o BatchMode=yes -o StrictHostKeyChecking=yes "$VPS_USER@$VPS_HOST" '
+            set -u
+            if [ "$(id -u)" -eq 0 ]; then SUDO=""; else SUDO="sudo -n"; fi
+
+            echo "================================================================"
+            echo "ODDSHUNTER STAGE8 VPS HEALTH - READ ONLY"
+            echo "================================================================"
+
+            echo
+            echo "========== 1. UTC =========="
+            date -u
+
+            echo
+            echo "========== 2. SERVICE =========="
+            $SUDO systemctl is-active oddshunter.service || true
+            $SUDO systemctl is-enabled oddshunter.service || true
+            $SUDO systemctl show oddshunter.service -p ActiveState -p SubState -p UnitFileState -p Restart -p NRestarts -p MainPID -p ActiveEnterTimestamp -p ExecMainStartTimestamp --no-pager || true
+
+            echo
+            echo "========== 3. UNIT =========="
+            $SUDO systemctl cat oddshunter.service || true
+
+            echo
+            echo "========== 4. STAGE8 HEALTH COMMAND =========="
+            if [ -x /usr/local/bin/oddshunter-stage8-health ]; then
+              $SUDO /usr/local/bin/oddshunter-stage8-health --wait-seconds 1 --poll-seconds 1 --json || true
+            else
+              echo "STAGE8_HEALTH_COMMAND=NOT_FOUND"
+            fi
+
+            echo
+            echo "========== 5. JOURNAL FILTRADO 24H =========="
+            $SUDO journalctl -u oddshunter.service --since "24 hours ago" --no-pager -n 5000 | grep -Eia "16835069|15285812|16390710|Club Am|Columbus|New Mexico|Lexington|Atl.tico Nacional|Deportivo Cali|Futbol24|Flashscore|SOURCE_UNAVAILABLE|COMMITTED|commit|publish|Turso|ERROR|Traceback|cycle|finished|FT" || true
+
+            echo
+            echo "========== 6. JOURNAL TAIL =========="
+            $SUDO journalctl -u oddshunter.service --since "24 hours ago" --no-pager -n 500 || true
+
+            echo
+            echo "READ_ONLY_AUDIT_DONE=YES"
+          ' | tee ODDSHUNTER_STAGE8_HEALTH_READONLY.txt
+
+      - name: Subir evidencia
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: oddshunter-stage8-health-readonly
+          path: ODDSHUNTER_STAGE8_HEALTH_READONLY.txt
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Gate final
+        if: always()
+        run: |
+          if [ "${{ steps.secrets.outcome }}" != "success" ]; then echo "FINAL=FAIL_SECRETS"; exit 1; fi
+          if [ "${{ steps.ssh.outcome }}" != "success" ]; then echo "FINAL=FAIL_SSH"; exit 1; fi
+          if [ "${{ steps.audit.outcome }}" != "success" ]; then echo "FINAL=FAIL_AUDIT"; exit 1; fi
+          echo "FINAL=PASS_STAGE8_HEALTH_READONLY"
