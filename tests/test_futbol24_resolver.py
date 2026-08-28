@@ -8,6 +8,8 @@ import unittest
 from pathlib import Path
 from typing import Any
 
+ROOT = Path(__file__).resolve().parents[1]
+
 
 @dataclasses.dataclass
 class MatchRef:
@@ -148,6 +150,17 @@ class ResolverTests(unittest.TestCase):
         self.assertEqual(
             [key for key, _value in signed_params],
             ["expire", "hostGuest", "id", "lang", "limit", "sign"],
+        )
+
+    def test_result_sync_preserves_validated_database_identity(self):
+        source = (ROOT / "cloud_incremental_result_sync.py").read_text(encoding="utf-8")
+        self.assertIn(
+            "row = _db_row(event_id) or _schedule_row(key, event_id)",
+            source,
+        )
+        self.assertNotIn(
+            "row = _schedule_row(key, event_id) or _db_row(event_id)",
+            source,
         )
 
 
