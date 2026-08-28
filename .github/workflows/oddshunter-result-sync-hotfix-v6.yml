@@ -20,6 +20,7 @@ jobs:
           set -eEuo pipefail
           test -f futbol24_client.py
           test -f cloud_incremental_result_sync.py
+          test -f cloud_stage6_publish_reconciled.py
           : > stage5.b64
           printf '%s' 'ZnJvbSBfX2Z1dHVyZV9fIGltcG9ydCBhbm5vdGF0aW9ucwoKaW1wb3J0IGhhc2hsaWIKaW1wb3J0IGpzb24KaW1wb3J0IG9zCmltcG9ydCBzcWxpdGUzCmltcG9ydCBzdWJwcm9jZXNzCmltcG9ydCBzeXMKZnJvbSBkYXRldGltZSBpbXBvcnQgZGF0ZXRpbWUsIHRpbWVkZWx0YSwgdGltZXpvbmUKZnJvbSBwYXRobGliIGltcG9ydCBQYXRoCmZyb20gdHlwaW5nIGltcG9ydCBBbnkKCmZyb20gY2xvdWRfbWF0Y2hfZGlzY292ZXJ5IGltcG9ydCBkaXNjb3Zlcgpmcm9tIGZ1dGJvbDI0X2NsaWVudCBpbXBvcnQgRnV0Ym9sMjRDbGllbnQKZnJvbSB4Z19waXBlbGluZSBpbXBvcnQgTWF0Y2hSZWYKClJPT1QgPSBQYXRoKF9fZmlsZV9fKS5yZXNvbHZlKCkucGFyZW50CkRBVEEgPSBST09UIC8gImRhdGEiCkRCID0gREFUQSAvICJvZGRzaHVudGVyLmRiIgpSRUdJU1RSWSA9IERBVEEgLyAiY29tcGV0aXRpb25zLmpzb24iCkFSVElGQUNUUyA9IFJPT1QgLyAiYXJ0aWZhY3RzIgoKVEVSTUlOQUwgPSB7IkZUIiwgIkFFVCIsICJQRU4iLCAiRklOSVNIRUQiLCAiRklOQUwifQpOT05fUExBWUFCTEUgPSB7IkNBTkNFTEVEIiwgIkNBTkNFTExFRCIsICJQT1NUUE9ORUQiLCAiQUJBTkRPTkVEIn0KUkVTVUxUX1NZTkNfVEFSR0VUX0xJTUlUID0gbWF4KAogICAgMSwKICAgIG1pbigxMiwgaW50KG9zLmVudmlyb24uZ2V0KCJPRERTSFVOVEVSX1JFU1VMVF9TWU5DX1RBUkdFVF9MSU1JVCIsICI4IikpKSwKKQpSRVNVTFRfU1lOQ19NQVhfQVRURU1QVFMgPSBtYXgoCiAgICBSRVNVTFRfU1lOQ19UQVJHRVRfTElNSVQsCiAgICBtaW4oMjQwLCBpbnQob3MuZW52aXJvbi5nZXQoIk9ERFNIVU5URVJfUkVTVUxUX1NZTkNfTUFYX0FUVEVNUFRTIiwgIjEyMCIpKSksCikKCiMgVGhlc2UgYXJlIG9ubHkgcHJlZmVyZW5jZSBvcmRlciBmb3Igc2VsZWN0aW5nIGEgZGV0ZXJtaW5pc3RpYyBTdGFnZTUKIyBjZXJ0aWZpY2F0aW9uIHRhcmdldC4gSWYgbm9uZSByZXNvbHZlLCB0aGUgcHJvYmUgY29udGludWVzIHRocm91Z2ggYWxsCiMgb3RoZXIgYWN0aXZlIGNvbXBldGl0aW9ucy4gSXQgaXMgTk9UIGEgcHJvZHVjdGlvbiBmaWx0ZXIuClNZTkNfUFJJT1JJVFkgPSAoCiAgICAic2VyaWUtYSIsCiAgICAicHJlbWllci1sZWFndWUiLAogICAgImJ1bmRlc2xpZ2EiLAogICAgImVyZWRpdmlzaWUiLAogICAgImxpZ3VlLTEiLAogICAgImNoYW1waW9uc2hpcCIsCiAgICAiYmVsZ2l1bS1wcm8tbGVhZ3VlIiwKICAgICJ0dXJrZXktc3VwZXItbGlnIiwKICAgICJzYXVkaS1wcm8tbGVhZ3VlIiwKICAgICJsaWdhLXBvcnR1Z2FsIiwKICAgICJsYWxpZ2EiLAogICAgImJlc3RhLWRlaWxkIiwKICAgICJ1c2EtdXNsLWNoYW1waW9uc2hpcCIsCiAgICAiY2FuYWRhLWNhbmFkaWFuLXByZW1pZXItbGVhZ3VlIiwKICAgICJncmVlY2Utc3RvaXhpbWFuLXN1cGVyLWxlYWd1ZSIsCiAgICAibGlnYS1iZXRwbGF5LWNvbG9tYmlhIiwKICAgICJsaWdhcHJvIiwKICAgICJjaGlsZS1wcmltZXJhIiwKKQoKCmRlZiB1dGNfbm93KCkgLT4gc3RyOgogICAgcmV0dXJuIGRhdGV0aW1lLm5vdyh0aW1lem9uZS51dGMpLmlzb2Zvcm1hdCgpCgoKZGVmIHNoYTI1NihwYXRoOiBQYXRoKSAtPiBzdHI6CiAgICBoID0gaGFzaGxpYi5zaGEyNTYoKQogICAgd2l0aCBwYXRoLm9wZW4oInJiIikgYXMgZmg6CiAgICAgICAgZm9yIGNodW5rIGluIGl0ZXIobGFtYmRhOiBmaC5yZWFkKDEwMjQgKiAxMDI0KSwgYiIiKToKICAgICAgICAgICAgaC51cGRhdGUoY2h1bmspCiAgICByZXR1cm4gaC5oZXhkaWdlc3QoKS51cHBlcigpCgoKZGVmIHJlYWRfanNvbihwYXRoOiBQYXRoKSAtPiBkaWN0W3N0ciwgQW55XToKICAgIHJldHVybiBqc29uLmxvYWRzKHBhdGgucmVhZF90ZXh0KGVuY29kaW5nPSJ1dGYtOC1zaWciKSkKCgpkZWYgcGFyc2VfZHQodmFsdWU6IEFueSkgLT4gZGF0ZXRpbWUgfCBOb25lOgogICAgdGV4dCA9IHN0cih2YWx1ZSBvciAiIikuc3RyaXAoKQogICAgaWYgbm90IHRleHQ6CiAgICAgICAgcmV0dXJuIE5vbmUKICAgIHRyeToKICAgICAgICBkID0gZGF0ZXRpbWUuZnJvbWlzb2Zvcm1hdCh0ZXh0LnJlcGxhY2UoIloiLCAiKzAwOjAwIikpCiAgICBleGNlcHQgVmFsdWVFcnJvcjoKICAgICAgICByZXR1cm4gTm9uZQogICAgaWYgZC50emluZm8gaXMgTm9uZToKICAgICAgICBkID0gZC5yZXBsYWNlKHR6aW5mbz10aW1lem9uZS51dGMpCiAgICByZXR1cm4gZC5hc3RpbWV6b25lKHRpbWV6b25lLnV0YykKCgpkZWYgc25hcHNob3QoY29uOiBzcWxpdGUzLkNvbm5lY3Rpb24pIC0+IGRpY3Rbc3RyLCBBbnldOgogICAgcmV0dXJuIHsKICAgICAgICAicXVpY2tfY2hlY2siOiBzdHIoY29uLmV4ZWN1dGUoIlBSQUdNQSBxdWlja19jaGVjayIpLmZldGNob25lKClbMF0pLAogICAgICAgICJmb3JlaWduX2tleV9lcnJvcnMiOiBsZW4oY29uLmV4ZWN1dGUoIlBSQUdNQSBmb3JlaWduX2tleV9jaGVjayIpLmZldGNoYWxsKCkpLAogICAgICAgICJtYXRjaGVzIjogaW50KGNvbi5leGVjdXRlKCJTRUxFQ1QgQ09VTlQoKikgRlJPTSBtYXRjaGVzIikuZmV0Y2hvbmUoKVswXSksCiAgICAgICAgInRlYW1fbWF0Y2hfc3RhdHMiOiBpbnQoY29uLmV4ZWN1dGUoIlNFTEVDVCBDT1VOVCgqKSBGUk9NIHRlYW1fbWF0Y2hfc3RhdHMiKS5mZXRjaG9uZSgpWzBdKSwKICAgIH0KCgpkZWYgYWN0aXZlX3JlZ2lzdHJ5KCkgLT4gdHVwbGVbZGljdFtpbnQsIGRpY3Rbc3RyLCBBbnldXSwgbGlzdFtkaWN0W3N0ciwgQW55XV1dOgogICAgZCA9IHJlYWRfanNvbihSRUdJU1RSWSkKICAgIGFjdGl2ZSA9IFsKICAgICAgICB4IGZvciB4IGluIGQuZ2V0KCJjb21wZXRpdGlvbnMiLCBbXSkKICAgICAgICBp' >> stage5.b64
           printf '%s' 'ZiBpc2luc3RhbmNlKHgsIGRpY3QpIGFuZCB4LmdldCgiYWN0aXZlIikgYW5kIHguZ2V0KCJsZWFndWVfaWQiKSBpcyBub3QgTm9uZQogICAgXQogICAgcmV0dXJuIHtpbnQoeFsibGVhZ3VlX2lkIl0pOiB4IGZvciB4IGluIGFjdGl2ZX0sIGFjdGl2ZQoKCmRlZiBhbGxfcmVnaXN0cnlfYnlfbGVhZ3VlKCkgLT4gZGljdFtpbnQsIGRpY3Rbc3RyLCBBbnldXToKICAgICIiIkFsbCBrbm93biByZWdpc3RyeSBjb21wZXRpdGlvbnMgZm9yIHJlc3VsdC9zdGF0dXMgc3luY2hyb25pemF0aW9uLgoKICAgIFJlc3VsdCB1cGRhdGVzIG11c3Qgbm90IGJlIHJlc3RyaWN0ZWQgdG8gdGhlIHNtYWxsZXIgc2V0IG9mIGNvbXBldGl0aW9ucwogICAgY3VycmVudGx5IG1hcmtlZCBhY3RpdmUgZm9yIG1vZGVsL2Rpc2NvdmVyeSB3b3JrLiBNb2JpbGUgY2FuIHN0aWxsIGNvbnRhaW4KICAgIHZhbGlkIHByZS1tYXRjaCBldmVudHMgZnJvbSBrbm93biBpbmFjdGl2ZS9jb250ZXh0IGNvbXBldGl0aW9ucy4KICAgICIiIgogICAgZCA9IHJlYWRfanNvbihSRUdJU1RSWSkKICAgIHJvd3MgPSBbCiAgICAgICAgeCBmb3IgeCBpbiBkLmdldCgiY29tcGV0aXRpb25zIiwgW10pCiAgICAgICAgaWYgaXNpbnN0YW5jZSh4LCBkaWN0KQogICAgICAgIGFuZCB4LmdldCgibGVhZ3VlX2lkIikgaXMgbm90IE5vbmUKICAgICAgICBhbmQgeC5nZXQoImtleSIpCiAgICBdCiAgICByZXR1cm4ge2ludCh4WyJsZWFndWVfaWQiXSk6IHggZm9yIHggaW4gcm93c30KCgpkZWYgZGVyaXZlX3NlZWRfcm93cyhjb246IHNxbGl0ZTMuQ29ubmVjdGlvbiwgYWN0aXZlOiBsaXN0W2RpY3Rbc3RyLCBBbnldXSkgLT4gbGlzdFtkaWN0W3N0ciwgQW55XV06CiAgICBzZWVkcyA9IFtdCiAgICBmb3IgY29tcCBpbiBhY3RpdmU6CiAgICAgICAgbGVhZ3VlX2lkID0gaW50KGNvbXBbImxlYWd1ZV9pZCJdKQogICAgICAgIHJvdyA9IGNvbi5leGVjdXRlKAogICAgICAgICAgICAiIiIKICAgICAgICAgICAgU0VMRUNUIGgubmFtZSBBUyB0ZWFtX25hbWUsIGguc29mYXNjb3JlX2lkCiAgICAgICAgICAgIEZST00gbWF0Y2hlcyBtCiAgICAgICAgICAgIEpPSU4gdGVhbXMgaCBPTiBoLnRlYW1faWQ9bS5ob21lX3RlYW1faWQKICAgICAgICAgICAgV0hFUkUgbS5sZWFndWVfaWQ9PyBBTkQgaC5uYW1lIElTIE5PVCBOVUxMCiAgICAgICAgICAgIE9SREVSIEJZIG0ua2lja29mZiBERVNDLCBtLm1hdGNoX2lkIERFU0MKICAgICAgICAgICAgTElNSVQgMQogICAgICAgICAgICAiIiIsCiAgICAgICAgICAgIChsZWFndWVfaWQsKSwKICAgICAgICApLmZldGNob25lKCkKICAgICAgICBpZiByb3cgaXMgTm9uZToKICAgICAgICAgICAgY29udGludWUKICAgICAgICBzZWVkcy5hcHBlbmQoewogICAgICAgICAgICAiY29tcGV0aXRpb25fa2V5IjogY29tcC5nZXQoImtleSIpLAogICAgICAgICAgICAibGVhZ3VlX2lkIjogbGVhZ3VlX2lkLAogICAgICAgICAgICAidGVhbV9uYW1lIjogc3RyKHJvd1sidGVhbV9uYW1lIl0pLAogICAgICAgICAgICAidGVhbV9zb2Zhc2NvcmVfaWQiOiByb3dbInNvZmFzY29yZV9pZCJdLAogICAgICAgIH0pCiAgICByZXR1cm4gc2VlZHMKCgpkZWYgcmVjZW50X3N5bmNfY2FuZGlkYXRlcygKICAgIGNvbjogc3FsaXRlMy5Db25uZWN0aW9uLAogICAgYnlfbGVhZ3VlOiBkaWN0W2ludCwgZGljdFtzdHIsIEFueV1dLAogICAgbGltaXQ6IGludCA9IDEyMCwKKSAtPiBsaXN0W2RpY3Rbc3RyLCBBbnldXToKICAgICIiIkJ1aWxkIHRoZSBwcm9kdWN0aW9uIHJlc3VsdC1zeW5jIHF1ZXVlLgoKICAgIFNjb3JlL3N0YXR1cyB3b3JrIGhhcyBwcmlvcml0eS4gQSBtYXRjaCB0aGF0IGFscmVhZHkgaGFzIGEgdGVybWluYWwgc3RhdHVzLAogICAgYSBjb21wbGV0ZSBzY29yZSBhbmQgYWxsIHJlcXVpcmVkIHRlYW0gbWV0cmljcyBpcyAqbm90KiBlbGlnaWJsZSBhZ2Fpbi4KICAgIFRoaXMgcHJldmVudHMgYSBwcmV2aW91c2x5IGNvbXBsZXRlZCBtYXRjaCBmcm9tIG1vbm9wb2xpc2luZyBldmVyeSBTdGFnZTUKICAgIGN5Y2xlIHdoaWxlIHN0aWxsIGFsbG93aW5nIGRlZmVycmVkIG1ldHJpYyBjb21wbGV0aW9uIHdoZW4gZmllbGRzIGFyZSBOVUxMLgogICAgIiIiCgogICAgbm93ID0gZGF0ZXRpbWUubm93KHRpbWV6b25lLnV0YykKICAgIGZsb29yID0gbm93IC0gdGltZWRlbHRhKGRheXM9MTApCgogICAgcm93cyA9IGNvbi5leGVjdXRlKAogICAgICAgICIiIgogICAgICAgIFNFTEVDVAogICAgICAgICAgICBtLm1hdGNoX2lkLAogICAgICAgICAgICBtLnNvZmFzY29yZV9pZCwgbS5sZWFndWVfaWQsIG0ua2lja29mZiwgbS5zdGF0dXMsIG0uc2Vhc29uLAogICAgICAgICAgICBtLmhvbWVfZ29hbHMsIG0uYXdheV9nb2FscywKICAgICAgICAgICAgaC5uYW1lIEFTIGhvbWVfdGVhbSwgYS5uYW1lIEFTIGF3YXlfdGVhbSwKICAgICAgICAgICAgQ09VTlQocy5tYXRjaF9pZCkgQVMgc3RhdHNfcm93cywKICAgICAgICAgICAgU1VNKAogICAgICAgICAgICAgICAgQ0FTRQogICAgICAgICAgICAgICAgICAgIFdIRU4gcy5tYXRjaF9pZCBJUyBOT1QgTlVMTCBBTkQgKAogICAgICAgICAgICAgICAgICAgICAgICBzLnhnX2ZvciBJUyBOVUxMCiAgICAgICAgICAgICAgICAgICAgICAgIE9SIHMuc2hvdHMgSVMgTlVMTAogICAgICAgICAgICAgICAgICAgICAgICBPUiBzLnNob3RzX29uX3RhcmdldCBJUyBOVUxMCiAgICAgICAgICAgICAgICAgICAgICAgIE9SIHMuY29ybmVyc19mb3IgSVMgTlVMTAogICAgICAgICAgICAgICAgICAgICAgICBPUiBzLnllbGxvd19jYXJkcyBJUyBOVUxMCiAgICAgICAgICAgICAgICAgICAgKSBUSEVOIDEKICAgICAgICAgICAgICAgICAgICBF' >> stage5.b64
@@ -36,10 +37,11 @@ jobs:
           test "$(sha256sum futbol24_client.py | awk '{print $1}')" = "0e7d6829c829ecd5278af10c3388a36319b7be9f7beab0ac0f759c1b6e359995"
           test "$(sha256sum cloud_incremental_result_sync.py | awk '{print $1}')" = "88007cc079c429d60b14183f98de1adc88812b7e93d57c9c06dc5624d96ec766"
           test "$(sha256sum cloud_stage5_cycle.py | awk '{print $1}')" = "13ba611f000c344d7ae61fcc9e40304231168f1d9ad0f0236f9182af26ec2e37"
+          test "$(sha256sum cloud_stage6_publish_reconciled.py | awk '{print $1}')" = "b6d272a2203f860b40a56a1feb0e4533656cee54b60b18022797687fe1eba026"
 
           python3 - <<'PY'
           from pathlib import Path
-          for name in ("futbol24_client.py", "cloud_incremental_result_sync.py", "cloud_stage5_cycle.py"):
+          for name in ("futbol24_client.py", "cloud_incremental_result_sync.py", "cloud_stage5_cycle.py", "cloud_stage6_publish_reconciled.py"):
               p=Path(name)
               compile(p.read_text(encoding="utf-8"), str(p), "exec")
               print("SYNTAX_PASS", name)
@@ -48,6 +50,7 @@ jobs:
           echo "F24_V6_SHA=0e7d6829c829ecd5278af10c3388a36319b7be9f7beab0ac0f759c1b6e359995"
           echo "RESULT_SYNC_V6_SHA=88007cc079c429d60b14183f98de1adc88812b7e93d57c9c06dc5624d96ec766"
           echo "STAGE5_V4_SHA=13ba611f000c344d7ae61fcc9e40304231168f1d9ad0f0236f9182af26ec2e37"
+          echo "STAGE6_RECON_SHA=b6d272a2203f860b40a56a1feb0e4533656cee54b60b18022797687fe1eba026"
           echo "BUILD=PASS"
 
       - name: Preparar SSH
@@ -85,6 +88,8 @@ jobs:
 
           scp -i ~/.ssh/oddshunter_v6 -P "$VPS_PORT"             -o BatchMode=yes -o StrictHostKeyChecking=yes             cloud_stage5_cycle.py             "$VPS_USER@$VPS_HOST:/tmp/cloud_stage5_cycle_SCOPE_FAIR_V4.py"
 
+          scp -i ~/.ssh/oddshunter_v6 -P "$VPS_PORT"             -o BatchMode=yes -o StrictHostKeyChecking=yes             cloud_stage6_publish_reconciled.py             "$VPS_USER@$VPS_HOST:/tmp/cloud_stage6_publish_RECON_V13.py"
+
           echo "SCP=PASS"
 
       - name: Reparar exactos + Turso + fix permanente
@@ -99,7 +104,7 @@ jobs:
           URL64="$(printf '%s' "$TURSO_DATABASE_URL" | base64 -w0)"
           TOK64="$(printf '%s' "$TURSO_AUTH_TOKEN" | base64 -w0)"
 
-          ssh -i ~/.ssh/oddshunter_v6 -p "$VPS_PORT"             -o BatchMode=yes -o StrictHostKeyChecking=yes             "$VPS_USER@$VPS_HOST"             "F24_CURRENT='d8d46c0f7454fd41ea559f97189cb01f870043e9d7640f4f7dac14202e6fc286' F24_V6='0e7d6829c829ecd5278af10c3388a36319b7be9f7beab0ac0f759c1b6e359995' SYNC_CURRENT='1294c8fb8e2e8454a8249c7feea048ae293850286a165b05be91ef6a53b8b04a' SYNC_V6='88007cc079c429d60b14183f98de1adc88812b7e93d57c9c06dc5624d96ec766' STAGE5_CURRENT='b4b93b0edc6e864bafeed77a1b019426c09ce88834d84edf000568bf0abb2cb0' STAGE5_V4='13ba611f000c344d7ae61fcc9e40304231168f1d9ad0f0236f9182af26ec2e37' URL64='$URL64' TOK64='$TOK64' bash -s"             <<'REMOTE' | tee RESULT_SYNC_HOTFIX_V6.txt
+          ssh -i ~/.ssh/oddshunter_v6 -p "$VPS_PORT"             -o BatchMode=yes -o StrictHostKeyChecking=yes             "$VPS_USER@$VPS_HOST"             "F24_CURRENT='d8d46c0f7454fd41ea559f97189cb01f870043e9d7640f4f7dac14202e6fc286' F24_V6='0e7d6829c829ecd5278af10c3388a36319b7be9f7beab0ac0f759c1b6e359995' SYNC_CURRENT='1294c8fb8e2e8454a8249c7feea048ae293850286a165b05be91ef6a53b8b04a' SYNC_V6='88007cc079c429d60b14183f98de1adc88812b7e93d57c9c06dc5624d96ec766' STAGE5_CURRENT='b4b93b0edc6e864bafeed77a1b019426c09ce88834d84edf000568bf0abb2cb0' STAGE5_V4='13ba611f000c344d7ae61fcc9e40304231168f1d9ad0f0236f9182af26ec2e37' STAGE6_RECON='b6d272a2203f860b40a56a1feb0e4533656cee54b60b18022797687fe1eba026' URL64='$URL64' TOK64='$TOK64' bash -s"             <<'REMOTE' | tee RESULT_SYNC_HOTFIX_V6.txt
           set -eEuo pipefail
 
           if [ "$(id -u)" -eq 0 ]; then
@@ -114,13 +119,16 @@ jobs:
           F24="$CUR/futbol24_client.py"
           SYNC="$CUR/cloud_incremental_result_sync.py"
           STAGE5="$CUR/cloud_stage5_cycle.py"
+          STAGE6_WRAPPER="$CUR/cloud_stage6_publish_reconciled.py"
           F24_PATCH="/tmp/futbol24_client_DATE_IDENTITY_V6.py"
           SYNC_PATCH="/tmp/cloud_incremental_result_sync_IDENTITY_V6.py"
           STAGE5_PATCH="/tmp/cloud_stage5_cycle_SCOPE_FAIR_V4.py"
+          STAGE6_PATCH="/tmp/cloud_stage6_publish_RECON_V13.py"
           STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
           F24_BAK="$CUR/futbol24_client.py.PRE_RESULT_SYNC_V6_$STAMP"
           SYNC_BAK="$CUR/cloud_incremental_result_sync.py.PRE_IDENTITY_V6_$STAMP"
           STAGE5_BAK="$CUR/cloud_stage5_cycle.py.PRE_RESULT_SYNC_V6_$STAMP"
+          STAGE6_BAK="$CUR/cloud_stage6_publish_reconciled.py.PRE_RESULT_SYNC_V6_$STAMP"
           DB_BAK="/var/lib/oddshunter/data/oddshunter.db.PRE_RESULT_SYNC_V6_$STAMP"
 
           URL="$(printf '%s' "$URL64" | base64 -d)"
@@ -135,6 +143,13 @@ jobs:
           GOT_F24="$(sha256sum "$F24" | awk '{print $1}')"
           GOT_SYNC="$(sha256sum "$SYNC" | awk '{print $1}')"
           GOT_STAGE5="$(sha256sum "$STAGE5" | awk '{print $1}')"
+          if [ -f "$STAGE6_WRAPPER" ]; then
+            GOT_STAGE6="$(sha256sum "$STAGE6_WRAPPER" | awk '{print $1}')"
+            if [ "$GOT_STAGE6" != "$STAGE6_RECON" ]; then
+              echo "STAGE6_WRAPPER_SOURCE_DRIFT=YES"
+              exit 24
+            fi
+          fi
 
           if [ "$GOT_F24" != "$F24_CURRENT" ] && [ "$GOT_F24" != "$F24_V6" ]; then
             echo "F24_SOURCE_DRIFT=YES"
@@ -160,6 +175,11 @@ jobs:
           $SUDO cp -a "$F24" "$F24_BAK"
           $SUDO cp -a "$SYNC" "$SYNC_BAK"
           $SUDO cp -a "$STAGE5" "$STAGE5_BAK"
+          STAGE6_WRAPPER_HAD=0
+          if [ -f "$STAGE6_WRAPPER" ]; then
+            $SUDO cp -a "$STAGE6_WRAPPER" "$STAGE6_BAK"
+            STAGE6_WRAPPER_HAD=1
+          fi
           $SUDO cp -a "$DB" "$DB_BAK"
           echo "F24_BACKUP=$F24_BAK"
           echo "SYNC_BACKUP=$SYNC_BAK"
@@ -172,6 +192,11 @@ jobs:
             $SUDO cp -a "$F24_BAK" "$F24" || true
             $SUDO cp -a "$SYNC_BAK" "$SYNC" || true
             $SUDO cp -a "$STAGE5_BAK" "$STAGE5" || true
+            if [ "$STAGE6_WRAPPER_HAD" -eq 1 ]; then
+              $SUDO cp -a "$STAGE6_BAK" "$STAGE6_WRAPPER" || true
+            else
+              $SUDO rm -f "$STAGE6_WRAPPER" || true
+            fi
             $SUDO cp -a "$DB_BAK" "$DB" || true
             $SUDO chown oddshunter:oddshunter "$DB" || true
             $SUDO systemctl restart oddshunter.service || true
@@ -370,7 +395,12 @@ jobs:
 
           echo
           echo "========== STAGE6 -> TURSO =========="
-          if $SUDO -u oddshunter env             TURSO_DATABASE_URL="$URL"             TURSO_AUTH_TOKEN="$TOK"             ODDSHUNTER_STAGE6_ALLOW_TURSO_WRITE=1             ODDSHUNTER_DISABLE_TRAINING=1             "$PY" -u cloud_stage6_publish.py             > /tmp/stage6_result_sync_v6.log 2>&1; then
+          $SUDO install -o root -g root -m 0644 "$STAGE6_PATCH" "$STAGE6_WRAPPER"
+          test "$(sha256sum "$STAGE6_WRAPPER" | awk '{print $1}')" = "$STAGE6_RECON"
+          $SUDO -u oddshunter "$PY" -m py_compile "$STAGE6_WRAPPER"
+          echo "STAGE6_RECONCILIATION_INSTALL=PASS"
+
+          if $SUDO -u oddshunter env             TURSO_DATABASE_URL="$URL"             TURSO_AUTH_TOKEN="$TOK"             ODDSHUNTER_STAGE6_ALLOW_TURSO_WRITE=1             ODDSHUNTER_DISABLE_TRAINING=1             "$PY" -u "$STAGE6_WRAPPER"             > /tmp/stage6_result_sync_v6.log 2>&1; then
             STAGE6_RC=0
           else
             STAGE6_RC=$?
@@ -392,6 +422,12 @@ jobs:
 
           wanted={16596,29312,29332}
           core=d.get("core_meta") or {}
+          reconciliation=core.get("stats_reconciliation") or {}
+          print("STATS_RECONCILIATION =",reconciliation)
+          if reconciliation.get("delete_invoked") is not False:
+              raise SystemExit("TURSO_STATS_RECONCILIATION_DELETE_POLICY_FAIL")
+          if reconciliation.get("remote_only_rows") != 0:
+              raise SystemExit("TURSO_STATS_RECONCILIATION_REMOTE_ONLY_ROWS")
           published={int(x) for x in (core.get("published_match_ids") or [])}
           print("PUBLISHED_MATCH_IDS =",sorted(published))
           print("WANTED_MATCH_IDS =",sorted(wanted))
@@ -457,6 +493,8 @@ jobs:
           grep -q "RESULT_SYNC_IDENTITY_V6=PASS" RESULT_SYNC_HOTFIX_V6.txt
           grep -q "STAGE5_SAME_RUN_GATE=PASS" RESULT_SYNC_HOTFIX_V6.txt
           grep -q "THREE_RESULTS_SQLITE=PASS" RESULT_SYNC_HOTFIX_V6.txt
+          grep -q "STAGE6_STATS_RECONCILIATION" RESULT_SYNC_HOTFIX_V6.txt
+          grep -q "STAGE6_RECONCILIATION_INSTALL=PASS" RESULT_SYNC_HOTFIX_V6.txt
           grep -q "TURSO_THREE_RESULTS_GATE=PASS" RESULT_SYNC_HOTFIX_V6.txt
           grep -q "SERVICE_RESTART=PASS" RESULT_SYNC_HOTFIX_V6.txt
           grep -q "V6_SERVER_SIDE=PASS" RESULT_SYNC_HOTFIX_V6.txt
