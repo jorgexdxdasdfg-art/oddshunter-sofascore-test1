@@ -397,7 +397,12 @@ jobs:
           echo "========== STAGE6 -> TURSO =========="
           $SUDO install -o root -g root -m 0644 "$STAGE6_PATCH" "$STAGE6_WRAPPER"
           test "$(sha256sum "$STAGE6_WRAPPER" | awk '{print $1}')" = "$STAGE6_RECON"
-          $SUDO -u oddshunter "$PY" -m py_compile "$STAGE6_WRAPPER"
+          $SUDO -u oddshunter "$PY" - "$STAGE6_WRAPPER" <<'PY'
+          from pathlib import Path
+          import sys
+          p=Path(sys.argv[1])
+          compile(p.read_text(encoding="utf-8"), str(p), "exec")
+          PY
           echo "STAGE6_RECONCILIATION_INSTALL=PASS"
 
           if $SUDO -u oddshunter env             TURSO_DATABASE_URL="$URL"             TURSO_AUTH_TOKEN="$TOK"             ODDSHUNTER_STAGE6_ALLOW_TURSO_WRITE=1             ODDSHUNTER_DISABLE_TRAINING=1             "$PY" -u "$STAGE6_WRAPPER"             > /tmp/stage6_result_sync_v6.log 2>&1; then
