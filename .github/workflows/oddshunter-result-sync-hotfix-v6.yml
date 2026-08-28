@@ -94,7 +94,7 @@ jobs:
           URL64="$(printf '%s' "$TURSO_DATABASE_URL" | base64 -w0)"
           TOK64="$(printf '%s' "$TURSO_AUTH_TOKEN" | base64 -w0)"
 
-          ssh -i ~/.ssh/oddshunter_v6 -p "$VPS_PORT"             -o BatchMode=yes -o StrictHostKeyChecking=yes             "$VPS_USER@$VPS_HOST"             "F24_CURRENT='fece33b2d3bee6a1ddd00121e6ae6310724c0095b85493452edb7c9681e38fd0' F24_V6='0e7d6829c829ecd5278af10c3388a36319b7be9f7beab0ac0f759c1b6e359995' STAGE5_CURRENT='b4b93b0edc6e864bafeed77a1b019426c09ce88834d84edf000568bf0abb2cb0' STAGE5_V4='13ba611f000c344d7ae61fcc9e40304231168f1d9ad0f0236f9182af26ec2e37' URL64='$URL64' TOK64='$TOK64' bash -s"             <<'REMOTE' | tee RESULT_SYNC_HOTFIX_V6.txt
+          ssh -i ~/.ssh/oddshunter_v6 -p "$VPS_PORT"             -o BatchMode=yes -o StrictHostKeyChecking=yes             "$VPS_USER@$VPS_HOST"             "F24_CURRENT='d8d46c0f7454fd41ea559f97189cb01f870043e9d7640f4f7dac14202e6fc286' F24_V6='0e7d6829c829ecd5278af10c3388a36319b7be9f7beab0ac0f759c1b6e359995' STAGE5_CURRENT='b4b93b0edc6e864bafeed77a1b019426c09ce88834d84edf000568bf0abb2cb0' STAGE5_V4='13ba611f000c344d7ae61fcc9e40304231168f1d9ad0f0236f9182af26ec2e37' URL64='$URL64' TOK64='$TOK64' bash -s"             <<'REMOTE' | tee RESULT_SYNC_HOTFIX_V6.txt
           set -euo pipefail
 
           if [ "$(id -u)" -eq 0 ]; then
