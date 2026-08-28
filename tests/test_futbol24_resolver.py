@@ -162,6 +162,14 @@ class ResolverTests(unittest.TestCase):
             "row = _schedule_row(key, event_id) or _db_row(event_id)",
             source,
         )
+        for field in (
+            "l.name AS competition_name",
+            "l.country AS competition_country",
+            "m.season AS season_name",
+            "l.source_tournament_id AS competition_id",
+            "l.source_season_id AS season_id",
+        ):
+            self.assertIn(field, source)
 
 
 if __name__ == "__main__":

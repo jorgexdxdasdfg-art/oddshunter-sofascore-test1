@@ -97,11 +97,17 @@ def _db_row(event_id: int) -> dict[str, Any] | None:
                 m.home_goals,
                 m.away_goals,
                 m.status,
+                l.name AS competition_name,
+                l.country AS competition_country,
+                m.season AS season_name,
+                l.source_tournament_id AS competition_id,
+                l.source_season_id AS season_id,
                 h.sofascore_id AS home_team_id,
                 h.name AS home_team,
                 a.sofascore_id AS away_team_id,
                 a.name AS away_team
             FROM matches AS m
+            JOIN leagues AS l ON l.league_id=m.league_id
             JOIN teams AS h ON h.team_id=m.home_team_id
             JOIN teams AS a ON a.team_id=m.away_team_id
             WHERE m.sofascore_id=?
@@ -161,7 +167,11 @@ def load_match(competition: dict[str, Any], event_id: int) -> dict[str, Any]:
                 or ""
             ),
             "_competition_key": key,
-            "_competition_country": str(competition.get("country") or ""),
+            "_competition_country": str(
+                row.get("competition_country")
+                or competition.get("country")
+                or ""
+            ),
             "_registry_name": str(competition.get("name") or ""),
             "_registry_season": str(
                 competition.get("season_name")
