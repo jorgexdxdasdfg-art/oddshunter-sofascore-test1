@@ -2,6 +2,14 @@ name: OddsHunter LIVE STATUS DEPLOY V1
 
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - cloud_live_status_sync.py
+      - deploy/oddshunter-live-sync.service
+      - deploy/oddshunter-live-sync.timer
+      - tests/test_cloud_live_status_sync.py
+      - .github/workflows/oddshunter-live-status-deploy-v1.yml
 
 permissions:
   contents: read
