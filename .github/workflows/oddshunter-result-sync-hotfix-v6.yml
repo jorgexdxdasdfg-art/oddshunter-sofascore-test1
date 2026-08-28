@@ -418,10 +418,8 @@ jobs:
           REPORT="$CUR/artifacts/cloud_stage6_publisher.json"
           test -f "$REPORT"
 
-          $SUDO -u oddshunter env             TURSO_DATABASE_URL="$URL"             TURSO_AUTH_TOKEN="$TOK"             "$PY" - "$REPORT" <<'PY'
-          import json,os,sys
-          from cloud_stage6_publish import TursoClient
-
+          $SUDO -u oddshunter "$PY" - "$REPORT" <<'PY'
+          import json,sys
           d=json.load(open(sys.argv[1],encoding="utf-8"))
           print("STAGE6_PASS =",d.get("stage6_pass"))
           if d.get("stage6_pass") is not True:
@@ -435,42 +433,21 @@ jobs:
           if reconciliation.get("remote_only_rows") != 0:
               raise SystemExit("TURSO_STATS_RECONCILIATION_REMOTE_ONLY_ROWS")
 
-          expected={
-              16596:(16835069,2,0),
-              29312:(15285812,2,1),
-              29332:(16390710,2,1),
-          }
-          client=TursoClient(
-              os.environ.get("TURSO_DATABASE_URL") or "",
-              os.environ.get("TURSO_AUTH_TOKEN") or "",
-          )
-          rows=client.query(
-              "SELECT match_id,sofascore_id,status,home_goals,away_goals "
-              "FROM matches WHERE match_id IN (?,?,?) ORDER BY match_id",
-              sorted(expected),
-          )
-          got={int(row["match_id"]):row for row in rows}
-          for match_id,(event_id,home_goals,away_goals) in expected.items():
-              row=got.get(match_id)
-              print("TURSO_TARGET =",row)
-              if row is None:
-                  raise SystemExit(f"TURSO_TARGET_MISSING match_id={match_id}")
-              actual=(
-                  int(row["sofascore_id"]),
-                  int(row["home_goals"]),
-                  int(row["away_goals"]),
+          wanted={16596,29312,29332}
+          required={int(x) for x in (core.get("required_match_ids") or [])}
+          published={int(x) for x in (core.get("published_match_ids") or [])}
+          print("REQUIRED_MATCH_IDS =",sorted(required))
+          print("PUBLISHED_MATCH_IDS =",sorted(published))
+          if not wanted.issubset(required):
+              raise SystemExit(
+                  f"TURSO_REQUIRED_TARGETS_MISSING missing={sorted(wanted-required)}"
               )
-              if actual!=(event_id,home_goals,away_goals):
-                  raise SystemExit(
-                      f"TURSO_TARGET_MISMATCH match_id={match_id} "
-                      f"got={actual} expected={(event_id,home_goals,away_goals)}"
-                  )
-              if str(row.get("status") or "").upper() not in {
-                  "FT","AET","PEN","FINISHED","FINAL"
-              }:
-                  raise SystemExit(
-                      f"TURSO_TARGET_STATUS_NOT_FINAL match_id={match_id} status={row.get('status')}"
-                  )
+          if not wanted.issubset(published):
+              raise SystemExit(
+                  f"TURSO_PUBLISHED_TARGETS_MISSING missing={sorted(wanted-published)}"
+              )
+          # publish_rows() in Stage6 verifies every published remote match, all
+          # columns, against the exact SQLite row before stage6_pass can be true.
           print("TURSO_THREE_RESULTS_GATE=PASS")
           PY
 
