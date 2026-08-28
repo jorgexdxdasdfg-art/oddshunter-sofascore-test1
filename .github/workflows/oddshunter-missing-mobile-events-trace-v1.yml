@@ -1,0 +1,244 @@
+name: OddsHunter Missing Mobile Events TRACE V1
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  trace:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Preparar SSH
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_SSH_PRIVATE_KEY: ${{ secrets.VPS_SSH_PRIVATE_KEY }}
+          VPS_PORT_SECRET: ${{ secrets.VPS_PORT }}
+        run: |
+          set -euo pipefail
+          test -n "${VPS_HOST:-}"
+          test -n "${VPS_SSH_PRIVATE_KEY:-}"
+
+          PORT="${VPS_PORT_SECRET:-22}"
+          echo "VPS_PORT=$PORT" >> "$GITHUB_ENV"
+
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "$VPS_SSH_PRIVATE_KEY" > ~/.ssh/oddshunter_trace
+          chmod 600 ~/.ssh/oddshunter_trace
+          ssh-keygen -y -f ~/.ssh/oddshunter_trace >/dev/null
+          ssh-keyscan -p "$PORT" -H "$VPS_HOST" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+
+          echo "SSH_PREP=PASS"
+
+      - name: Buscar los 3 eventos y exportar runtime necesario
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+        run: |
+          set -euo pipefail
+          test -n "${VPS_USER:-}"
+
+          mkdir -p trace_output
+
+          ssh \
+            -i ~/.ssh/oddshunter_trace \
+            -p "$VPS_PORT" \
+            -o BatchMode=yes \
+            -o StrictHostKeyChecking=yes \
+            "$VPS_USER@$VPS_HOST" 'bash -s' <<'REMOTE' | tee trace_output/TARGET_PRESENCE.txt
+          set -u
+
+          CURRENT_DIR="$(readlink -f /opt/oddshunter/current)"
+          DB="$CURRENT_DIR/data/oddshunter.db"
+
+          echo "================================================================"
+          echo "ODDSHUNTER MISSING MOBILE EVENTS TRACE V1 - READ ONLY"
+          echo "================================================================"
+          echo "CURRENT_DIR=$CURRENT_DIR"
+          echo "DB=$DB"
+
+          echo
+          echo "========== SERVICE =========="
+          if [ "$(id -u)" -eq 0 ]; then SUDO=""; else SUDO="sudo -n"; fi
+          $SUDO systemctl is-active oddshunter.service || true
+          $SUDO systemctl show oddshunter.service \
+            -p ActiveState -p SubState -p MainPID -p NRestarts --no-pager || true
+
+          echo
+          echo "========== TARGETS IN SQLITE - ALL EVENT-ID-LIKE TABLES =========="
+          "$CURRENT_DIR/.venv-cloud/bin/python" - "$DB" <<'PY'
+          import sqlite3, sys, json
+          db=sys.argv[1]
+          targets=(16835069,15285812,16390710)
+          con=sqlite3.connect(db)
+          con.row_factory=sqlite3.Row
+
+          print("quick_check =", con.execute("PRAGMA quick_check").fetchone()[0])
+          print("foreign_key_errors =", len(con.execute("PRAGMA foreign_key_check").fetchall()))
+
+          tables=[r[0] for r in con.execute(
+              "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
+          )]
+          print("tables =", len(tables))
+
+          hit_total=0
+          for table in tables:
+              try:
+                  cols=[r[1] for r in con.execute(f'PRAGMA table_info("{table}")')]
+              except Exception:
+                  continue
+              event_cols=[c for c in cols if c.lower() in {
+                  "sofascore_id","event_id","source_event_id","provider_event_id"
+              }]
+              for col in event_cols:
+                  placeholders=",".join("?" for _ in targets)
+                  try:
+                      rows=con.execute(
+                          f'SELECT * FROM "{table}" WHERE "{col}" IN ({placeholders}) LIMIT 50',
+                          targets
+                      ).fetchall()
+                  except Exception as exc:
+                      print("QUERY_ERROR", table, col, type(exc).__name__, exc)
+                      continue
+                  if rows:
+                      hit_total += len(rows)
+                      print(f"\nTABLE={table} COLUMN={col} HITS={len(rows)}")
+                      for row in rows:
+                          print(json.dumps(dict(row), ensure_ascii=False, default=str))
+
+          print("\nSQLITE_TARGET_HITS_TOTAL =", hit_total)
+          con.close()
+          PY
+
+          echo
+          echo "========== TARGET IDS IN RELEASE FILES =========="
+          for ID in 16835069 15285812 16390710; do
+            echo
+            echo "----- EVENT_ID=$ID -----"
+            grep -RIl \
+              --exclude='*.db' \
+              --exclude='*.db-*' \
+              --exclude='*.zip' \
+              --exclude='*.png' \
+              --exclude='*.jpg' \
+              --exclude='*.jpeg' \
+              --exclude='*.webp' \
+              --exclude='*.pyc' \
+              --exclude-dir='.venv-cloud' \
+              --exclude-dir='__pycache__' \
+              "$ID" \
+              "$CURRENT_DIR/data" \
+              "$CURRENT_DIR/artifacts" \
+              2>/dev/null | head -n 50 || true
+          done
+
+          echo
+          echo "========== TARGET IDS IN UPCOMING CATALOGS WITH CONTEXT =========="
+          "$CURRENT_DIR/.venv-cloud/bin/python" - "$CURRENT_DIR" <<'PY'
+          from pathlib import Path
+          import json, sys
+
+          root=Path(sys.argv[1])
+          targets={16835069,15285812,16390710}
+
+          def walk(obj, path="$"):
+              if isinstance(obj, dict):
+                  eid=None
+                  for k in ("event_id","sofascore_id","id"):
+                      try:
+                          v=obj.get(k)
+                          if v is not None and int(v) in targets:
+                              eid=int(v)
+                              break
+                      except Exception:
+                          pass
+                  if eid is not None:
+                      yield eid, obj
+                  for k,v in obj.items():
+                      yield from walk(v, f"{path}.{k}")
+              elif isinstance(obj, list):
+                  for i,v in enumerate(obj):
+                      yield from walk(v, f"{path}[{i}]")
+
+          files=list((root/"data"/"competitions").glob("*/matches_upcoming.json"))
+          files += list((root/"data"/"competitions").glob("*/next_match_by_team.json"))
+          print("catalog_files_scanned =", len(files))
+
+          hits=0
+          for p in files:
+              try:
+                  data=json.loads(p.read_text(encoding="utf-8-sig"))
+              except Exception:
+                  continue
+              seen=set()
+              for eid,obj in walk(data):
+                  key=(eid, json.dumps(obj, sort_keys=True, ensure_ascii=False, default=str))
+                  if key in seen:
+                      continue
+                  seen.add(key)
+                  hits += 1
+                  print("\nFILE =", p)
+                  print("EVENT_ID =", eid)
+                  print(json.dumps(obj, ensure_ascii=False, indent=2, default=str))
+          print("\nCATALOG_TARGET_HITS =", hits)
+          PY
+
+          echo
+          echo "========== CURRENT SOURCE SHAS =========="
+          for F in \
+            cloud_stage5_cycle.py \
+            cloud_incremental_result_sync.py \
+            cloud_stage6_publish.py \
+            cloud_stage8_daemon.py
+          do
+            P="$CURRENT_DIR/$F"
+            if [ -f "$P" ]; then
+              sha256sum "$P"
+            else
+              echo "MISSING $P"
+            fi
+          done
+
+          echo
+          echo "TRACE_DONE=YES"
+          REMOTE
+
+          CURRENT_REMOTE="$(ssh \
+            -i ~/.ssh/oddshunter_trace \
+            -p "$VPS_PORT" \
+            -o BatchMode=yes \
+            -o StrictHostKeyChecking=yes \
+            "$VPS_USER@$VPS_HOST" 'readlink -f /opt/oddshunter/current')"
+
+          for F in cloud_incremental_result_sync.py cloud_stage6_publish.py cloud_stage8_daemon.py; do
+            scp \
+              -i ~/.ssh/oddshunter_trace \
+              -P "$VPS_PORT" \
+              -o BatchMode=yes \
+              -o StrictHostKeyChecking=yes \
+              "$VPS_USER@$VPS_HOST:$CURRENT_REMOTE/$F" \
+              "trace_output/$F" || true
+          done
+
+          echo "EXPORT_RUNTIME=PASS"
+
+      - name: Subir evidencia
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: oddshunter-missing-mobile-events-trace-v1
+          path: trace_output/
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Gate final
+        if: always()
+        run: |
+          test -f trace_output/TARGET_PRESENCE.txt
+          grep -q "TRACE_DONE=YES" trace_output/TARGET_PRESENCE.txt
+          echo "FINAL=PASS_MISSING_MOBILE_EVENTS_TRACE_V1"
