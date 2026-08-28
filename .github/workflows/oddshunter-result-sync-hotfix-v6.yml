@@ -219,10 +219,11 @@ jobs:
             echo "DIRECT_SYNC_V6 key=$KEY event_id=$EID"
             echo "================================================================"
 
-            set +e
-            $SUDO -u oddshunter env               ODDSHUNTER_RUNTIME_MODE="$ODDSHUNTER_RUNTIME_MODE"               ODDSHUNTER_ALLOW_WORK_DB_WRITE="$ODDSHUNTER_ALLOW_WORK_DB_WRITE"               ODDSHUNTER_DISABLE_TRAINING="$ODDSHUNTER_DISABLE_TRAINING"               ODDSHUNTER_BROWSER_HEADLESS="$ODDSHUNTER_BROWSER_HEADLESS"               ODDSHUNTER_CHROMIUM_SANDBOX="$ODDSHUNTER_CHROMIUM_SANDBOX"               ODDSHUNTER_FLASHSCORE_MAX_MATCHES_PER_CYCLE="$ODDSHUNTER_FLASHSCORE_MAX_MATCHES_PER_CYCLE"               "$PY" -u cloud_incremental_result_sync.py               --key "$KEY"               --event-id "$EID"               > "/tmp/direct_v6_$EID.log" 2>&1
-            RC=$?
-            set -e
+            if $SUDO -u oddshunter env               ODDSHUNTER_RUNTIME_MODE="$ODDSHUNTER_RUNTIME_MODE"               ODDSHUNTER_ALLOW_WORK_DB_WRITE="$ODDSHUNTER_ALLOW_WORK_DB_WRITE"               ODDSHUNTER_DISABLE_TRAINING="$ODDSHUNTER_DISABLE_TRAINING"               ODDSHUNTER_BROWSER_HEADLESS="$ODDSHUNTER_BROWSER_HEADLESS"               ODDSHUNTER_CHROMIUM_SANDBOX="$ODDSHUNTER_CHROMIUM_SANDBOX"               ODDSHUNTER_FLASHSCORE_MAX_MATCHES_PER_CYCLE="$ODDSHUNTER_FLASHSCORE_MAX_MATCHES_PER_CYCLE"               "$PY" -u cloud_incremental_result_sync.py               --key "$KEY"               --event-id "$EID"               > "/tmp/direct_v6_$EID.log" 2>&1; then
+              RC=0
+            else
+              RC=$?
+            fi
 
             cat "/tmp/direct_v6_$EID.log"
             echo "DIRECT_SYNC_PROCESS_RC event_id=$EID rc=$RC"
