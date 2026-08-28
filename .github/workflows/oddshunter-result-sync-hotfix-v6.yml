@@ -339,9 +339,15 @@ jobs:
 
           echo
           echo "========== STAGE6 -> TURSO =========="
-          $SUDO -u oddshunter env             TURSO_DATABASE_URL="$URL"             TURSO_AUTH_TOKEN="$TOK"             ODDSHUNTER_STAGE6_ALLOW_TURSO_WRITE=1             ODDSHUNTER_DISABLE_TRAINING=1             "$PY" -u cloud_stage6_publish.py             > /tmp/stage6_result_sync_v6.log 2>&1
+          if $SUDO -u oddshunter env             TURSO_DATABASE_URL="$URL"             TURSO_AUTH_TOKEN="$TOK"             ODDSHUNTER_STAGE6_ALLOW_TURSO_WRITE=1             ODDSHUNTER_DISABLE_TRAINING=1             "$PY" -u cloud_stage6_publish.py             > /tmp/stage6_result_sync_v6.log 2>&1; then
+            STAGE6_RC=0
+          else
+            STAGE6_RC=$?
+          fi
 
           cat /tmp/stage6_result_sync_v6.log
+          echo "STAGE6_PROCESS_RC=$STAGE6_RC"
+          test "$STAGE6_RC" -eq 0
 
           REPORT="$CUR/artifacts/cloud_stage6_publisher.json"
           test -f "$REPORT"
