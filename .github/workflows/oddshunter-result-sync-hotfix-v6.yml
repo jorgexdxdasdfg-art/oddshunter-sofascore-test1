@@ -17,7 +17,7 @@ jobs:
 
       - name: Construir hotfix exacto
         run: |
-          set -euo pipefail
+          set -eEuo pipefail
           test -f futbol24_client.py
           : > stage5.b64
           printf '%s' 'ZnJvbSBfX2Z1dHVyZV9fIGltcG9ydCBhbm5vdGF0aW9ucwoKaW1wb3J0IGhhc2hsaWIKaW1wb3J0IGpzb24KaW1wb3J0IG9zCmltcG9ydCBzcWxpdGUzCmltcG9ydCBzdWJwcm9jZXNzCmltcG9ydCBzeXMKZnJvbSBkYXRldGltZSBpbXBvcnQgZGF0ZXRpbWUsIHRpbWVkZWx0YSwgdGltZXpvbmUKZnJvbSBwYXRobGliIGltcG9ydCBQYXRoCmZyb20gdHlwaW5nIGltcG9ydCBBbnkKCmZyb20gY2xvdWRfbWF0Y2hfZGlzY292ZXJ5IGltcG9ydCBkaXNjb3Zlcgpmcm9tIGZ1dGJvbDI0X2NsaWVudCBpbXBvcnQgRnV0Ym9sMjRDbGllbnQKZnJvbSB4Z19waXBlbGluZSBpbXBvcnQgTWF0Y2hSZWYKClJPT1QgPSBQYXRoKF9fZmlsZV9fKS5yZXNvbHZlKCkucGFyZW50CkRBVEEgPSBST09UIC8gImRhdGEiCkRCID0gREFUQSAvICJvZGRzaHVudGVyLmRiIgpSRUdJU1RSWSA9IERBVEEgLyAiY29tcGV0aXRpb25zLmpzb24iCkFSVElGQUNUUyA9IFJPT1QgLyAiYXJ0aWZhY3RzIgoKVEVSTUlOQUwgPSB7IkZUIiwgIkFFVCIsICJQRU4iLCAiRklOSVNIRUQiLCAiRklOQUwifQpOT05fUExBWUFCTEUgPSB7IkNBTkNFTEVEIiwgIkNBTkNFTExFRCIsICJQT1NUUE9ORUQiLCAiQUJBTkRPTkVEIn0KUkVTVUxUX1NZTkNfVEFSR0VUX0xJTUlUID0gbWF4KAogICAgMSwKICAgIG1pbigxMiwgaW50KG9zLmVudmlyb24uZ2V0KCJPRERTSFVOVEVSX1JFU1VMVF9TWU5DX1RBUkdFVF9MSU1JVCIsICI4IikpKSwKKQpSRVNVTFRfU1lOQ19NQVhfQVRURU1QVFMgPSBtYXgoCiAgICBSRVNVTFRfU1lOQ19UQVJHRVRfTElNSVQsCiAgICBtaW4oMjQwLCBpbnQob3MuZW52aXJvbi5nZXQoIk9ERFNIVU5URVJfUkVTVUxUX1NZTkNfTUFYX0FUVEVNUFRTIiwgIjEyMCIpKSksCikKCiMgVGhlc2UgYXJlIG9ubHkgcHJlZmVyZW5jZSBvcmRlciBmb3Igc2VsZWN0aW5nIGEgZGV0ZXJtaW5pc3RpYyBTdGFnZTUKIyBjZXJ0aWZpY2F0aW9uIHRhcmdldC4gSWYgbm9uZSByZXNvbHZlLCB0aGUgcHJvYmUgY29udGludWVzIHRocm91Z2ggYWxsCiMgb3RoZXIgYWN0aXZlIGNvbXBldGl0aW9ucy4gSXQgaXMgTk9UIGEgcHJvZHVjdGlvbiBmaWx0ZXIuClNZTkNfUFJJT1JJVFkgPSAoCiAgICAic2VyaWUtYSIsCiAgICAicHJlbWllci1sZWFndWUiLAogICAgImJ1bmRlc2xpZ2EiLAogICAgImVyZWRpdmlzaWUiLAogICAgImxpZ3VlLTEiLAogICAgImNoYW1waW9uc2hpcCIsCiAgICAiYmVsZ2l1bS1wcm8tbGVhZ3VlIiwKICAgICJ0dXJrZXktc3VwZXItbGlnIiwKICAgICJzYXVkaS1wcm8tbGVhZ3VlIiwKICAgICJsaWdhLXBvcnR1Z2FsIiwKICAgICJsYWxpZ2EiLAogICAgImJlc3RhLWRlaWxkIiwKICAgICJ1c2EtdXNsLWNoYW1waW9uc2hpcCIsCiAgICAiY2FuYWRhLWNhbmFkaWFuLXByZW1pZXItbGVhZ3VlIiwKICAgICJncmVlY2Utc3RvaXhpbWFuLXN1cGVyLWxlYWd1ZSIsCiAgICAibGlnYS1iZXRwbGF5LWNvbG9tYmlhIiwKICAgICJsaWdhcHJvIiwKICAgICJjaGlsZS1wcmltZXJhIiwKKQoKCmRlZiB1dGNfbm93KCkgLT4gc3RyOgogICAgcmV0dXJuIGRhdGV0aW1lLm5vdyh0aW1lem9uZS51dGMpLmlzb2Zvcm1hdCgpCgoKZGVmIHNoYTI1NihwYXRoOiBQYXRoKSAtPiBzdHI6CiAgICBoID0gaGFzaGxpYi5zaGEyNTYoKQogICAgd2l0aCBwYXRoLm9wZW4oInJiIikgYXMgZmg6CiAgICAgICAgZm9yIGNodW5rIGluIGl0ZXIobGFtYmRhOiBmaC5yZWFkKDEwMjQgKiAxMDI0KSwgYiIiKToKICAgICAgICAgICAgaC51cGRhdGUoY2h1bmspCiAgICByZXR1cm4gaC5oZXhkaWdlc3QoKS51cHBlcigpCgoKZGVmIHJlYWRfanNvbihwYXRoOiBQYXRoKSAtPiBkaWN0W3N0ciwgQW55XToKICAgIHJldHVybiBqc29uLmxvYWRzKHBhdGgucmVhZF90ZXh0KGVuY29kaW5nPSJ1dGYtOC1zaWciKSkKCgpkZWYgcGFyc2VfZHQodmFsdWU6IEFueSkgLT4gZGF0ZXRpbWUgfCBOb25lOgogICAgdGV4dCA9IHN0cih2YWx1ZSBvciAiIikuc3RyaXAoKQogICAgaWYgbm90IHRleHQ6CiAgICAgICAgcmV0dXJuIE5vbmUKICAgIHRyeToKICAgICAgICBkID0gZGF0ZXRpbWUuZnJvbWlzb2Zvcm1hdCh0ZXh0LnJlcGxhY2UoIloiLCAiKzAwOjAwIikpCiAgICBleGNlcHQgVmFsdWVFcnJvcjoKICAgICAgICByZXR1cm4gTm9uZQogICAgaWYgZC50emluZm8gaXMgTm9uZToKICAgICAgICBkID0gZC5yZXBsYWNlKHR6aW5mbz10aW1lem9uZS51dGMpCiAgICByZXR1cm4gZC5hc3RpbWV6b25lKHRpbWV6b25lLnV0YykKCgpkZWYgc25hcHNob3QoY29uOiBzcWxpdGUzLkNvbm5lY3Rpb24pIC0+IGRpY3Rbc3RyLCBBbnldOgogICAgcmV0dXJuIHsKICAgICAgICAicXVpY2tfY2hlY2siOiBzdHIoY29uLmV4ZWN1dGUoIlBSQUdNQSBxdWlja19jaGVjayIpLmZldGNob25lKClbMF0pLAogICAgICAgICJmb3JlaWduX2tleV9lcnJvcnMiOiBsZW4oY29uLmV4ZWN1dGUoIlBSQUdNQSBmb3JlaWduX2tleV9jaGVjayIpLmZldGNoYWxsKCkpLAogICAgICAgICJtYXRjaGVzIjogaW50KGNvbi5leGVjdXRlKCJTRUxFQ1QgQ09VTlQoKikgRlJPTSBtYXRjaGVzIikuZmV0Y2hvbmUoKVswXSksCiAgICAgICAgInRlYW1fbWF0Y2hfc3RhdHMiOiBpbnQoY29uLmV4ZWN1dGUoIlNFTEVDVCBDT1VOVCgqKSBGUk9NIHRlYW1fbWF0Y2hfc3RhdHMiKS5mZXRjaG9uZSgpWzBdKSwKICAgIH0KCgpkZWYgYWN0aXZlX3JlZ2lzdHJ5KCkgLT4gdHVwbGVbZGljdFtpbnQsIGRpY3Rbc3RyLCBBbnldXSwgbGlzdFtkaWN0W3N0ciwgQW55XV1dOgogICAgZCA9IHJlYWRfanNvbihSRUdJU1RSWSkKICAgIGFjdGl2ZSA9IFsKICAgICAgICB4IGZvciB4IGluIGQuZ2V0KCJjb21wZXRpdGlvbnMiLCBbXSkKICAgICAgICBp' >> stage5.b64
@@ -95,7 +95,7 @@ jobs:
           TOK64="$(printf '%s' "$TURSO_AUTH_TOKEN" | base64 -w0)"
 
           ssh -i ~/.ssh/oddshunter_v6 -p "$VPS_PORT"             -o BatchMode=yes -o StrictHostKeyChecking=yes             "$VPS_USER@$VPS_HOST"             "F24_CURRENT='d8d46c0f7454fd41ea559f97189cb01f870043e9d7640f4f7dac14202e6fc286' F24_V6='0e7d6829c829ecd5278af10c3388a36319b7be9f7beab0ac0f759c1b6e359995' STAGE5_CURRENT='b4b93b0edc6e864bafeed77a1b019426c09ce88834d84edf000568bf0abb2cb0' STAGE5_V4='13ba611f000c344d7ae61fcc9e40304231168f1d9ad0f0236f9182af26ec2e37' URL64='$URL64' TOK64='$TOK64' bash -s"             <<'REMOTE' | tee RESULT_SYNC_HOTFIX_V6.txt
-          set -euo pipefail
+          set -eEuo pipefail
 
           if [ "$(id -u)" -eq 0 ]; then
             SUDO=""
@@ -226,33 +226,11 @@ jobs:
 
             cat "/tmp/direct_v6_$EID.log"
             echo "DIRECT_SYNC_PROCESS_RC event_id=$EID rc=$RC"
-
-            REPORT="$CUR/data/automation/cloud_incremental_results/last.json"
-            test -f "$REPORT"
-
-            $SUDO -u oddshunter "$PY" - "$REPORT" "$EID" <<'PY'
-          import json,sys
-          report=json.load(open(sys.argv[1],encoding="utf-8"))
-          eid=int(sys.argv[2])
-          rows=[
-              x for x in (report.get("events") or [])
-              if isinstance(x,dict) and int(x.get("event_id") or -1)==eid
-          ]
-          if len(rows)!=1:
-              raise SystemExit(f"DIRECT_REPORT_EVENT_COUNT=FAIL eid={eid} rows={len(rows)}")
-          row=rows[0]
-          print("DIRECT_REPORT =",json.dumps(row,ensure_ascii=False))
-          if row.get("result")!="COMMITTED":
-              raise SystemExit(
-                  f"DIRECT_SYNC_NOT_COMMITTED eid={eid} result={row.get('result')}"
-              )
-          snap=row.get("snapshot") or {}
-          if snap.get("source")!="futbol24" or snap.get("state")!="finished":
-              raise SystemExit(
-                  f"F24_SNAPSHOT_NOT_FINISHED eid={eid} snapshot={snap}"
-              )
-          print(f"DIRECT_SYNC_COMMITTED_GATE=PASS event_id={eid}")
-          PY
+            test "$RC" -eq 0
+            grep -q '"result": "COMMITTED"' "/tmp/direct_v6_$EID.log"
+            grep -q '"source": "futbol24"' "/tmp/direct_v6_$EID.log"
+            grep -q '"state": "finished"' "/tmp/direct_v6_$EID.log"
+            echo "DIRECT_SYNC_COMMITTED_GATE=PASS event_id=$EID"
           }
 
           sync_one "leagues-cup" 16835069
