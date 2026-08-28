@@ -416,7 +416,7 @@ jobs:
           test "$STAGE6_RC" -eq 0
 
           REPORT="$CUR/artifacts/cloud_stage6_publisher.json"
-          test -f "$REPORT"
+          $SUDO -u oddshunter test -f "$REPORT"
 
           $SUDO -u oddshunter "$PY" - "$REPORT" <<'PY'
           import json,sys
