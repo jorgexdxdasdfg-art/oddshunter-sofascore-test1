@@ -481,7 +481,7 @@ jobs:
 
             curl               --fail               --silent               --show-error               --location               --connect-timeout 15               --max-time 45               -H 'Cache-Control: no-cache'               "https://oddshunter-mobile.vercel.app/api/match/$TARGET?cb=$(date +%s%N)"               -o "api_probe_v6/$SAFE.json"
 
-            python3 -m json.tool "api_probe_v6/$SAFE.json" | head -n 160
+            python3 -m json.tool "api_probe_v6/$SAFE.json" | sed -n '1,160p'
           done
 
           echo "API_THREE_ENDPOINTS_HTTP_200=PASS"
