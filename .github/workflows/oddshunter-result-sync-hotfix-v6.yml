@@ -37,7 +37,7 @@ jobs:
           test "$(sha256sum futbol24_client.py | awk '{print $1}')" = "0e7d6829c829ecd5278af10c3388a36319b7be9f7beab0ac0f759c1b6e359995"
           test "$(sha256sum cloud_incremental_result_sync.py | awk '{print $1}')" = "88007cc079c429d60b14183f98de1adc88812b7e93d57c9c06dc5624d96ec766"
           test "$(sha256sum cloud_stage5_cycle.py | awk '{print $1}')" = "13ba611f000c344d7ae61fcc9e40304231168f1d9ad0f0236f9182af26ec2e37"
-          test "$(sha256sum cloud_stage6_publish_reconciled.py | awk '{print $1}')" = "b6d272a2203f860b40a56a1feb0e4533656cee54b60b18022797687fe1eba026"
+          test "$(sha256sum cloud_stage6_publish_reconciled.py | awk '{print $1}')" = "5437acb3dbf169e058abda4f629dc09813b4e1feb74e3026352ca6aef89c3cd9"
 
           python3 - <<'PY'
           from pathlib import Path
@@ -50,7 +50,7 @@ jobs:
           echo "F24_V6_SHA=0e7d6829c829ecd5278af10c3388a36319b7be9f7beab0ac0f759c1b6e359995"
           echo "RESULT_SYNC_V6_SHA=88007cc079c429d60b14183f98de1adc88812b7e93d57c9c06dc5624d96ec766"
           echo "STAGE5_V4_SHA=13ba611f000c344d7ae61fcc9e40304231168f1d9ad0f0236f9182af26ec2e37"
-          echo "STAGE6_RECON_SHA=b6d272a2203f860b40a56a1feb0e4533656cee54b60b18022797687fe1eba026"
+          echo "STAGE6_RECON_SHA=5437acb3dbf169e058abda4f629dc09813b4e1feb74e3026352ca6aef89c3cd9"
           echo "BUILD=PASS"
 
       - name: Preparar SSH
@@ -104,7 +104,7 @@ jobs:
           URL64="$(printf '%s' "$TURSO_DATABASE_URL" | base64 -w0)"
           TOK64="$(printf '%s' "$TURSO_AUTH_TOKEN" | base64 -w0)"
 
-          ssh -i ~/.ssh/oddshunter_v6 -p "$VPS_PORT"             -o BatchMode=yes -o StrictHostKeyChecking=yes             "$VPS_USER@$VPS_HOST"             "F24_CURRENT='d8d46c0f7454fd41ea559f97189cb01f870043e9d7640f4f7dac14202e6fc286' F24_V6='0e7d6829c829ecd5278af10c3388a36319b7be9f7beab0ac0f759c1b6e359995' SYNC_CURRENT='1294c8fb8e2e8454a8249c7feea048ae293850286a165b05be91ef6a53b8b04a' SYNC_V6='88007cc079c429d60b14183f98de1adc88812b7e93d57c9c06dc5624d96ec766' STAGE5_CURRENT='b4b93b0edc6e864bafeed77a1b019426c09ce88834d84edf000568bf0abb2cb0' STAGE5_V4='13ba611f000c344d7ae61fcc9e40304231168f1d9ad0f0236f9182af26ec2e37' STAGE6_RECON='b6d272a2203f860b40a56a1feb0e4533656cee54b60b18022797687fe1eba026' URL64='$URL64' TOK64='$TOK64' bash -s"             <<'REMOTE' | tee RESULT_SYNC_HOTFIX_V6.txt
+          ssh -i ~/.ssh/oddshunter_v6 -p "$VPS_PORT"             -o BatchMode=yes -o StrictHostKeyChecking=yes             "$VPS_USER@$VPS_HOST"             "F24_CURRENT='d8d46c0f7454fd41ea559f97189cb01f870043e9d7640f4f7dac14202e6fc286' F24_V6='0e7d6829c829ecd5278af10c3388a36319b7be9f7beab0ac0f759c1b6e359995' SYNC_CURRENT='1294c8fb8e2e8454a8249c7feea048ae293850286a165b05be91ef6a53b8b04a' SYNC_V6='88007cc079c429d60b14183f98de1adc88812b7e93d57c9c06dc5624d96ec766' STAGE5_CURRENT='b4b93b0edc6e864bafeed77a1b019426c09ce88834d84edf000568bf0abb2cb0' STAGE5_V4='13ba611f000c344d7ae61fcc9e40304231168f1d9ad0f0236f9182af26ec2e37' STAGE6_RECON='5437acb3dbf169e058abda4f629dc09813b4e1feb74e3026352ca6aef89c3cd9' URL64='$URL64' TOK64='$TOK64' bash -s"             <<'REMOTE' | tee RESULT_SYNC_HOTFIX_V6.txt
           set -eEuo pipefail
 
           if [ "$(id -u)" -eq 0 ]; then
@@ -405,7 +405,7 @@ jobs:
           PY
           echo "STAGE6_RECONCILIATION_INSTALL=PASS"
 
-          if $SUDO -u oddshunter env             TURSO_DATABASE_URL="$URL"             TURSO_AUTH_TOKEN="$TOK"             ODDSHUNTER_STAGE6_ALLOW_TURSO_WRITE=1             ODDSHUNTER_DISABLE_TRAINING=1             "$PY" -u "$STAGE6_WRAPPER"             > /tmp/stage6_result_sync_v6.log 2>&1; then
+          if $SUDO -u oddshunter env             TURSO_DATABASE_URL="$URL"             TURSO_AUTH_TOKEN="$TOK"             ODDSHUNTER_STAGE6_ALLOW_TURSO_WRITE=1             ODDSHUNTER_STAGE6_REQUIRED_MATCH_IDS="16596,29312,29332"             ODDSHUNTER_DISABLE_TRAINING=1             "$PY" -u "$STAGE6_WRAPPER"             > /tmp/stage6_result_sync_v6.log 2>&1; then
             STAGE6_RC=0
           else
             STAGE6_RC=$?

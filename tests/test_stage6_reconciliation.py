@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib
+import os
 import sqlite3
 import sys
 import types
@@ -22,6 +23,7 @@ class FakeClient:
 
 class Stage6ReconciliationTests(unittest.TestCase):
     def setUp(self) -> None:
+        os.environ.pop("ODDSHUNTER_STAGE6_REQUIRED_MATCH_IDS", None)
         fake_base = types.ModuleType("cloud_stage6_publish")
 
         def original(_con, _stage5, _client):
@@ -50,6 +52,7 @@ class Stage6ReconciliationTests(unittest.TestCase):
         self.con.close()
         sys.modules.pop("cloud_stage6_publish_reconciled", None)
         sys.modules.pop("cloud_stage6_publish", None)
+        os.environ.pop("ODDSHUNTER_STAGE6_REQUIRED_MATCH_IDS", None)
 
     def test_adds_only_remote_missing_rows_without_duplicates(self) -> None:
         rows, meta = self.module.collect_core_rows_reconciled(
@@ -65,6 +68,22 @@ class Stage6ReconciliationTests(unittest.TestCase):
             self.module.collect_core_rows_reconciled(
                 self.con, {}, FakeClient([1, 2, 99])
             )
+
+    def test_injects_explicit_required_matches_into_original_collector(self) -> None:
+        captured = {}
+
+        def capture_original(_con, stage5, _client):
+            captured["stage5"] = stage5
+            return {"team_match_stats": []}, {}
+
+        self.module.base._collect_core_rows_original = capture_original
+        os.environ["ODDSHUNTER_STAGE6_REQUIRED_MATCH_IDS"] = "29332,16596,29332"
+        _, meta = self.module.collect_core_rows_reconciled(
+            self.con, {"result_sync": []}, FakeClient([1, 2, 3])
+        )
+        events = captured["stage5"]["result_sync"][-1]["source_report"]["events"]
+        self.assertEqual([16596, 29332], [event["match_id"] for event in events])
+        self.assertEqual([16596, 29332], meta["required_match_ids"])
 
 
 if __name__ == "__main__":

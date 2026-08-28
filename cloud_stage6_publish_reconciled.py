@@ -10,6 +10,8 @@ data and stops on divergent ownership or an unexpectedly large delta.
 """
 
 import sqlite3
+import copy
+import os
 from typing import Any
 
 import cloud_stage6_publish as base
@@ -17,6 +19,36 @@ import cloud_stage6_publish as base
 
 REMOTE_PAGE_SIZE = 1_000
 MAX_MISSING_STATS = 500
+MAX_REQUIRED_MATCHES = 50
+
+
+def _stage5_with_required_matches(stage5: dict[str, Any]) -> tuple[dict[str, Any], list[int]]:
+    raw = os.environ.get("ODDSHUNTER_STAGE6_REQUIRED_MATCH_IDS", "")
+    if not raw.strip():
+        return stage5, []
+
+    try:
+        required = sorted({int(part.strip()) for part in raw.split(",") if part.strip()})
+    except ValueError as exc:
+        raise RuntimeError("ODDSHUNTER_STAGE6_REQUIRED_MATCH_IDS inválido") from exc
+    if not required or len(required) > MAX_REQUIRED_MATCHES or any(x <= 0 for x in required):
+        raise RuntimeError(
+            "Lista de match_id requeridos fuera de límites: "
+            f"count={len(required)} limit={MAX_REQUIRED_MATCHES}"
+        )
+
+    enriched = copy.deepcopy(stage5)
+    enriched.setdefault("result_sync", []).append(
+        {
+            "source_report": {
+                "events": [
+                    {"result": "COMMITTED", "match_id": match_id}
+                    for match_id in required
+                ]
+            }
+        }
+    )
+    return enriched, required
 
 
 def _remote_stat_ids(client: Any) -> set[int]:
@@ -68,7 +100,11 @@ def collect_core_rows_reconciled(
     stage5: dict[str, Any],
     client: Any,
 ) -> tuple[dict[str, list[dict[str, Any]]], dict[str, Any]]:
-    rows_by_table, meta = base._collect_core_rows_original(con, stage5, client)
+    effective_stage5, required_match_ids = _stage5_with_required_matches(stage5)
+    rows_by_table, meta = base._collect_core_rows_original(
+        con, effective_stage5, client
+    )
+    meta["required_match_ids"] = required_match_ids
 
     local_ids = {
         int(row[0])
