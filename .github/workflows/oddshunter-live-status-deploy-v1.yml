@@ -157,6 +157,15 @@ jobs:
             exit 31
           fi
           $SUDO journalctl -u oddshunter-live-sync.service -n 120 --no-pager
+          $SUDO -u oddshunter "$PY" - "$CUR/data/automation/cloud_live_status/last.json" <<'PY'
+          import json,sys
+          targets={16629438,16416304,16361896,16416290}
+          with open(sys.argv[1],encoding="utf-8") as handle:
+              report=json.load(handle)
+          for item in report.get("events",[]):
+              if int(item.get("event_id") or 0) in targets:
+                  print("TARGET_REPORT =",json.dumps(item,ensure_ascii=False,separators=(",",":")))
+          PY
           $SUDO rm -f /run/systemd/system/oddshunter-live-sync.service.d/bootstrap.conf
           $SUDO systemctl daemon-reload
           $SUDO systemctl enable --now oddshunter-live-sync.timer
@@ -202,10 +211,7 @@ jobs:
           path=Path("live_deploy_evidence.txt")
           if not path.is_file():
               raise SystemExit(0)
-          markers=(
-              "F24-LIVE>", '"event_id":', '"match":', '"result":',
-              '"error":', '"snapshot":', '"update":', "TARGET_LOCAL",
-          )
+          markers=("TARGET_REPORT =",)
           selected=[line.strip() for line in path.read_text(encoding="utf-8",errors="replace").splitlines()
                     if any(marker in line for marker in markers)]
           payload="\n".join(selected[-160:]) or "No filtered live-sync diagnostics were emitted."

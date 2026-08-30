@@ -413,9 +413,16 @@ def run(
         "events": [],
     }
     client = None if dry_run else turso_client()
-    f24 = Futbol24Client(project_root=ROOT, logger=lambda msg: print(f"F24-LIVE> {msg}"))
+    provider_messages: list[str] = []
+
+    def provider_logger(message: str) -> None:
+        print(f"F24-LIVE> {message}")
+        provider_messages.append(str(message))
+
+    f24 = Futbol24Client(project_root=ROOT, logger=provider_logger)
     try:
         for row in candidates:
+            message_start = len(provider_messages)
             item: dict[str, Any] = {
                 "event_id": int(row["event_id"]),
                 "match": f"{row['home_team']} vs {row['away_team']}",
@@ -447,6 +454,7 @@ def run(
             except Exception as exc:
                 item["result"] = "TECHNICAL_ERROR"
                 item["error"] = f"{type(exc).__name__}: {exc}"
+            item["provider_log"] = provider_messages[message_start:][-30:]
             report["events"].append(item)
     finally:
         f24.close()
