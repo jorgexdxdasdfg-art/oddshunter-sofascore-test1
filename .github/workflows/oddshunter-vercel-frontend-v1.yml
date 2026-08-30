@@ -7,6 +7,7 @@ on:
     paths:
       - vercel_frontend_mirror.py
       - vercel_source_recover.py
+      - vercel_backend_data_patch.py
       - vercel_assets/**
       - .github/workflows/oddshunter-vercel-frontend-v1.yml
 

@@ -10,6 +10,8 @@ import urllib.request
 from pathlib import Path, PurePosixPath
 from typing import Any
 
+from vercel_backend_data_patch import patch_backend
+
 USER_AGENT = "OddsHunter-Vercel-Source-Recover/1.0"
 OLD_LABELS = ("Turso OK · solo lectura", "SQLite OK · solo lectura")
 NEW_LABEL = "Datos actualizados en línea"
@@ -92,6 +94,7 @@ def flatten(entries: list[dict[str, Any]], prefix: PurePosixPath = PurePosixPath
 
 
 def patch_frontend(root: Path) -> dict[str, list[str]]:
+    patched_backend = patch_backend(root)
     app_candidates = sorted(root.glob("**/assets/js/app.js"))
     if not app_candidates:
         raise RuntimeError("No se encontró assets/js/app.js en la fuente recuperada")
@@ -161,7 +164,7 @@ def patch_frontend(root: Path) -> dict[str, list[str]]:
         text = path.read_text(encoding="utf-8")
         if any(old in text for old in OLD_LABELS) or NEW_LABEL not in text or DETAIL_MARKER not in text:
             raise RuntimeError(f"El parche de frontend quedó incompleto en {path}")
-    return {"app_js": patched_apps, "app_css": patched_styles, "icon_assets": patched_icons, "index_html": patched_indexes, "service_worker": patched_workers}
+    return {"backend": patched_backend, "app_js": patched_apps, "app_css": patched_styles, "icon_assets": patched_icons, "index_html": patched_indexes, "service_worker": patched_workers}
 
 
 def main() -> int:

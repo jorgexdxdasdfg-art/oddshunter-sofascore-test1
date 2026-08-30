@@ -378,3 +378,72 @@ renderAllLists=function(){
   ohRenderLiveList();
 };
 ohRenderLiveList();
+
+function ohLineupPlayer(player){
+  const shirt=player?.shirt_number??"—";
+  const name=player?.name||"Jugador";
+  const position=player?.position||"";
+  const sot=Number(player?.shots_on_target);
+  const stat=Number.isFinite(sot)?`<span class="oh-lineup-sot">SOT ${sot}</span>`:"";
+  return `<li class="oh-lineup-player">
+    <span class="oh-lineup-shirt">${esc(shirt)}</span>
+    <span class="oh-lineup-player-name"><strong>${esc(name)}</strong>${position?`<small>${esc(position)}</small>`:""}</span>
+    ${stat}
+  </li>`;
+}
+
+function ohLineupGroup(title,players){
+  const rows=Array.isArray(players)?players:[];
+  return `<div class="oh-lineup-group"><h4>${esc(title)} <span>${rows.length}</span></h4>
+    ${rows.length?`<ul>${rows.map(ohLineupPlayer).join("")}</ul>`:'<p class="muted">Sin datos guardados.</p>'}
+  </div>`;
+}
+
+function ohLineupTeam(side,teamName){
+  const data=side&&typeof side==="object"?side:{};
+  const formation=data.formation?`<span class="oh-lineup-formation">${esc(data.formation)}</span>`:"";
+  return `<section class="panel oh-lineup-team-panel">
+    <div class="oh-lineup-team-title"><h3>${esc(teamName)}</h3>${formation}</div>
+    ${ohLineupGroup("Titulares",data.starters)}
+    ${ohLineupGroup("Suplentes",data.substitutes)}
+  </section>`;
+}
+
+lineupStrip=function(lineups){
+  const available=Boolean(lineups?.available);
+  const confirmed=Boolean(lineups?.confirmed);
+  return `<div class="lineup-strip ${confirmed?"confirmed":"pending"}">
+    <div class="lineup-strip-state">
+      <span class="lineup-strip-icon">${lineupCheckSvg()}</span>
+      <strong>${confirmed?"Alineaciones confirmadas":"Alineaciones por confirmar"}</strong>
+    </div>
+    <button id="headerLineupsBtn" class="lineup-strip-button" type="button" ${available?"":"aria-disabled=\"true\""}>
+      Ver alineaciones <span aria-hidden="true">›</span>
+    </button>
+  </div>`;
+};
+
+renderLineups=function(){
+  const p=state.currentMatch||{},event=p.event||{},lineups=p.lineups||{},data=lineups.data||{};
+  const structured=Boolean(data.home||data.away);
+  const status=lineups.confirmed?"Alineaciones confirmadas":"Última alineación guardada de cada equipo";
+  const detail=lineups.confirmed
+    ?"Datos correspondientes a este partido."
+    :"El partido aún no tiene alineaciones oficiales. Se muestra la última alineación disponible en OddsHunter.";
+  $("lineupsContent").innerHTML=`<div class="oh-lineups-page">
+    <div class="lineups-hero">
+      <div class="match-detail-meta">${esc(event.competition_name||event.competition_key||"")}</div>
+      <h2>${esc(event.home_team||"Local")} vs ${esc(event.away_team||"Visitante")}</h2>
+    </div>
+    ${lineups.available&&structured?`
+      <div class="oh-lineup-status ${lineups.confirmed?"confirmed":"historical"}"><strong>${esc(status)}</strong><span>${esc(detail)}</span></div>
+      <div class="oh-lineup-grid">
+        ${ohLineupTeam(data.home,event.home_team||"Local")}
+        ${ohLineupTeam(data.away,event.away_team||"Visitante")}
+      </div>`:
+      `<div class="lineup-placeholder"><div><h3>Alineaciones todavía no guardadas</h3><p>${esc(lineups.reason||"Sin datos disponibles")}</p></div></div>`}
+  </div>`;
+  showView("lineups");
+};
+
+/* OH_SQLITE_MATCH_DATA_BRIDGE_V12 */
