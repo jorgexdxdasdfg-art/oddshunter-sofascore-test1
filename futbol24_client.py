@@ -666,6 +666,7 @@ class Futbol24Client:
             and home_score >= 0.95
             and away_score >= 0.95
             and hours <= 3.0
+            and bool(candidate_families)
             and competition_score >= 0.50
         ):
             competition_pass = True
