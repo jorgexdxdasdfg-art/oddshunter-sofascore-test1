@@ -97,7 +97,7 @@ GENERIC_TEAM_WORDS = {
     "the",
 }
 MAX_DATE_DELTA_HOURS = 36.0
-TEAM_RESULTS_LIMIT = 6
+TEAM_RESULTS_LIMIT = 30
 COMPETITION_FAMILIES: dict[str, tuple[str, ...]] = {
     "leagues-cup": (
         "leagues cup",
@@ -149,6 +149,8 @@ FUTBOL24_TEAM_ALIASES: dict[str, tuple[str, ...]] = {
     "vitoria": ("Vitória/BA", "Vitoria/BA"),
     "sao paulo": ("São Paulo/SP", "Sao Paulo/SP"),
     "red bull bragantino": ("RB Bragantino/SP",),
+    "al ittihad": ("Ittihad Jeddah", "Al Ittihad Jeddah"),
+    "al fateh": ("Al Fateh (KSA)",),
 }
 
 
@@ -656,6 +658,17 @@ class Futbol24Client:
             if expected_family is not None
             else competition_score >= 0.55
         )
+        # Some schedule rows carry only a generic localized league label.  If
+        # both club identities and kickoff are exact, a strong competition
+        # name score is enough; this remains stricter than team-name matching.
+        if (
+            not competition_pass
+            and home_score >= 0.95
+            and away_score >= 0.95
+            and hours <= 3.0
+            and competition_score >= 0.50
+        ):
+            competition_pass = True
         # If one side is an exact identity, the kickoff is almost exact and the
         # competition agrees, allow a conservative contextual match for the
         # other side. This covers provider naming differences while still
