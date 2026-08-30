@@ -114,8 +114,13 @@ jobs:
           $SUDO install -o root -g root -m 0644 \
             /tmp/oddshunter-live-sync.timer /etc/systemd/system/oddshunter-live-sync.timer
 
-          $SUDO -u oddshunter env PYTHONDONTWRITEBYTECODE=1 \
-            "$PY" -m py_compile "$CUR/cloud_live_status_sync.py"
+          $SUDO -u oddshunter "$PY" - "$CUR/cloud_live_status_sync.py" <<'PY'
+          from pathlib import Path
+          import sys
+          path=Path(sys.argv[1])
+          compile(path.read_text(encoding="utf-8"),str(path),"exec")
+          print("LIVE_SYNC_SYNTAX=PASS")
+          PY
           echo "LIVE_SYNC_INSTALL=PASS"
 
           # Bootstrap the exact matches reported from the phone plus a small
