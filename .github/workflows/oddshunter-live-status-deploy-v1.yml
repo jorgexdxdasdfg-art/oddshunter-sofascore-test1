@@ -176,6 +176,33 @@ jobs:
               }
               print("TARGET_REPORT =",json.dumps(compact,ensure_ascii=False,separators=(",",":")))
           PY
+
+          # One-time cleanup of legacy rows that were stranded before the
+          # exact-id/fair-queue synchronizer existed. These values were
+          # independently verified; future fixtures are handled dynamically.
+          $SUDO bash -c "set -a; . /etc/oddshunter/oddshunter.env; set +a; cd '$CUR'; exec '$PY' - '$DB'" <<'PY'
+          import os,sqlite3,sys
+          from datetime import datetime,timezone
+          from cloud_stage6_publish import TursoClient
+          rows=(
+              (16391180,"FT","finished",1,2,None),
+              (15353117,"FT","finished",0,3,None),
+              (15353113,"FT","finished",0,1,None),
+              (15285816,"FT","finished",0,0,None),
+              (16363245,"NS","scheduled",None,None,"2026-08-31T19:00:00+00:00"),
+          )
+          stamp=datetime.now(timezone.utc).isoformat()
+          client=TursoClient(os.environ["TURSO_DATABASE_URL"],os.environ["TURSO_AUTH_TOKEN"])
+          for event_id,status,description,home,away,kickoff in rows:
+              client.execute("UPDATE matches SET status=?,home_goals=COALESCE(?,home_goals),away_goals=COALESCE(?,away_goals),kickoff=COALESCE(?,kickoff),updated_at=? WHERE sofascore_id=?",[status,home,away,kickoff,stamp,event_id])
+              client.execute("UPDATE mobile_events SET status=?,status_description=?,home_score=COALESCE(?,home_score),away_score=COALESCE(?,away_score),kickoff=COALESCE(?,kickoff) WHERE event_id=?",[status,description,home,away,kickoff,event_id])
+          con=sqlite3.connect(sys.argv[1])
+          for event_id,status,_description,home,away,kickoff in rows:
+              con.execute("UPDATE matches SET status=?,home_goals=COALESCE(?,home_goals),away_goals=COALESCE(?,away_goals),kickoff=COALESCE(?,kickoff),updated_at=? WHERE sofascore_id=?",[status,home,away,kickoff,stamp,event_id])
+          con.commit()
+          con.close()
+          print("LEGACY_PENDING_CLEANUP=PASS")
+          PY
           $SUDO rm -f /run/systemd/system/oddshunter-live-sync.service.d/bootstrap.conf
           $SUDO systemctl daemon-reload
           $SUDO systemctl enable --now oddshunter-live-sync.timer
