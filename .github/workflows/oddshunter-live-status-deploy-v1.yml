@@ -159,12 +159,18 @@ jobs:
           $SUDO journalctl -u oddshunter-live-sync.service -n 120 --no-pager
           $SUDO -u oddshunter "$PY" - "$CUR/data/automation/cloud_live_status/last.json" <<'PY'
           import json,sys
-          targets={16629438,16416304,16361896,16416290}
           with open(sys.argv[1],encoding="utf-8") as handle:
               report=json.load(handle)
           for item in report.get("events",[]):
-              if int(item.get("event_id") or 0) in targets:
-                  print("TARGET_REPORT =",json.dumps(item,ensure_ascii=False,separators=(",",":")))
+              if item.get("reconciliation"):
+                  continue
+              compact={
+                  "event_id":item.get("event_id"), "match":item.get("match"),
+                  "result":item.get("result"), "error":item.get("error"),
+                  "provider_log":(item.get("provider_log") or [])[-3:],
+                  "state":(item.get("snapshot") or {}).get("state"),
+              }
+              print("TARGET_REPORT =",json.dumps(compact,ensure_ascii=False,separators=(",",":")))
           PY
           $SUDO rm -f /run/systemd/system/oddshunter-live-sync.service.d/bootstrap.conf
           $SUDO systemctl daemon-reload
