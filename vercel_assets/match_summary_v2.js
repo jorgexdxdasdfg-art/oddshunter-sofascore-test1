@@ -292,3 +292,51 @@ renderTrends = function(){
     ohDrawTrendBtts($("ohTrendBtts"),ohTrendRollingBtts("home"),ohTrendRollingBtts("away"));
   });
 };
+
+function ohLiveNavSvg(){
+  return `<svg class="nav-icon oh-nav-live" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3" fill="currentColor"/><path d="M7.7 7.7a6.1 6.1 0 0 0 0 8.6M16.3 7.7a6.1 6.1 0 0 1 0 8.6M4.7 4.7a10.3 10.3 0 0 0 0 14.6M19.3 4.7a10.3 10.3 0 0 1 0 14.6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>`;
+}
+
+function ohCalendarNavSvg(){
+  return `<svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M7 3v4M17 3v4M3 9h18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>`;
+}
+
+function ohInstallLiveNavigation(){
+  const main=document.querySelector("main");
+  const statsView=document.querySelector('[data-view="stats"]');
+  if(main&&statsView&&!document.querySelector('[data-view="live"]')){
+    const liveView=document.createElement("section");
+    liveView.className="view";
+    liveView.dataset.view="live";
+    liveView.innerHTML=`<div class="screen-title oh-live-title"><h1><span class="oh-live-title-icon">${ohLiveNavSvg()}</span>Live</h1></div><div id="liveList" class="cards"></div>`;
+    main.insertBefore(liveView,statsView);
+  }
+  const upcomingButton=document.querySelector('.bottom-nav [data-nav="upcoming"]');
+  const favoritesButton=document.querySelector('.bottom-nav [data-nav="favorites"]');
+  if(upcomingButton){
+    upcomingButton.dataset.nav="live";
+    upcomingButton.setAttribute("aria-label","Live");
+    upcomingButton.innerHTML=`${ohLiveNavSvg()}<small>Live</small>`;
+  }
+  if(favoritesButton){
+    favoritesButton.dataset.nav="upcoming";
+    favoritesButton.setAttribute("aria-label","Próximos");
+    favoritesButton.innerHTML=`${ohCalendarNavSvg()}<small>Próximos</small>`;
+  }
+}
+
+function ohRenderLiveList(){
+  if(!$("liveList"))return;
+  const selected=state.selectedLeague;
+  const live=uniqueMatches([...(state.dayEvents||[]),...(state.upcoming||[])])
+    .filter(match=>isLiveStatus(match)&&(!selected||match.competition_key===selected));
+  putCards("liveList",live,"No hay partidos en vivo ahora.");
+}
+
+ohInstallLiveNavigation();
+const ohOriginalRenderAllListsLiveV13=renderAllLists;
+renderAllLists=function(){
+  ohOriginalRenderAllListsLiveV13();
+  ohRenderLiveList();
+};
+ohRenderLiveList();
