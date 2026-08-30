@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import math
 import re
+import time
 import unicodedata
 from datetime import datetime, timezone
 from difflib import SequenceMatcher
@@ -267,22 +268,36 @@ class Futbol24Client:
         endpoint: str,
         params: Mapping[str, Any] | Sequence[tuple[str, Any]] | None = None,
     ) -> Any | None:
-        try:
-            response = self.session.get(
-                f"{BASE_URL}{endpoint}",
-                params=params,
-                timeout=self.timeout_seconds,
-            )
-            if response.status_code != 200:
+        for attempt in range(3):
+            try:
+                response = self.session.get(
+                    f"{BASE_URL}{endpoint}",
+                    params=params,
+                    timeout=self.timeout_seconds,
+                )
+                if response.status_code == 200:
+                    return response.json()
+                retryable = response.status_code == 429 or response.status_code >= 500
+                if retryable and attempt < 2:
+                    delay = 2.0 * (attempt + 1)
+                    self.logger(
+                        f"Futbol24 limitó temporalmente ({response.status_code}); "
+                        f"reintento en {delay:.0f}s."
+                    )
+                    time.sleep(delay)
+                    continue
                 self.logger(
                     "Futbol24 no respondió correctamente "
                     f"({response.status_code})."
                 )
                 return None
-            return response.json()
-        except (requests.RequestException, ValueError) as exc:
-            self.logger(f"Futbol24: {type(exc).__name__}: {exc}")
-            return None
+            except (requests.RequestException, ValueError) as exc:
+                if attempt < 2:
+                    time.sleep(2.0 * (attempt + 1))
+                    continue
+                self.logger(f"Futbol24: {type(exc).__name__}: {exc}")
+                return None
+        return None
 
     @staticmethod
     def _match_key(match: MatchRef) -> str:
