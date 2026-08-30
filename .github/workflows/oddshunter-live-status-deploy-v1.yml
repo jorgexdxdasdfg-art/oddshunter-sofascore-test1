@@ -194,6 +194,24 @@ jobs:
           echo "LIVE_TIMER_DEPLOY=PASS"
           REMOTE
 
+      - name: Publicar diagnóstico seguro
+        if: always()
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path=Path("live_deploy_evidence.txt")
+          if not path.is_file():
+              raise SystemExit(0)
+          markers=(
+              "F24-LIVE>", '"event_id":', '"match":', '"result":',
+              '"error":', '"snapshot":', '"update":', "TARGET_LOCAL",
+          )
+          selected=[line.strip() for line in path.read_text(encoding="utf-8",errors="replace").splitlines()
+                    if any(marker in line for marker in markers)]
+          payload="\n".join(selected[-160:]) or "No filtered live-sync diagnostics were emitted."
+          payload=payload[:50000].replace("%","%25").replace("\r","%0D").replace("\n","%0A")
+          print(f"::warning title=LIVE_SYNC_DIAGNOSTIC::{payload}")
+          PY
       - name: Verificar API móvil
         run: |
           set -eEuo pipefail
