@@ -4,6 +4,7 @@ import argparse
 import base64
 import json
 import os
+import re
 import urllib.parse
 import urllib.request
 from pathlib import Path, PurePosixPath
@@ -12,6 +13,8 @@ from typing import Any
 USER_AGENT = "OddsHunter-Vercel-Source-Recover/1.0"
 OLD_LABELS = ("Turso OK · solo lectura", "SQLite OK · solo lectura")
 NEW_LABEL = "Datos actualizados en línea"
+DETAIL_MARKER = "OH_MATCH_SUMMARY_REFERENCE_V2"
+ASSET_ROOT = Path(__file__).resolve().parent / "vercel_assets"
 
 
 def api_request(token: str, team_id: str, path: str, params: dict[str, str] | None = None) -> tuple[bytes, str]:
@@ -85,16 +88,28 @@ def patch_frontend(root: Path) -> dict[str, list[str]]:
         original = text
         for old in OLD_LABELS:
             text = text.replace(old, NEW_LABEL)
+        detail_js = (ASSET_ROOT / "match_summary_v2.js").read_text(encoding="utf-8")
+        if DETAIL_MARKER not in text:
+            text = text.rstrip() + "\n\n" + detail_js.rstrip() + "\n"
         if text != original:
             path.write_text(text, encoding="utf-8", newline="\n")
-            patched_apps.append(path.relative_to(root).as_posix())
-    if not patched_apps:
-        raise RuntimeError("La fuente recuperada no contenía la etiqueta antigua")
+        patched_apps.append(path.relative_to(root).as_posix())
+
+    patched_styles: list[str] = []
+    detail_css = (ASSET_ROOT / "match_summary_v2.css").read_text(encoding="utf-8")
+    for path in sorted(root.glob("**/assets/css/app.css")):
+        text = path.read_text(encoding="utf-8")
+        if DETAIL_MARKER not in text:
+            path.write_text(text.rstrip() + "\n\n" + detail_css.rstrip() + "\n", encoding="utf-8", newline="\n")
+        patched_styles.append(path.relative_to(root).as_posix())
+    if not patched_styles:
+        raise RuntimeError("No se encontró assets/css/app.css")
 
     patched_indexes: list[str] = []
     for path in sorted(root.glob("**/index.html")):
         text = path.read_text(encoding="utf-8")
-        updated = text.replace("app.js?v=1.5.2-cloud", "app.js?v=1.5.3-live-status")
+        updated = re.sub(r"app\.js\?v=[^\"']+", "app.js?v=1.6.0-match-summary", text)
+        updated = re.sub(r"sw\.js\?v=[^\"']+", "sw.js?v=1.6.0-match-summary", updated)
         if updated != text:
             path.write_text(updated, encoding="utf-8", newline="\n")
             patched_indexes.append(path.relative_to(root).as_posix())
@@ -102,16 +117,16 @@ def patch_frontend(root: Path) -> dict[str, list[str]]:
     patched_workers: list[str] = []
     for path in sorted(root.glob("**/sw.js")):
         text = path.read_text(encoding="utf-8")
-        updated = text.replace("oh-mobile-v1-5-1-cloud-reality-crests", "oh-mobile-v1-5-3-live-status")
+        updated = re.sub(r"oh-mobile-v[^\"']+", "oh-mobile-v1-6-0-match-summary", text)
         if updated != text:
             path.write_text(updated, encoding="utf-8", newline="\n")
             patched_workers.append(path.relative_to(root).as_posix())
 
     for path in app_candidates:
         text = path.read_text(encoding="utf-8")
-        if any(old in text for old in OLD_LABELS):
-            raise RuntimeError(f"Quedó una etiqueta antigua en {path}")
-    return {"app_js": patched_apps, "index_html": patched_indexes, "service_worker": patched_workers}
+        if any(old in text for old in OLD_LABELS) or NEW_LABEL not in text or DETAIL_MARKER not in text:
+            raise RuntimeError(f"El parche de frontend quedó incompleto en {path}")
+    return {"app_js": patched_apps, "app_css": patched_styles, "index_html": patched_indexes, "service_worker": patched_workers}
 
 
 def main() -> int:
