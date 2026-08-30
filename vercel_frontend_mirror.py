@@ -71,7 +71,7 @@ def discover(path: str, data: bytes, content_type: str) -> set[str]:
             found = clean_path(raw)
             if found:
                 values.add(found)
-    if path == "/manifest.webmanifest":
+    if path in {"/manifest.json", "/manifest.webmanifest"}:
         try:
             manifest = json.loads(text)
             for icon in manifest.get("icons", []):
@@ -118,7 +118,7 @@ def main() -> int:
     root = args.output.resolve()
     root.mkdir(parents=True, exist_ok=True)
 
-    queue = deque(["/", "/manifest.webmanifest", "/sw.js"])
+    queue = deque(["/", "/manifest.json", "/sw.js"])
     seen: set[str] = set()
     saved: list[str] = []
     while queue:
@@ -129,7 +129,7 @@ def main() -> int:
         try:
             data, content_type = fetch(args.base, path)
         except urllib.error.HTTPError as exc:
-            if path in {"/", "/manifest.webmanifest", "/sw.js"}:
+            if path in {"/", "/manifest.json", "/sw.js"}:
                 raise
             print(f"MIRROR_SKIP_HTTP path={path} status={exc.code}")
             continue
@@ -144,7 +144,7 @@ def main() -> int:
 
     required = {
         "/": root / "index.html",
-        "/manifest.webmanifest": root / "manifest.webmanifest",
+        "/manifest.json": root / "manifest.json",
         "/sw.js": root / "sw.js",
         "/assets/js/app.js": root / "assets" / "js" / "app.js",
         "/assets/css/app.css": root / "assets" / "css" / "app.css",
