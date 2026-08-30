@@ -145,8 +145,8 @@ jobs:
           $SUDO tee /run/systemd/system/oddshunter-live-sync.service.d/bootstrap.conf >/dev/null <<'UNIT'
           [Service]
           Environment=ODDSHUNTER_LIVE_PRIORITY_EVENT_IDS=16629438,16416304,16361896,16416290
-          Environment=ODDSHUNTER_LIVE_NEAR_LIMIT=1
-          Environment=ODDSHUNTER_LIVE_OVERDUE_LIMIT=1
+          Environment=ODDSHUNTER_LIVE_NEAR_LIMIT=4
+          Environment=ODDSHUNTER_LIVE_OVERDUE_LIMIT=40
           Environment=ODDSHUNTER_LIVE_RECONCILE_HOURS=0
           Environment=ODDSHUNTER_LIVE_RECONCILE_LIMIT=0
           UNIT
