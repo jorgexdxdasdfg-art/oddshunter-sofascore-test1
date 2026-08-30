@@ -121,6 +121,16 @@ COMPETITION_FAMILIES: dict[str, tuple[str, ...]] = {
         "primera división",
         "spa d1",
     ),
+    "chile-primera": ("liga chile a", "chile primera", "chi d1"),
+    "ecuador-ligapro": ("liga pro ec", "ligapro", "ecu d1"),
+    "greece-super-league": (
+        "greece stoiximan super league", "stoiximan super league", "gre d1"
+    ),
+    "iceland-besta-deild": ("liga islandia a", "besta deild", "ice d1"),
+    "mexico-liga-mx": ("liga mx", "ligamx apertura", "mex d1"),
+    "brazil-serie-a": ("brasil serie a", "brazil serie a", "bra d1"),
+    "england-championship": ("championship", "eng d2"),
+    "saudi-pro-league": ("saudi pro league", "saudi professional league", "ksa d1"),
 }
 
 # Verified provider spellings. These are identities, never scores or match
@@ -129,6 +139,12 @@ COMPETITION_FAMILIES: dict[str, tuple[str, ...]] = {
 FUTBOL24_TEAM_ALIASES: dict[str, tuple[str, ...]] = {
     "krc genk": ("Racing Genk", "RC Genk"),
     "real racing club": ("Racing Santander", "Racing de Santander"),
+    "nps volos": ("Volos NFC", "Volos"),
+    "pot iraklis": ("Iraklis Salonica", "Iraklis"),
+    "new england revolution": ("New England Revs",),
+    "universidad catolica del ecuador": ("Univ. Católica Quito",),
+    "louisville city fc": ("Louisville City",),
+    "detroit city fc": ("Detroit City",),
 }
 
 
