@@ -104,12 +104,59 @@ jobs:
           find vercel_source -maxdepth 3 -type f -printf '%P\n' | sort | head -100
           echo "ORIGINAL_SOURCE_RECOVERY=PASS"
 
-      - name: Confirmar diagnóstico sin publicar
+      - name: Instalar Vercel CLI
+        run: npm install --global vercel@latest
+
+      - name: Compilar preview de la fuente recuperada
         run: |
           set -eEuo pipefail
-          test -s artifacts/vercel_source_manifest.json
-          echo "SOURCE_DIAGNOSTIC_COMPLETE=PASS"
+          PREVIEW_URL="$(vercel deploy --cwd vercel_source/src --yes --token "$VERCEL_TOKEN")"
+          echo "PREVIEW_BUILD_URL=$PREVIEW_URL"
+          echo "RECOVERED_SOURCE_PREVIEW_BUILD=PASS"
 
+      - name: Desplegar producción y verificar
+        env:
+          ROLLBACK_URL: ${{ steps.inspect.outputs.origin }}
+        run: |
+          set -eEuo pipefail
+          rollback_needed=0
+          rollback_on_error() {
+            status=$?
+            if [ "$rollback_needed" = "1" ]; then
+              echo "PRODUCTION_VERIFY_FAILED_ROLLBACK_START"
+              vercel rollback "$ROLLBACK_URL" --cwd vercel_source/src --token "$VERCEL_TOKEN" || true
+            fi
+            exit "$status"
+          }
+          trap rollback_on_error ERR
+          PROD_URL="$(vercel deploy --cwd vercel_source/src --prod --yes --token "$VERCEL_TOKEN")"
+          rollback_needed=1
+          echo "PRODUCTION_DEPLOYMENT_URL=$PROD_URL"
+          for attempt in $(seq 1 24); do
+            curl --fail --silent --show-error --location \
+              --max-time 45 -H 'Cache-Control: no-cache' \
+              "$PUBLIC_URL/assets/js/app.js?cb=$(date +%s%N)" -o artifacts/production_app.js || true
+            curl --fail --silent --show-error --location \
+              --max-time 45 -H 'Cache-Control: no-cache' \
+              "$PUBLIC_URL/api/health?cb=$(date +%s%N)" -o artifacts/production_health.json || true
+            if grep -Fq 'Datos actualizados en línea' artifacts/production_app.js 2>/dev/null; then
+              break
+            fi
+            sleep 5
+          done
+          grep -Fq 'Datos actualizados en línea' artifacts/production_app.js
+          ! grep -Fq 'solo lectura' artifacts/production_app.js
+          python - <<'PY'
+          import json
+          health=json.load(open("artifacts/production_health.json",encoding="utf-8"))
+          if health.get("ok") is not True or health.get("source") != "turso":
+              raise SystemExit(f"PRODUCTION_HEALTH_FAIL={health}")
+          print("PRODUCTION_API_HEALTH=PASS")
+          PY
+          rollback_needed=0
+          trap - ERR
+          echo "PRODUCTION_FRONTEND_LABEL=PASS"
+          echo "APK_REBUILD_REQUIRED=NO"
 
       - name: Subir evidencia sin secretos
         if: always()
