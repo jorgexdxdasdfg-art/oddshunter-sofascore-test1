@@ -145,6 +145,10 @@ FUTBOL24_TEAM_ALIASES: dict[str, tuple[str, ...]] = {
     "universidad catolica del ecuador": ("Univ. Católica Quito",),
     "louisville city fc": ("Louisville City",),
     "detroit city fc": ("Detroit City",),
+    "atletico mineiro": ("Atlético Mineiro/MG", "Atletico Mineiro/MG"),
+    "vitoria": ("Vitória/BA", "Vitoria/BA"),
+    "sao paulo": ("São Paulo/SP", "Sao Paulo/SP"),
+    "red bull bragantino": ("RB Bragantino/SP",),
 }
 
 

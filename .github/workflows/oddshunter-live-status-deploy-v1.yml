@@ -144,6 +144,7 @@ jobs:
           $SUDO install -d -m 0755 /run/systemd/system/oddshunter-live-sync.service.d
           $SUDO tee /run/systemd/system/oddshunter-live-sync.service.d/bootstrap.conf >/dev/null <<'UNIT'
           [Service]
+          Environment=ODDSHUNTER_LIVE_PRIORITY_EVENT_IDS=16391180,16363245,16629467,15235441,15353117,15235449,15353113,15285816
           Environment=ODDSHUNTER_LIVE_PRIORITY_EVENT_IDS=16629438,16416304,16361896,16416290
           Environment=ODDSHUNTER_LIVE_NEAR_LIMIT=4
           Environment=ODDSHUNTER_LIVE_OVERDUE_LIMIT=40
