@@ -1,0 +1,182 @@
+name: OddsHunter VERCEL FRONTEND LABEL V1
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - vercel_frontend_mirror.py
+      - .github/workflows/oddshunter-vercel-frontend-v1.yml
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      PUBLIC_URL: https://oddshunter-mobile.vercel.app
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Gate secretos y proyecto Vercel
+        id: inspect
+        run: |
+          set -eEuo pipefail
+          test -n "${VERCEL_TOKEN:-}"
+          test -n "${VERCEL_PROJECT_ID:-}"
+          test -n "${VERCEL_ORG_ID:-}"
+          mkdir -p artifacts
+          python - <<'PY'
+          import json,os,urllib.parse,urllib.request
+
+          token=os.environ["VERCEL_TOKEN"]
+          project_id=os.environ["VERCEL_PROJECT_ID"]
+          team_id=os.environ["VERCEL_ORG_ID"]
+          headers={"Authorization":f"Bearer {token}","User-Agent":"OddsHunter-Vercel-Deploy/1.0"}
+
+          def get(path,params=None):
+              query=urllib.parse.urlencode({**(params or {}),"teamId":team_id})
+              req=urllib.request.Request(
+                  f"https://api.vercel.com{path}?{query}",headers=headers
+              )
+              with urllib.request.urlopen(req,timeout=45) as response:
+                  return json.load(response)
+
+          project=get(f"/v9/projects/{project_id}")
+          if str(project.get("id")) != project_id:
+              raise SystemExit("VERCEL_PROJECT_ID_MISMATCH")
+          deployments=get(
+              "/v6/deployments",
+              {"projectId":project_id,"target":"production","state":"READY","limit":20},
+          ).get("deployments",[])
+          ready=[d for d in deployments if d.get("state")=="READY" and d.get("target")=="production" and d.get("url")]
+          if not ready:
+              raise SystemExit("NO_READY_PRODUCTION_DEPLOYMENT")
+          ready.sort(key=lambda d:int(d.get("created") or 0),reverse=True)
+          current=ready[0]
+          origin="https://"+str(current["url"]).strip("/")
+          if origin.rstrip("/")==os.environ["PUBLIC_URL"].rstrip("/"):
+              raise SystemExit("IMMUTABLE_ORIGIN_REQUIRED")
+          safe={
+              "project_id":project.get("id"),
+              "project_name":project.get("name"),
+              "framework":project.get("framework"),
+              "root_directory":project.get("rootDirectory"),
+              "deployment_id":current.get("uid"),
+              "deployment_url":current.get("url"),
+              "deployment_created":current.get("created"),
+          }
+          open("artifacts/vercel_inspect.json","w",encoding="utf-8").write(json.dumps(safe,indent=2))
+          with open(os.environ["GITHUB_OUTPUT"],"a",encoding="utf-8") as fh:
+              fh.write(f"origin={origin}\n")
+          print("VERCEL_SECRET_GATE=PASS")
+          print("VERCEL_PROJECT_GATE=PASS name="+str(project.get("name")))
+          print("IMMUTABLE_ORIGIN_GATE=PASS")
+          PY
+
+      - name: Construir frontend conservando las API actuales
+        env:
+          ORIGIN_URL: ${{ steps.inspect.outputs.origin }}
+        run: |
+          set -eEuo pipefail
+          python -m py_compile vercel_frontend_mirror.py
+          rm -rf vercel_frontend
+          mkdir -p vercel_frontend/public
+          python vercel_frontend_mirror.py --base "$PUBLIC_URL" --output vercel_frontend/public
+          python - <<'PY'
+          import json,os
+          origin=os.environ["ORIGIN_URL"].rstrip("/")
+          config={
+              "version":2,
+              "rewrites":[
+                  {"source":"/api/:path*","destination":origin+"/api/:path*"}
+              ],
+              "headers":[
+                  {"source":"/","headers":[{"key":"Cache-Control","value":"no-store, max-age=0"}]},
+                  {"source":"/assets/js/app.js","headers":[{"key":"Cache-Control","value":"no-store, max-age=0"}]},
+                  {"source":"/sw.js","headers":[{"key":"Cache-Control","value":"no-store, max-age=0"}]}
+              ]
+          }
+          open("vercel_frontend/vercel.json","w",encoding="utf-8").write(json.dumps(config,indent=2))
+          PY
+          grep -Fq 'Datos actualizados en línea' vercel_frontend/public/assets/js/app.js
+          ! grep -Fq 'solo lectura' vercel_frontend/public/assets/js/app.js
+          echo "STATIC_FRONTEND_BUILD=PASS"
+
+      - name: Instalar Vercel CLI
+        run: npm install --global vercel@latest
+
+      - name: Desplegar preview y probar
+        id: preview
+        run: |
+          set -eEuo pipefail
+          PREVIEW_URL="$(vercel deploy --cwd vercel_frontend --yes --token "$VERCEL_TOKEN")"
+          echo "url=$PREVIEW_URL" >> "$GITHUB_OUTPUT"
+          for attempt in $(seq 1 12); do
+            if curl --fail --silent --show-error --location \
+              --max-time 45 -H 'Cache-Control: no-cache' \
+              "$PREVIEW_URL/api/health?cb=$(date +%s)" -o artifacts/preview_health.json; then
+              break
+            fi
+            sleep 5
+          done
+          curl --fail --silent --show-error --location \
+            --max-time 45 -H 'Cache-Control: no-cache' \
+            "$PREVIEW_URL/assets/js/app.js?cb=$(date +%s)" -o artifacts/preview_app.js
+          grep -Fq 'Datos actualizados en línea' artifacts/preview_app.js
+          ! grep -Fq 'Turso OK · solo lectura' artifacts/preview_app.js
+          python - <<'PY'
+          import json
+          health=json.load(open("artifacts/preview_health.json",encoding="utf-8"))
+          if health.get("ok") is not True or health.get("source") != "turso":
+              raise SystemExit(f"PREVIEW_HEALTH_FAIL={health}")
+          print("PREVIEW_API_HEALTH=PASS")
+          PY
+          echo "PREVIEW_FRONTEND_LABEL=PASS"
+
+      - name: Desplegar a producción
+        run: |
+          set -eEuo pipefail
+          PROD_URL="$(vercel deploy --cwd vercel_frontend --prod --yes --token "$VERCEL_TOKEN")"
+          echo "PRODUCTION_DEPLOYMENT_URL=$PROD_URL"
+          for attempt in $(seq 1 18); do
+            curl --fail --silent --show-error --location \
+              --max-time 45 -H 'Cache-Control: no-cache' \
+              "$PUBLIC_URL/assets/js/app.js?cb=$(date +%s%N)" -o artifacts/production_app.js || true
+            curl --fail --silent --show-error --location \
+              --max-time 45 -H 'Cache-Control: no-cache' \
+              "$PUBLIC_URL/api/health?cb=$(date +%s%N)" -o artifacts/production_health.json || true
+            if grep -Fq 'Datos actualizados en línea' artifacts/production_app.js 2>/dev/null; then
+              break
+            fi
+            sleep 5
+          done
+          grep -Fq 'Datos actualizados en línea' artifacts/production_app.js
+          ! grep -Fq 'Turso OK · solo lectura' artifacts/production_app.js
+          python - <<'PY'
+          import json
+          health=json.load(open("artifacts/production_health.json",encoding="utf-8"))
+          if health.get("ok") is not True or health.get("source") != "turso":
+              raise SystemExit(f"PRODUCTION_HEALTH_FAIL={health}")
+          print("PRODUCTION_API_HEALTH=PASS")
+          PY
+          echo "PRODUCTION_FRONTEND_LABEL=PASS"
+          echo "APK_REBUILD_REQUIRED=NO"
+
+      - name: Subir evidencia sin secretos
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: oddshunter-vercel-frontend-v1-evidence
+          path: |
+            artifacts/vercel_inspect.json
+            artifacts/preview_health.json
+            artifacts/production_health.json
+          if-no-files-found: ignore
