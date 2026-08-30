@@ -136,7 +136,11 @@ jobs:
           echo "LIVE_SYNC_INSTALL=PASS"
 
           # Bootstrap the exact matches reported from the phone plus a small
-          # recent sample. The temporary override disappears after this run.
+          # recent sample. Stop the timer and any previous oneshot first;
+          # otherwise `systemctl start` can reuse an already-running invocation
+          # that never received this temporary priority list.
+          $SUDO systemctl stop oddshunter-live-sync.timer || true
+          $SUDO systemctl stop oddshunter-live-sync.service || true
           $SUDO install -d -m 0755 /run/systemd/system/oddshunter-live-sync.service.d
           $SUDO tee /run/systemd/system/oddshunter-live-sync.service.d/bootstrap.conf >/dev/null <<'UNIT'
           [Service]
