@@ -128,16 +128,18 @@ jobs:
           PREVIEW_URL="$(vercel deploy --cwd vercel_frontend --prebuilt --yes --token "$VERCEL_TOKEN")"
           echo "url=$PREVIEW_URL" >> "$GITHUB_OUTPUT"
           for attempt in $(seq 1 12); do
-            if curl --fail --silent --show-error --location \
-              --max-time 45 -H 'Cache-Control: no-cache' \
-              "$PREVIEW_URL/api/health?cb=$(date +%s)" -o artifacts/preview_health.json; then
+            if vercel curl "/api/health?cb=$(date +%s)" \
+              --deployment "$PREVIEW_URL" --cwd vercel_frontend --token "$VERCEL_TOKEN" \
+              --fail --silent --show-error --location --max-time 45 \
+              -H 'Cache-Control: no-cache' -o artifacts/preview_health.json; then
               break
             fi
             sleep 5
           done
-          curl --fail --silent --show-error --location \
-            --max-time 45 -H 'Cache-Control: no-cache' \
-            "$PREVIEW_URL/assets/js/app.js?cb=$(date +%s)" -o artifacts/preview_app.js
+          vercel curl "/assets/js/app.js?cb=$(date +%s)" \
+            --deployment "$PREVIEW_URL" --cwd vercel_frontend --token "$VERCEL_TOKEN" \
+            --fail --silent --show-error --location --max-time 45 \
+            -H 'Cache-Control: no-cache' -o artifacts/preview_app.js
           grep -Fq 'Datos actualizados en línea' artifacts/preview_app.js
           ! grep -Fq 'Turso OK · solo lectura' artifacts/preview_app.js
           python - <<'PY'
