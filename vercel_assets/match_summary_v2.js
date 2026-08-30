@@ -333,10 +333,18 @@ function ohRenderLiveList(){
   putCards("liveList",live,"No hay partidos en vivo ahora.");
 }
 
+function ohRenderHomeWithoutLive(){
+  if(!$("featuredList"))return;
+  const day=filteredDay().filter(match=>!isLiveStatus(match));
+  const dayName=state.dayOffset<0?"ayer":state.dayOffset>0?"mañana":"hoy";
+  putDayCards("featuredList",day,`No hay partidos de ${dayName} para este filtro.`);
+}
+
 ohInstallLiveNavigation();
 const ohOriginalRenderAllListsLiveV13=renderAllLists;
 renderAllLists=function(){
   ohOriginalRenderAllListsLiveV13();
+  ohRenderHomeWithoutLive();
   ohRenderLiveList();
 };
 ohRenderLiveList();
