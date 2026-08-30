@@ -1,4 +1,4 @@
-/* OH_MATCH_BALL_SIZE_V9 */
+/* OH_MATCH_BALL_IMAGE_V10 */
 .match-reference-light{--bg:#fff;--panel:#fff;--panel-2:#f4f4f6;--text:#101014;--muted:#74747c;--line:#dedee3;--green:#209a68;color-scheme:light}
 .match-reference-light body,.match-reference-light .app-header.match-mode,.match-reference-light .bottom-nav{background:#fff;color:#101014}
 .match-reference-light .app-header.match-mode{height:calc(80px + env(safe-area-inset-top));padding-top:calc(21px + env(safe-area-inset-top));padding-bottom:9px;border-bottom:0}.match-reference-light .header-favorite,.match-reference-light #backBtn{color:#101014}
@@ -6,7 +6,7 @@
 .summary-metric{align-items:stretch;text-align:left;justify-content:flex-start;min-height:106px;padding:13px 14px;background:#fff;box-shadow:0 2px 8px rgba(15,23,42,.035)}
 .summary-metric-title{display:flex;align-items:center;gap:8px;font-size:12px;font-weight:820;white-space:nowrap}
 .summary-metric-icon{width:27px;height:27px;flex:0 0 27px}.summary-metric-icon svg{width:27px;height:27px;overflow:visible}
-.oh-ball-3d{display:grid;width:100%;height:100%;place-items:center;overflow:hidden;font-family:"Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif;line-height:1}.summary-metric-icon .oh-ball-3d{font-size:27px}.expected-value-title .oh-ball-3d{font-size:22px}
+.oh-ball-3d{display:block;width:100%;height:100%;object-fit:contain}
 .summary-lead{margin:7px 0 2px 35px;font-size:12px;font-weight:650;color:var(--text)}
 .summary-primary-value{margin-left:35px;font-size:20px;line-height:1.08;font-weight:880;color:var(--text)}
 .summary-metric.tone-green .summary-primary-value{color:var(--text)}

@@ -1,4 +1,4 @@
-/* OH_MATCH_BALL_SIZE_V9 */
+/* OH_MATCH_BALL_IMAGE_V10 */
 
 const ohOriginalSetHeaderExactV3=setHeader;
 setHeader=function(view){
@@ -8,7 +8,7 @@ setHeader=function(view){
 
 summaryIcon = function(kind){
   if(kind==="ball"||kind==="ball-premium"){
-    return `<span class="oh-ball-3d" aria-hidden="true">⚽</span>`;
+    return `<img class="oh-ball-3d" src="/assets/icons/ball-3d-v10.png" alt="" aria-hidden="true" decoding="async">`;
   }
   if(kind==="corner")return `<svg viewBox="0 0 32 32" aria-hidden="true"><defs><filter id="ohFlagV7Shadow" x="-30%" y="-25%" width="160%" height="170%"><feDropShadow dx="0" dy="1.35" stdDeviation="1.05" flood-color="#111827" flood-opacity=".36"/></filter><linearGradient id="ohFlagV7Pole" x1="0" y1="0" x2="1" y2="0"><stop stop-color="#555a61"/><stop offset=".35" stop-color="#f2f3f4"/><stop offset=".65" stop-color="#a3a7ad"/><stop offset="1" stop-color="#45494f"/></linearGradient><linearGradient id="ohFlagV7Red" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#ff5b65"/><stop offset=".45" stop-color="#ec1f31"/><stop offset="1" stop-color="#a50014"/></linearGradient></defs><g filter="url(#ohFlagV7Shadow)"><ellipse cx="9.7" cy="27" rx="5.1" ry="1.25" fill="#4b5057" opacity=".68"/><rect x="8.5" y="4.6" width="2.4" height="21.9" rx="1.2" fill="url(#ohFlagV7Pole)"/><path d="M10.65 6.25 25.2 10.7 10.65 15.4Z" fill="url(#ohFlagV7Red)" stroke="#a70818" stroke-width=".55" stroke-linejoin="round"/><path d="m12.3 7.25 9.25 3.05" stroke="#fff" stroke-width=".95" stroke-linecap="round" stroke-opacity=".52"/></g></svg>`;
   if(kind==="card")return `<svg viewBox="0 0 32 32" aria-hidden="true"><defs><filter id="ohCard3dShadow" x="-40%" y="-35%" width="180%" height="190%"><feDropShadow dx="0" dy="1.7" stdDeviation="1.3" flood-color="#111827" flood-opacity=".35"/></filter><linearGradient id="ohCard3dGold" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#fff16a"/><stop offset=".42" stop-color="#ffd52c"/><stop offset="1" stop-color="#e6a700"/></linearGradient></defs><g filter="url(#ohCard3dShadow)"><rect x="8.6" y="4.25" width="14.8" height="23.2" rx="2.55" fill="url(#ohCard3dGold)" stroke="#d09b00" stroke-width=".65"/><path d="M11.1 6.8h8.65" stroke="#fff" stroke-width="1.35" stroke-linecap="round" stroke-opacity=".72"/><circle cx="20.65" cy="24.85" r="1.05" fill="#7f5a00"/></g></svg>`;

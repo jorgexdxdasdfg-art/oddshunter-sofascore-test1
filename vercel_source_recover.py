@@ -13,7 +13,8 @@ from typing import Any
 USER_AGENT = "OddsHunter-Vercel-Source-Recover/1.0"
 OLD_LABELS = ("Turso OK · solo lectura", "SQLite OK · solo lectura")
 NEW_LABEL = "Datos actualizados en línea"
-DETAIL_MARKER = "OH_MATCH_BALL_SIZE_V9"
+DETAIL_MARKER = "OH_MATCH_BALL_IMAGE_V10"
+BALL_ASSET_NAME = "ball-3d-v10.png"
 LEGACY_DETAIL_MARKERS = (
     "OH_MATCH_SUMMARY_REFERENCE_V2",
     "OH_MATCH_SUMMARY_EXACT_V3",
@@ -22,6 +23,7 @@ LEGACY_DETAIL_MARKERS = (
     "OH_MATCH_REFINEMENTS_V6",
     "OH_MATCH_ICONS_CONTAINED_V7",
     "OH_MATCH_BALL_3D_V8",
+    "OH_MATCH_BALL_SIZE_V9",
     DETAIL_MARKER,
 )
 ASSET_ROOT = Path(__file__).resolve().parent / "vercel_assets"
@@ -124,11 +126,23 @@ def patch_frontend(root: Path) -> dict[str, list[str]]:
     if not patched_styles:
         raise RuntimeError("No se encontró assets/css/app.css")
 
+    ball_source = ASSET_ROOT / "ball_3d_v10.png"
+    if not ball_source.is_file():
+        raise RuntimeError(f"No se encontró el balón 3D: {ball_source}")
+    ball_bytes = ball_source.read_bytes()
+    patched_icons: list[str] = []
+    for static_root in sorted({path.parents[2] for path in app_candidates}):
+        target = static_root / "assets" / "icons" / BALL_ASSET_NAME
+        target.parent.mkdir(parents=True, exist_ok=True)
+        if not target.is_file() or target.read_bytes() != ball_bytes:
+            target.write_bytes(ball_bytes)
+        patched_icons.append(target.relative_to(root).as_posix())
+
     patched_indexes: list[str] = []
     for path in sorted(root.glob("**/index.html")):
         text = path.read_text(encoding="utf-8")
-        updated = re.sub(r"app\.js\?v=[^\"']+", "app.js?v=1.6.7-ball-size", text)
-        updated = re.sub(r"sw\.js\?v=[^\"']+", "sw.js?v=1.6.7-ball-size", updated)
+        updated = re.sub(r"app\.js\?v=[^\"']+", "app.js?v=1.6.8-ball-image", text)
+        updated = re.sub(r"sw\.js\?v=[^\"']+", "sw.js?v=1.6.8-ball-image", updated)
         if updated != text:
             path.write_text(updated, encoding="utf-8", newline="\n")
             patched_indexes.append(path.relative_to(root).as_posix())
@@ -136,7 +150,7 @@ def patch_frontend(root: Path) -> dict[str, list[str]]:
     patched_workers: list[str] = []
     for path in sorted(root.glob("**/sw.js")):
         text = path.read_text(encoding="utf-8")
-        updated = re.sub(r"oh-mobile-v[^\"']+", "oh-mobile-v1-6-7-ball-size", text)
+        updated = re.sub(r"oh-mobile-v[^\"']+", "oh-mobile-v1-6-8-ball-image", text)
         if updated != text:
             path.write_text(updated, encoding="utf-8", newline="\n")
             patched_workers.append(path.relative_to(root).as_posix())
@@ -145,7 +159,7 @@ def patch_frontend(root: Path) -> dict[str, list[str]]:
         text = path.read_text(encoding="utf-8")
         if any(old in text for old in OLD_LABELS) or NEW_LABEL not in text or DETAIL_MARKER not in text:
             raise RuntimeError(f"El parche de frontend quedó incompleto en {path}")
-    return {"app_js": patched_apps, "app_css": patched_styles, "index_html": patched_indexes, "service_worker": patched_workers}
+    return {"app_js": patched_apps, "app_css": patched_styles, "icon_assets": patched_icons, "index_html": patched_indexes, "service_worker": patched_workers}
 
 
 def main() -> int:

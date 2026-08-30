@@ -142,15 +142,19 @@ jobs:
               "$PUBLIC_URL/assets/css/app.css?cb=$(date +%s%N)" -o artifacts/production_app.css || true
             curl --fail --silent --show-error --location \
               --max-time 45 -H 'Cache-Control: no-cache' \
+              "$PUBLIC_URL/assets/icons/ball-3d-v10.png?cb=$(date +%s%N)" -o artifacts/production_ball.png || true
+            curl --fail --silent --show-error --location \
+              --max-time 45 -H 'Cache-Control: no-cache' \
               "$PUBLIC_URL/api/health?cb=$(date +%s%N)" -o artifacts/production_health.json || true
-            if grep -Fq 'Datos actualizados en línea' artifacts/production_app.js 2>/dev/null && grep -Fq 'OH_MATCH_BALL_SIZE_V9' artifacts/production_app.js 2>/dev/null && grep -Fq 'OH_MATCH_BALL_SIZE_V9' artifacts/production_app.css 2>/dev/null; then
+            if grep -Fq 'Datos actualizados en línea' artifacts/production_app.js 2>/dev/null && grep -Fq 'OH_MATCH_BALL_IMAGE_V10' artifacts/production_app.js 2>/dev/null && grep -Fq 'OH_MATCH_BALL_IMAGE_V10' artifacts/production_app.css 2>/dev/null && [ -s artifacts/production_ball.png ]; then
               break
             fi
             sleep 5
           done
           grep -Fq 'Datos actualizados en línea' artifacts/production_app.js
-          grep -Fq 'OH_MATCH_BALL_SIZE_V9' artifacts/production_app.js
-          grep -Fq 'OH_MATCH_BALL_SIZE_V9' artifacts/production_app.css
+          grep -Fq 'OH_MATCH_BALL_IMAGE_V10' artifacts/production_app.js
+          grep -Fq 'OH_MATCH_BALL_IMAGE_V10' artifacts/production_app.css
+          test -s artifacts/production_ball.png
           ! grep -Fq 'solo lectura' artifacts/production_app.js
           python - <<'PY'
           import json
