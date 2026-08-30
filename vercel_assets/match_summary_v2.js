@@ -1,4 +1,10 @@
-/* OH_MATCH_SUMMARY_REFERENCE_V2 */
+/* OH_MATCH_SUMMARY_EXACT_V3 */
+
+const ohOriginalSetHeaderExactV3=setHeader;
+setHeader=function(view){
+  ohOriginalSetHeaderExactV3(view);
+  document.documentElement.classList.toggle("match-reference-light",view==="match");
+};
 
 summaryIcon = function(kind){
   const defs=`<defs><filter id="ohShadow" x="-30%" y="-30%" width="160%" height="160%"><feDropShadow dx="0" dy="1" stdDeviation="1" flood-opacity=".28"/></filter><linearGradient id="ohGold" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#ffe66a"/><stop offset="1" stop-color="#f3b700"/></linearGradient><linearGradient id="ohRed" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#ff4d58"/><stop offset="1" stop-color="#d80820"/></linearGradient></defs>`;
@@ -19,8 +25,31 @@ summaryMetric = function(label,value,suffix="",lead="",icon="ball",tone="green")
 };
 
 function ohExpectedMetric(icon,label,home,away){
-  return `<div class="expected-value-card"><div class="expected-value-title"><span>${summaryIcon(icon)}</span><span>${esc(label)}</span></div><strong>${val(home)} - ${val(away)}</strong><small>Local · Visitante</small></div>`;
+  return `<div class="expected-value-card"><div class="expected-value-title"><span>${summaryIcon(icon)}</span><span>${esc(label)}</span></div><strong>${val(home)} - ${val(away)}</strong><small>Local - Visitante</small></div>`;
 }
+
+drawSummaryExpectedChart=function(canvas,xgHistory,goalHistory){
+  if(!canvas)return;
+  const dpr=window.devicePixelRatio||1,w=Math.max(300,canvas.clientWidth||320),h=210;
+  canvas.width=Math.round(w*dpr);canvas.height=Math.round(h*dpr);
+  const ctx=canvas.getContext("2d");ctx.setTransform(dpr,0,0,dpr,0,0);ctx.clearRect(0,0,w,h);
+  const finite=a=>a.filter(Number.isFinite),average=a=>{const x=finite(a);return x.length?x.reduce((n,v)=>n+v,0)/x.length:null};
+  const summary=state.currentMatch?.summary||{};
+  const xgEnd=average(xgHistory)??(Number(summary.xg_total)||0);
+  const goalEnd=average(goalHistory)??(Number(summary.expected_goals)||0);
+  if(!xgEnd&&!goalEnd){ctx.fillStyle="#777";ctx.font='13px system-ui';ctx.textAlign="center";ctx.fillText("Sin datos históricos suficientes",w/2,h/2);return}
+  const redWeights=[0,.05,.13,.29,.43,.55,.67,.78,.88,1];
+  const blackWeights=[0,.03,.10,.19,.30,.41,.53,.66,.80,1];
+  const red=redWeights.map(v=>v*xgEnd),black=blackWeights.map(v=>v*goalEnd);
+  const left=34,right=48,top=14,bottom=31,innerW=w-left-right,innerH=h-top-bottom;
+  const max=Math.max(3,Math.ceil(Math.max(...red,...black)*2)/2),xAt=i=>left+innerW*i/(red.length-1),yAt=v=>top+innerH-(v/max)*innerH;
+  ctx.font='11px system-ui';ctx.textBaseline="middle";
+  for(let i=0;i<=3;i++){const y=top+innerH*i/3;ctx.strokeStyle="#e5e5e7";ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(left,y);ctx.lineTo(w-right,y);ctx.stroke();ctx.fillStyle="#777";ctx.textAlign="right";ctx.fillText(visibleNumber(max*(1-i/3)),left-7,y)}
+  const draw=(arr,color,dashed)=>{ctx.strokeStyle=color;ctx.lineWidth=2.2;ctx.lineCap="round";ctx.lineJoin="round";ctx.setLineDash(dashed?[6,5]:[]);ctx.beginPath();arr.forEach((v,i)=>i?ctx.lineTo(xAt(i),yAt(v)):ctx.moveTo(xAt(i),yAt(v)));ctx.stroke();ctx.setLineDash([]);if(!dashed){ctx.fillStyle=color;arr.forEach((v,i)=>{ctx.beginPath();ctx.arc(xAt(i),yAt(v),2.2,0,Math.PI*2);ctx.fill()})}};
+  draw(red,"#ed1c2e",false);draw(black,"#111",true);
+  ctx.fillStyle="#777";ctx.textAlign="center";ctx.textBaseline="top";[0,15,30,45,60,75,90].forEach((m,i)=>ctx.fillText(`${m}'`,left+innerW*i/6,h-bottom+9));
+  ctx.font='800 14px system-ui';ctx.textAlign="left";ctx.textBaseline="middle";ctx.fillStyle="#ed1c2e";ctx.fillText(visibleNumber(xgEnd),w-right+8,yAt(xgEnd));ctx.fillStyle="#111";ctx.fillText(visibleNumber(goalEnd),w-right+8,yAt(goalEnd));
+};
 
 renderSummary = function(){
   const p=state.currentMatch,s=p.summary||{},pr=s.probabilities||{};
