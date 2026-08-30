@@ -196,6 +196,19 @@ def patch_backend(root: Path) -> list[str]:
 
     path = primary[0]
     text = path.read_text(encoding="utf-8")
+    patched_signals = (
+        TEAM_RECENT_SCORE_COLUMNS_PATCHED,
+        '"over_0_5_ht": _frequency',
+        COMPARISON_AVAILABLE,
+        "def _database_lineup_payload(event_id: int)",
+    )
+    present = [signal in text for signal in patched_signals]
+    if all(present):
+        compile(text, str(path), "exec")
+        return [path.relative_to(root).as_posix()]
+    if any(present):
+        raise RuntimeError(f"El backend contiene un parche de datos incompleto: {path}")
+
     text = replace_once(
         text,
         TEAM_RECENT_SCORE_COLUMNS,
