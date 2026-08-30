@@ -97,26 +97,25 @@ jobs:
           set -eEuo pipefail
           python -m py_compile vercel_frontend_mirror.py
           rm -rf vercel_frontend
-          mkdir -p vercel_frontend/public
-          python vercel_frontend_mirror.py --base "$PUBLIC_URL" --output vercel_frontend/public
+          mkdir -p vercel_frontend/.vercel/output/static
+          python vercel_frontend_mirror.py --base "$PUBLIC_URL" --output vercel_frontend/.vercel/output/static
           python - <<'PY'
           import json,os
           origin=os.environ["ORIGIN_URL"].rstrip("/")
           config={
-              "version":2,
-              "rewrites":[
-                  {"source":"/api/:path*","destination":origin+"/api/:path*"}
-              ],
-              "headers":[
-                  {"source":"/","headers":[{"key":"Cache-Control","value":"no-store, max-age=0"}]},
-                  {"source":"/assets/js/app.js","headers":[{"key":"Cache-Control","value":"no-store, max-age=0"}]},
-                  {"source":"/sw.js","headers":[{"key":"Cache-Control","value":"no-store, max-age=0"}]}
+              "version":3,
+              "routes":[
+                  {"src":"^/api/(.*)$","dest":origin+"/api/$1"},
+                  {"src":"^/$","dest":"/index.html","headers":{"Cache-Control":"no-store, max-age=0"}},
+                  {"src":"^/assets/js/app\\.js$","headers":{"Cache-Control":"no-store, max-age=0"},"continue":True},
+                  {"src":"^/sw\\.js$","headers":{"Cache-Control":"no-store, max-age=0"},"continue":True},
+                  {"handle":"filesystem"}
               ]
           }
-          open("vercel_frontend/vercel.json","w",encoding="utf-8").write(json.dumps(config,indent=2))
+          open("vercel_frontend/.vercel/output/config.json","w",encoding="utf-8").write(json.dumps(config,indent=2))
           PY
-          grep -Fq 'Datos actualizados en línea' vercel_frontend/public/assets/js/app.js
-          ! grep -Fq 'solo lectura' vercel_frontend/public/assets/js/app.js
+          grep -Fq 'Datos actualizados en línea' vercel_frontend/.vercel/output/static/assets/js/app.js
+          ! grep -Fq 'solo lectura' vercel_frontend/.vercel/output/static/assets/js/app.js
           echo "STATIC_FRONTEND_BUILD=PASS"
 
       - name: Instalar Vercel CLI
@@ -126,7 +125,7 @@ jobs:
         id: preview
         run: |
           set -eEuo pipefail
-          PREVIEW_URL="$(vercel deploy --cwd vercel_frontend --yes --token "$VERCEL_TOKEN")"
+          PREVIEW_URL="$(vercel deploy --cwd vercel_frontend --prebuilt --yes --token "$VERCEL_TOKEN")"
           echo "url=$PREVIEW_URL" >> "$GITHUB_OUTPUT"
           for attempt in $(seq 1 12); do
             if curl --fail --silent --show-error --location \
@@ -153,7 +152,7 @@ jobs:
       - name: Desplegar a producción
         run: |
           set -eEuo pipefail
-          PROD_URL="$(vercel deploy --cwd vercel_frontend --prod --yes --token "$VERCEL_TOKEN")"
+          PROD_URL="$(vercel deploy --cwd vercel_frontend --prebuilt --prod --yes --token "$VERCEL_TOKEN")"
           echo "PRODUCTION_DEPLOYMENT_URL=$PROD_URL"
           for attempt in $(seq 1 18); do
             curl --fail --silent --show-error --location \
