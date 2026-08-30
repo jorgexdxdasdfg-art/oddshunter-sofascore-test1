@@ -21,7 +21,7 @@ from xg_pipeline import MatchRef
 
 ROOT = Path(__file__).resolve().parent
 DATA = ROOT / "data"
-DB = DATA / "oddshunter.db"
+DB = Path(os.environ.get("ODDSHUNTER_WORK_DB", str(DATA / "oddshunter.db")))
 REGISTRY = DATA / "competitions.json"
 REPORT = DATA / "automation" / "cloud_live_status" / "last.json"
 

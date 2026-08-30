@@ -78,7 +78,7 @@ jobs:
           echo "SUDO_GATE=PASS"
 
           CUR="$(readlink -f /opt/oddshunter/current)"
-          DB="$CUR/data/oddshunter.db"
+          DB="/var/lib/oddshunter/data/oddshunter.db"
           PY="$CUR/.venv-cloud/bin/python"
           STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
           BACKUP="/var/lib/oddshunter/data/oddshunter.db.PRE_LIVE_V1_$STAMP"
