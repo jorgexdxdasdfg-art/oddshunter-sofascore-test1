@@ -107,3 +107,179 @@ renderSummary = function(){
 
   requestAnimationFrame(()=>drawSummaryExpectedChart($("summaryExpectedChart"),combinedHistorySeries("xg_for",10),combinedHistorySeries("goals_for",10)));
 };
+
+function ohTrendSeries(side,key){
+  return seriesFrom(side,key).slice(-10);
+}
+
+function ohTrendAverage(values){
+  const finite=values.filter(Number.isFinite);
+  return finite.length?finite.reduce((sum,value)=>sum+value,0)/finite.length:null;
+}
+
+function ohTrendPercentage(side,predicate){
+  const scored=ohTrendSeries(side,"goals_for");
+  const received=ohTrendSeries(side,"goals_against");
+  let hits=0,total=0;
+  for(let index=0;index<Math.max(scored.length,received.length);index++){
+    if(!Number.isFinite(scored[index])||!Number.isFinite(received[index]))continue;
+    total++;
+    if(predicate(scored[index],received[index]))hits++;
+  }
+  return total?Math.round(hits/total*100):null;
+}
+
+function ohTrendRollingBtts(side){
+  const scored=ohTrendSeries(side,"goals_for");
+  const received=ohTrendSeries(side,"goals_against");
+  const result=[];
+  let hits=0,total=0;
+  for(let index=0;index<Math.max(scored.length,received.length);index++){
+    if(!Number.isFinite(scored[index])||!Number.isFinite(received[index])){
+      result.push(null);
+      continue;
+    }
+    total++;
+    if(scored[index]>0&&received[index]>0)hits++;
+    result.push(Math.round(hits/total*100));
+  }
+  return result;
+}
+
+function ohTrendLegend(homeName,awayName){
+  return `<div class="oh-trend-legend"><span><i class="home"></i>${esc(homeName)}</span><span><i class="away"></i>${esc(awayName)}</span></div>`;
+}
+
+function ohTrendInfo(){
+  return `<span class="oh-trend-info" aria-hidden="true">${infoSvg()}</span>`;
+}
+
+function ohTrendCard(title,canvasId,homeName,awayName){
+  return `<section class="oh-trend-card oh-trend-line-card">
+    <div class="oh-trend-title"><h3>${esc(title)}</h3>${ohTrendInfo()}</div>
+    ${ohTrendLegend(homeName,awayName)}
+    <canvas class="oh-trend-line-canvas" id="${canvasId}"></canvas>
+  </section>`;
+}
+
+function ohDrawTrendLine(canvas,homeValues,awayValues){
+  if(!canvas)return;
+  const dpr=window.devicePixelRatio||1;
+  const width=Math.max(300,canvas.clientWidth||320),height=174;
+  canvas.width=Math.round(width*dpr);canvas.height=Math.round(height*dpr);
+  const ctx=canvas.getContext("2d");
+  ctx.setTransform(dpr,0,0,dpr,0,0);ctx.clearRect(0,0,width,height);
+  const count=Math.max(homeValues.length,awayValues.length);
+  const finite=[...homeValues,...awayValues].filter(Number.isFinite);
+  if(!count||!finite.length){
+    ctx.fillStyle="#7a7a80";ctx.font="12px system-ui";ctx.textAlign="center";
+    ctx.fillText("Sin datos históricos suficientes",width/2,height/2);return;
+  }
+  const left=29,right=50,top=8,bottom=28;
+  const innerWidth=width-left-right,innerHeight=height-top-bottom;
+  const maxValue=Math.max(3,Math.ceil(Math.max(...finite)));
+  const xAt=index=>left+innerWidth*(count<=1?0:index/(count-1));
+  const yAt=value=>top+innerHeight-(Math.max(0,Math.min(maxValue,value))/maxValue)*innerHeight;
+  ctx.font="10px system-ui";ctx.textBaseline="middle";
+  for(let value=0;value<=maxValue;value++){
+    const y=yAt(value);
+    ctx.strokeStyle="#e3e3e6";ctx.lineWidth=1;ctx.setLineDash(value? [3,3]:[]);
+    ctx.beginPath();ctx.moveTo(left,y);ctx.lineTo(width-right,y);ctx.stroke();ctx.setLineDash([]);
+    ctx.fillStyle="#6f7076";ctx.textAlign="right";ctx.fillText(value.toFixed(1),left-7,y);
+  }
+  const draw=(values,color)=>{
+    ctx.strokeStyle=color;ctx.fillStyle=color;ctx.lineWidth=1.9;ctx.lineCap="round";ctx.lineJoin="round";
+    ctx.beginPath();let started=false;
+    values.forEach((value,index)=>{
+      if(!Number.isFinite(value)){started=false;return}
+      const x=xAt(index),y=yAt(value);
+      if(!started){ctx.moveTo(x,y);started=true}else ctx.lineTo(x,y);
+    });
+    ctx.stroke();
+    values.forEach((value,index)=>{
+      if(!Number.isFinite(value))return;
+      ctx.beginPath();ctx.arc(xAt(index),yAt(value),2.45,0,Math.PI*2);ctx.fill();
+    });
+  };
+  draw(homeValues,"#d62c31");draw(awayValues,"#242529");
+  ctx.fillStyle="#77787e";ctx.font="10px system-ui";ctx.textAlign="center";ctx.textBaseline="top";
+  for(let index=0;index<count;index++)ctx.fillText(String(index+1),xAt(index),height-bottom+8);
+  const homeAverage=ohTrendAverage(homeValues),awayAverage=ohTrendAverage(awayValues);
+  if(homeAverage===null&&awayAverage===null)return;
+  const labelX=width-right+10,minY=top+9,maxY=top+innerHeight-9,gap=21;
+  let homeY=homeAverage===null?null:yAt(homeAverage),awayY=awayAverage===null?null:yAt(awayAverage);
+  if(homeY!==null&&awayY!==null&&Math.abs(homeY-awayY)<gap){
+    const middle=(homeY+awayY)/2,upper=Math.max(minY,Math.min(maxY-gap,middle-gap/2));
+    if(homeY<=awayY){homeY=upper;awayY=upper+gap}else{awayY=upper;homeY=upper+gap}
+  }
+  ctx.font="800 15px system-ui";ctx.textAlign="left";ctx.textBaseline="middle";
+  if(homeY!==null){ctx.fillStyle="#d62c31";ctx.fillText(homeAverage.toFixed(2),labelX,Math.max(minY,Math.min(maxY,homeY)))}
+  if(awayY!==null){ctx.fillStyle="#17181b";ctx.fillText(awayAverage.toFixed(2),labelX,Math.max(minY,Math.min(maxY,awayY)))}
+}
+
+function ohDrawTrendBtts(canvas,homeValues,awayValues){
+  if(!canvas)return;
+  const dpr=window.devicePixelRatio||1;
+  const width=Math.max(300,canvas.clientWidth||320),height=92;
+  canvas.width=Math.round(width*dpr);canvas.height=Math.round(height*dpr);
+  const ctx=canvas.getContext("2d");ctx.setTransform(dpr,0,0,dpr,0,0);ctx.clearRect(0,0,width,height);
+  const count=Math.max(homeValues.length,awayValues.length);
+  if(!count){ctx.fillStyle="#777";ctx.font="12px system-ui";ctx.textAlign="center";ctx.fillText("Sin datos",width/2,height/2);return}
+  const left=7,right=49,top=3,bottom=22,innerWidth=width-left-right,innerHeight=height-top-bottom;
+  const slot=innerWidth/count,barWidth=Math.max(4,Math.min(9,slot*.27));
+  const drawBar=(index,value,offset,color)=>{
+    if(!Number.isFinite(value))return;
+    const barHeight=Math.max(3,innerHeight*Math.max(0,Math.min(100,value))/100);
+    const x=left+slot*index+slot/2+offset-barWidth/2;
+    ctx.fillStyle=color;ctx.fillRect(x,top+innerHeight-barHeight,barWidth,barHeight);
+  };
+  for(let index=0;index<count;index++){
+    drawBar(index,homeValues[index],-barWidth*.62,"#d62c31");
+    drawBar(index,awayValues[index],barWidth*.62,"#242529");
+  }
+  ctx.strokeStyle="#e3e3e6";ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(left,top+innerHeight+.5);ctx.lineTo(width-right,top+innerHeight+.5);ctx.stroke();
+  ctx.fillStyle="#77787e";ctx.font="10px system-ui";ctx.textAlign="center";ctx.textBaseline="top";
+  for(let index=0;index<count;index++)ctx.fillText(String(index+1),left+slot*index+slot/2,height-bottom+7);
+}
+
+const ohOriginalRenderMatchTabTrendsV12=renderMatchTab;
+renderMatchTab=function(){
+  $("matchHeader")?.classList.toggle("hidden",state.currentMatchTab==="trends");
+  ohOriginalRenderMatchTabTrendsV12();
+};
+
+renderTrends = function(){
+  const p=state.currentMatch,e=p?.event||{};
+  const homeName=e.home_team||"Local",awayName=e.away_team||"Visitante";
+  const homeGoals=ohTrendSeries("home","goals_for"),awayGoals=ohTrendSeries("away","goals_for");
+  const homeAgainst=ohTrendSeries("home","goals_against"),awayAgainst=ohTrendSeries("away","goals_against");
+  const homeOver=ohTrendPercentage("home",(scored,received)=>scored+received>1.5);
+  const awayOver=ohTrendPercentage("away",(scored,received)=>scored+received>1.5);
+  const homeBtts=ohTrendPercentage("home",(scored,received)=>scored>0&&received>0);
+  const awayBtts=ohTrendPercentage("away",(scored,received)=>scored>0&&received>0);
+  $("matchContent").innerHTML=`<div class="oh-trends-reference">
+    <section class="oh-trend-teams">
+      <div class="oh-trend-team home">${crest(e.home_team_id,homeName)}<strong>${esc(homeName)}</strong></div>
+      <span class="oh-trend-vs">VS</span>
+      <div class="oh-trend-team away"><strong>${esc(awayName)}</strong>${crest(e.away_team_id,awayName)}</div>
+    </section>
+    ${ohTrendCard("Goles por partido","ohTrendGoals",homeName,awayName)}
+    ${ohTrendCard("Goles recibidos por partido","ohTrendAgainst",homeName,awayName)}
+    <section class="oh-trend-card oh-trend-progress-card">
+      <div class="oh-trend-title"><div><h3>+1.5 goles</h3><small>Porcentaje de partidos</small></div>${ohTrendInfo()}</div>
+      ${ohTrendLegend(homeName,awayName)}
+      <div class="oh-trend-progress-row"><div class="oh-trend-track"><i class="home" style="width:${homeOver??0}%"></i></div><strong class="home">${homeOver===null?"N/D":`${homeOver}%`}</strong></div>
+      <div class="oh-trend-progress-row"><div class="oh-trend-track"><i class="away" style="width:${awayOver??0}%"></i></div><strong>${awayOver===null?"N/D":`${awayOver}%`}</strong></div>
+    </section>
+    <section class="oh-trend-card oh-trend-btts-card">
+      <div class="oh-trend-title"><div><h3>Ambos marcan (BTTS)</h3><small>Porcentaje de partidos</small></div>${ohTrendInfo()}</div>
+      ${ohTrendLegend(homeName,awayName)}
+      <div class="oh-trend-btts-body"><canvas id="ohTrendBtts"></canvas><div class="oh-trend-btts-values"><strong class="home">${homeBtts===null?"N/D":`${homeBtts}%`}</strong><strong>${awayBtts===null?"N/D":`${awayBtts}%`}</strong></div></div>
+    </section>
+  </div>`;
+  requestAnimationFrame(()=>{
+    ohDrawTrendLine($("ohTrendGoals"),homeGoals,awayGoals);
+    ohDrawTrendLine($("ohTrendAgainst"),homeAgainst,awayAgainst);
+    ohDrawTrendBtts($("ohTrendBtts"),ohTrendRollingBtts("home"),ohTrendRollingBtts("away"));
+  });
+};
