@@ -220,7 +220,7 @@ function ohDrawTrendLine(canvas,homeValues,awayValues){
 function ohDrawTrendBtts(canvas,homeValues,awayValues){
   if(!canvas)return;
   const dpr=window.devicePixelRatio||1;
-  const width=Math.max(300,canvas.clientWidth||320),height=92;
+  const width=Math.max(240,canvas.clientWidth||300),height=92;
   canvas.width=Math.round(width*dpr);canvas.height=Math.round(height*dpr);
   const ctx=canvas.getContext("2d");ctx.setTransform(dpr,0,0,dpr,0,0);ctx.clearRect(0,0,width,height);
   const count=Math.max(homeValues.length,awayValues.length);
