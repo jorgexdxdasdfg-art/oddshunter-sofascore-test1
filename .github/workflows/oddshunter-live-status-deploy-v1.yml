@@ -84,7 +84,16 @@ jobs:
           BACKUP="/var/lib/oddshunter/data/oddshunter.db.PRE_LIVE_V1_$STAMP"
 
           echo "CURRENT=$CUR"
-          if [ ! -f "$DB" ]; then echo "MISSING_DB=$DB"; exit 41; fi
+          if [ ! -f "$DB" ]; then
+            echo "MISSING_DB=$DB"
+            echo "CURRENT_DATA_LISTING_START"
+            $SUDO ls -la "$CUR/data" || true
+            echo "CURRENT_DATA_LISTING_END"
+            echo "DB_CANDIDATES_START"
+            $SUDO find /var/lib/oddshunter -maxdepth 4 -type f -name 'oddshunter.db*' -printf '%TY-%Tm-%TdT%TH:%TM:%TSZ %s %p\n' 2>/dev/null | sort -r | head -30 || true
+            echo "DB_CANDIDATES_END"
+            exit 41
+          fi
           if [ ! -x "$PY" ]; then echo "MISSING_PYTHON=$PY"; exit 42; fi
           if [ ! -f /etc/oddshunter/oddshunter.env ]; then
             echo "MISSING_ENV=/etc/oddshunter/oddshunter.env"
