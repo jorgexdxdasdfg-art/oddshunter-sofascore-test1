@@ -121,41 +121,42 @@ jobs:
       - name: Instalar Vercel CLI
         run: npm install --global vercel@latest
 
-      - name: Desplegar preview y probar
-        id: preview
+      - name: Desplegar producción staged y probar
+        id: staged
         run: |
           set -eEuo pipefail
-          PREVIEW_URL="$(vercel deploy --cwd vercel_frontend --prebuilt --yes --token "$VERCEL_TOKEN")"
-          echo "url=$PREVIEW_URL" >> "$GITHUB_OUTPUT"
+          STAGED_URL="$(vercel deploy --cwd vercel_frontend --prebuilt --prod --skip-domain --yes --token "$VERCEL_TOKEN")"
+          echo "url=$STAGED_URL" >> "$GITHUB_OUTPUT"
+          echo "STAGED_PRODUCTION_DEPLOYMENT_READY=PASS"
           for attempt in $(seq 1 12); do
-            if vercel curl "/api/health?cb=$(date +%s)" \
-              --deployment "$PREVIEW_URL" --cwd vercel_frontend --token "$VERCEL_TOKEN" \
-              --fail --silent --show-error --location --max-time 45 \
-              -H 'Cache-Control: no-cache' -o artifacts/preview_health.json; then
+            if curl --fail --silent --show-error --location \
+              --max-time 45 -H 'Cache-Control: no-cache' \
+              "$STAGED_URL/api/health?cb=$(date +%s)" -o artifacts/preview_health.json; then
               break
             fi
             sleep 5
           done
-          vercel curl "/assets/js/app.js?cb=$(date +%s)" \
-            --deployment "$PREVIEW_URL" --cwd vercel_frontend --token "$VERCEL_TOKEN" \
-            --fail --silent --show-error --location --max-time 45 \
-            -H 'Cache-Control: no-cache' -o artifacts/preview_app.js
+          curl --fail --silent --show-error --location \
+            --max-time 45 -H 'Cache-Control: no-cache' \
+            "$STAGED_URL/assets/js/app.js?cb=$(date +%s)" -o artifacts/preview_app.js
           grep -Fq 'Datos actualizados en línea' artifacts/preview_app.js
           ! grep -Fq 'Turso OK · solo lectura' artifacts/preview_app.js
           python - <<'PY'
           import json
           health=json.load(open("artifacts/preview_health.json",encoding="utf-8"))
           if health.get("ok") is not True or health.get("source") != "turso":
-              raise SystemExit(f"PREVIEW_HEALTH_FAIL={health}")
-          print("PREVIEW_API_HEALTH=PASS")
+              raise SystemExit(f"STAGED_HEALTH_FAIL={health}")
+          print("STAGED_API_HEALTH=PASS")
           PY
-          echo "PREVIEW_FRONTEND_LABEL=PASS"
+          echo "STAGED_FRONTEND_LABEL=PASS"
 
-      - name: Desplegar a producción
+      - name: Promover a producción y verificar
+        env:
+          STAGED_URL: ${{ steps.staged.outputs.url }}
         run: |
           set -eEuo pipefail
-          PROD_URL="$(vercel deploy --cwd vercel_frontend --prebuilt --prod --yes --token "$VERCEL_TOKEN")"
-          echo "PRODUCTION_DEPLOYMENT_URL=$PROD_URL"
+          vercel promote "$STAGED_URL" --yes --cwd vercel_frontend --token "$VERCEL_TOKEN"
+          echo "PRODUCTION_PROMOTION=PASS"
           for attempt in $(seq 1 18); do
             curl --fail --silent --show-error --location \
               --max-time 45 -H 'Cache-Control: no-cache' \
