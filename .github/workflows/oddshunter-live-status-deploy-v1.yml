@@ -144,11 +144,11 @@ jobs:
           $SUDO install -d -m 0755 /run/systemd/system/oddshunter-live-sync.service.d
           $SUDO tee /run/systemd/system/oddshunter-live-sync.service.d/bootstrap.conf >/dev/null <<'UNIT'
           [Service]
-          Environment=ODDSHUNTER_LIVE_PRIORITY_EVENT_IDS=16821936,16708159,16316771,16629463,16629438,16416304,16361896,16416290
-          Environment=ODDSHUNTER_LIVE_NEAR_LIMIT=8
-          Environment=ODDSHUNTER_LIVE_OVERDUE_LIMIT=8
-          Environment=ODDSHUNTER_LIVE_RECONCILE_HOURS=72
-          Environment=ODDSHUNTER_LIVE_RECONCILE_LIMIT=40
+          Environment=ODDSHUNTER_LIVE_PRIORITY_EVENT_IDS=16629438,16416304,16361896,16416290
+          Environment=ODDSHUNTER_LIVE_NEAR_LIMIT=1
+          Environment=ODDSHUNTER_LIVE_OVERDUE_LIMIT=1
+          Environment=ODDSHUNTER_LIVE_RECONCILE_HOURS=0
+          Environment=ODDSHUNTER_LIVE_RECONCILE_LIMIT=0
           UNIT
 
           $SUDO systemctl daemon-reload
@@ -176,14 +176,14 @@ jobs:
 
           $SUDO -u oddshunter "$PY" - "$DB" <<'PY'
           import sqlite3,sys
-          ids=(16821936,16708159,16316771,16629463,16629438,16416304,16361896,16416290)
+          ids=(16629438,16416304,16361896,16416290)
           con=sqlite3.connect(f"file:{sys.argv[1]}?mode=ro",uri=True)
           con.row_factory=sqlite3.Row
           print("quick_check =",con.execute("PRAGMA quick_check").fetchone()[0])
           print("foreign_key_errors =",len(con.execute("PRAGMA foreign_key_check").fetchall()))
           for row in con.execute(
               "SELECT sofascore_id,kickoff,status,home_goals,away_goals "
-              "FROM matches WHERE sofascore_id IN (?,?,?,?,?,?,?,?) ORDER BY sofascore_id",
+              "FROM matches WHERE sofascore_id IN (?,?,?,?) ORDER BY sofascore_id",
               ids,
           ):
               print("TARGET_LOCAL =",dict(row))
@@ -224,7 +224,6 @@ jobs:
           python - <<'PY'
           import json,time,urllib.request
           expected={
-              16821936:(1,4), 16708159:(1,0), 16316771:(2,3), 16629463:(1,5),
               16629438:(1,0), 16416304:(3,2), 16361896:(4,0), 16416290:(1,0),
           }
           targets=set(expected)

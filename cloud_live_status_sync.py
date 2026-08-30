@@ -173,6 +173,75 @@ def select_event_ids(con: sqlite3.Connection, event_ids: Iterable[int]) -> list[
     return [dict(row) for row in con.execute(sql, ids).fetchall()]
 
 
+def select_remote_candidates(
+    client: Any,
+    now: datetime,
+    competitions: dict[int, dict[str, Any]],
+    *,
+    event_ids: Iterable[int],
+    near_limit: int,
+    overdue_limit: int,
+) -> list[dict[str, Any]]:
+    """Select app-visible pending fixtures even when the VPS SQLite lacks them."""
+    by_key = {
+        slugify(item.get("key")): item
+        for item in competitions.values()
+        if item.get("league_id") is not None
+    }
+    rows = client.query(
+        "SELECT competition_key,event_id,competition_name,season_name,kickoff,status,"
+        "home_team_id,home_team,away_team_id,away_team,home_score,away_score "
+        "FROM mobile_events WHERE datetime(kickoff)>=datetime(?) "
+        "AND datetime(kickoff)<=datetime(?)",
+        [iso_utc(now - timedelta(hours=72)), iso_utc(now + timedelta(minutes=5))],
+    )
+    pending: list[dict[str, Any]] = []
+    for raw in rows:
+        kickoff = parse_dt(raw.get("kickoff"))
+        competition = by_key.get(slugify(raw.get("competition_key")))
+        status = str(raw.get("status") or "").upper()
+        pending_state = status not in SPECIAL_STATUSES and (
+            status not in FINAL_STATUSES
+            or raw.get("home_score") is None
+            or raw.get("away_score") is None
+        )
+        if kickoff is None or competition is None or not pending_state:
+            continue
+        event_id = int(raw.get("event_id") or 0)
+        if event_id <= 0:
+            continue
+        pending.append(
+            {
+                "match_id": event_id,
+                "event_id": event_id,
+                "league_id": int(competition["league_id"]),
+                "kickoff": str(raw.get("kickoff") or ""),
+                "status": raw.get("status"),
+                "home_goals": raw.get("home_score"),
+                "away_goals": raw.get("away_score"),
+                "season_name": raw.get("season_name"),
+                "competition_name": raw.get("competition_name") or competition.get("name"),
+                "home_team_id": raw.get("home_team_id"),
+                "home_team": raw.get("home_team"),
+                "away_team_id": raw.get("away_team_id"),
+                "away_team": raw.get("away_team"),
+                "remote_only": True,
+            }
+        )
+
+    priorities = {int(value) for value in event_ids if int(value) > 0}
+    explicit = [row for row in pending if int(row["event_id"]) in priorities]
+    pool = [row for row in pending if int(row["event_id"]) not in priorities]
+    recent_floor = now - timedelta(hours=8)
+    recent = [row for row in pool if parse_dt(row["kickoff"]) >= recent_floor]
+    overdue = [row for row in pool if parse_dt(row["kickoff"]) < recent_floor]
+    recent.sort(key=lambda row: abs((now - parse_dt(row["kickoff"])).total_seconds()))
+    overdue.sort(key=lambda row: parse_dt(row["kickoff"]), reverse=True)
+    if overdue:
+        rotation = int(now.timestamp() // 60) % len(overdue)
+        overdue = overdue[rotation:] + overdue[:rotation]
+    return explicit + recent[:near_limit] + overdue[:overdue_limit]
+
 def match_ref(row: dict[str, Any], competition: dict[str, Any]) -> MatchRef:
     return MatchRef(
         match_id=int(row["match_id"]),
@@ -384,6 +453,8 @@ def run(
     event_ids: Iterable[int] = (),
 ) -> dict[str, Any]:
     competitions = registry_by_league()
+    priority_ids = tuple(event_ids)
+    client = None if dry_run else turso_client()
     with connect_db(read_only=True) as con:
         candidates = select_candidates(
             con,
@@ -391,19 +462,29 @@ def run(
             near_limit=near_limit,
             overdue_limit=overdue_limit,
         )
-        explicit = select_event_ids(con, event_ids)
-        candidates = list(
-            {
-                int(row["event_id"]): row
-                for row in [*explicit, *candidates]
-            }.values()
-        )
+        explicit = select_event_ids(con, priority_ids)
         local_finals = reconcile_local_finals(
             con,
             now,
             reconcile_hours,
             reconcile_limit,
         )
+    remote = (
+        select_remote_candidates(
+            client,
+            now,
+            competitions,
+            event_ids=priority_ids,
+            near_limit=near_limit,
+            overdue_limit=overdue_limit,
+        )
+        if client is not None
+        else []
+    )
+    merged: dict[int, dict[str, Any]] = {}
+    for row in [*explicit, *candidates, *remote]:
+        merged.setdefault(int(row["event_id"]), row)
+    candidates = list(merged.values())
 
     report: dict[str, Any] = {
         "generated_at": iso_utc(now),
@@ -412,7 +493,6 @@ def run(
         "reconcile_count": len(local_finals),
         "events": [],
     }
-    client = None if dry_run else turso_client()
     provider_messages: list[str] = []
 
     def provider_logger(message: str) -> None:
@@ -448,7 +528,8 @@ def run(
                     else:
                         stamp = iso_utc(utc_now())
                         publish_remote(client, row, competition, update, stamp)
-                        update_local(row, update, stamp)
+                        if not row.get("remote_only"):
+                            update_local(row, update, stamp)
                         item["update"] = update
                         item["result"] = "PUBLISHED"
             except Exception as exc:
