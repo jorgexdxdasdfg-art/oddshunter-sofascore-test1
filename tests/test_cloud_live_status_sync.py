@@ -171,5 +171,42 @@ def test_select_candidates_prefers_due_and_keeps_overdue_fairness() -> None:
     )
 
     chosen = live.select_candidates(con, now, near_limit=1, overdue_limit=2)
-    assert [row["event_id"] for row in chosen] == [1001, 1002, 1003]
+    assert chosen[0]["event_id"] == 1001
+    assert {row["event_id"] for row in chosen[1:]} == {1002, 1003}
+    con.close()
+
+def test_select_candidates_rotates_overdue_backlog_each_minute() -> None:
+    con = sqlite3.connect(":memory:")
+    con.row_factory = sqlite3.Row
+    con.executescript(
+        """
+        CREATE TABLE leagues(league_id INTEGER PRIMARY KEY,name TEXT);
+        CREATE TABLE teams(team_id INTEGER PRIMARY KEY,sofascore_id INTEGER,name TEXT);
+        CREATE TABLE matches(
+          match_id INTEGER PRIMARY KEY,sofascore_id INTEGER,league_id INTEGER,
+          kickoff TEXT,status TEXT,home_goals INTEGER,away_goals INTEGER,
+          season TEXT,home_team_id INTEGER,away_team_id INTEGER
+        );
+        INSERT INTO leagues VALUES(1,'League');
+        INSERT INTO teams VALUES(1,101,'Home');
+        INSERT INTO teams VALUES(2,102,'Away');
+        """
+    )
+    now = datetime(2026, 8, 28, 18, 0, tzinfo=timezone.utc)
+    con.executemany(
+        "INSERT INTO matches VALUES(?,?,?,?,?,?,?,?,?,?)",
+        [
+            (index, 2000 + index, 1, (now - timedelta(hours=10 + index)).isoformat(),
+             "NS", None, None, "2026", 1, 2)
+            for index in range(1, 7)
+        ],
+    )
+
+    first = live.select_candidates(con, now, near_limit=1, overdue_limit=2)
+    second = live.select_candidates(
+        con, now + timedelta(minutes=1), near_limit=1, overdue_limit=2
+    )
+
+    assert {row["event_id"] for row in first} != {row["event_id"] for row in second}
+    assert len({row["event_id"] for row in [*first, *second]}) >= 3
     con.close()

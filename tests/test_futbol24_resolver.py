@@ -172,5 +172,35 @@ class ResolverTests(unittest.TestCase):
             self.assertIn(field, source)
 
 
+    def test_verified_provider_aliases_resolve_racing_and_genk(self):
+        client = self.client()
+
+        self.assertIn("Racing Santander", client._expected_names("Real Racing Club"))
+        self.assertIn("Racing Genk", client._expected_names("KRC Genk"))
+
+    def test_contextual_team_name_requires_exact_opponent_date_and_competition(self):
+        client = self.client()
+        match = MatchRef(
+            competition="Belgium Pro League",
+            season="2026",
+            kickoff="2026-08-28T18:45:00+00:00",
+            home_team="Unregistered Genk Name",
+            away_team="SK Beveren",
+        )
+        candidate = {
+            "date": "2026-08-28T18:45:00+00:00",
+            "league": {"name": "Belgium Pro League"},
+            "team1": {"name": "Genk Name"},
+            "team2": {"name": "SK Beveren"},
+            "score1": "4-0",
+        }
+
+        validation = client._candidate_validation(match, candidate, require_score=False)
+
+        self.assertTrue(validation["valid"])
+        candidate["team2"] = {"name": "Different Opponent"}
+        self.assertFalse(
+            client._candidate_validation(match, candidate, require_score=False)["valid"]
+        )
 if __name__ == "__main__":
     unittest.main()

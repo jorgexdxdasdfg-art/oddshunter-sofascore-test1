@@ -128,9 +128,9 @@ jobs:
           $SUDO install -d -m 0755 /run/systemd/system/oddshunter-live-sync.service.d
           $SUDO tee /run/systemd/system/oddshunter-live-sync.service.d/bootstrap.conf >/dev/null <<'UNIT'
           [Service]
-          Environment=ODDSHUNTER_LIVE_PRIORITY_EVENT_IDS=16821936,16708159,16316771,16629463
-          Environment=ODDSHUNTER_LIVE_NEAR_LIMIT=2
-          Environment=ODDSHUNTER_LIVE_OVERDUE_LIMIT=2
+          Environment=ODDSHUNTER_LIVE_PRIORITY_EVENT_IDS=16821936,16708159,16316771,16629463,16629438,16416304,16361896,16416290
+          Environment=ODDSHUNTER_LIVE_NEAR_LIMIT=8
+          Environment=ODDSHUNTER_LIVE_OVERDUE_LIMIT=8
           Environment=ODDSHUNTER_LIVE_RECONCILE_HOURS=72
           Environment=ODDSHUNTER_LIVE_RECONCILE_LIMIT=40
           UNIT
@@ -151,14 +151,14 @@ jobs:
 
           $SUDO -u oddshunter "$PY" - "$DB" <<'PY'
           import sqlite3,sys
-          ids=(16821936,16708159,16316771,16629463)
+          ids=(16821936,16708159,16316771,16629463,16629438,16416304,16361896,16416290)
           con=sqlite3.connect(f"file:{sys.argv[1]}?mode=ro",uri=True)
           con.row_factory=sqlite3.Row
           print("quick_check =",con.execute("PRAGMA quick_check").fetchone()[0])
           print("foreign_key_errors =",len(con.execute("PRAGMA foreign_key_check").fetchall()))
           for row in con.execute(
               "SELECT sofascore_id,kickoff,status,home_goals,away_goals "
-              "FROM matches WHERE sofascore_id IN (?,?,?,?) ORDER BY sofascore_id",
+              "FROM matches WHERE sofascore_id IN (?,?,?,?,?,?,?,?) ORDER BY sofascore_id",
               ids,
           ):
               print("TARGET_LOCAL =",dict(row))
@@ -183,7 +183,7 @@ jobs:
           set -eEuo pipefail
           python - <<'PY'
           import json,time,urllib.request
-          targets={16821936,16708159,16316771,16629463}
+          targets={16821936,16708159,16316771,16629463,16629438,16416304,16361896,16416290}
           found={}
           for offset in (-2,-1,0):
               url=f"https://oddshunter-mobile.vercel.app/api/day?offset={offset}&limit=1000&cb={time.time_ns()}"

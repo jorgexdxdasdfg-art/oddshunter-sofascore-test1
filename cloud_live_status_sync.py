@@ -125,7 +125,10 @@ def select_candidates(
     near_limit: int,
     overdue_limit: int,
 ) -> list[dict[str, Any]]:
-    floor = now - timedelta(hours=48)
+    # Keep three complete match days in the repair window. A shorter fixed
+    # window can permanently strand fixtures when the provider is temporarily
+    # unavailable around full time.
+    floor = now - timedelta(hours=72)
     ceiling = now + timedelta(minutes=5)
     rows = con.execute(MATCH_SELECT, (iso_utc(floor), iso_utc(ceiling))).fetchall()
     pending = [row for row in rows if _pending(row) and parse_dt(row["kickoff"]) is not None]
@@ -145,6 +148,14 @@ def select_candidates(
         if left <= right:
             fair_overdue.append(overdue[right])
             right -= 1
+
+    # Rotate the overdue window every minute. Taking the first N rows on every
+    # invocation retries the same failures forever and starves the rest of the
+    # backlog. The timer runs once per minute, so every unfinished row gets a
+    # bounded opportunity without flooding the provider in one run.
+    if fair_overdue:
+        rotation = int(now.timestamp() // 60) % len(fair_overdue)
+        fair_overdue = fair_overdue[rotation:] + fair_overdue[:rotation]
 
     chosen = recent[:near_limit] + fair_overdue[:overdue_limit]
     return [dict(row) for row in chosen]
@@ -484,12 +495,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--near-limit",
         type=int,
-        default=int(os.environ.get("ODDSHUNTER_LIVE_NEAR_LIMIT", "24")),
+        default=int(os.environ.get("ODDSHUNTER_LIVE_NEAR_LIMIT", "48")),
     )
     parser.add_argument(
         "--overdue-limit",
         type=int,
-        default=int(os.environ.get("ODDSHUNTER_LIVE_OVERDUE_LIMIT", "12")),
+        default=int(os.environ.get("ODDSHUNTER_LIVE_OVERDUE_LIMIT", "24")),
     )
     parser.add_argument(
         "--reconcile-terminal-hours",

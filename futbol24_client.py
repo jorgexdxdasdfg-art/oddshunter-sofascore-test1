@@ -113,6 +113,21 @@ COMPETITION_FAMILIES: dict[str, tuple[str, ...]] = {
         "colombia primera a",
         "primera a",
     ),
+    "spain-la-liga": (
+        "laliga",
+        "la liga",
+        "primera division",
+        "primera división",
+        "spa d1",
+    ),
+}
+
+# Verified provider spellings. These are identities, never scores or match
+# states: Futbol24 uses a different club name from the schedule source for a
+# handful of teams. The normal resolver still discovers results dynamically.
+FUTBOL24_TEAM_ALIASES: dict[str, tuple[str, ...]] = {
+    "krc genk": ("Racing Genk", "RC Genk"),
+    "real racing club": ("Racing Santander", "Racing de Santander"),
 }
 
 
@@ -313,6 +328,7 @@ class Futbol24Client:
             dict.fromkeys(
                 [
                     *verified,
+                    *FUTBOL24_TEAM_ALIASES.get(_normalize(value), ()),
                     *fallback,
                     str(value or "").strip(),
                 ]
@@ -600,20 +616,34 @@ class Futbol24Client:
                 actual_home == _to_number(match.home_goals)
                 and actual_away == _to_number(match.away_goals)
             )
+        competition_pass = bool(
+            expected_family in candidate_families
+            if expected_family is not None
+            else competition_score >= 0.55
+        )
+        # If one side is an exact identity, the kickoff is almost exact and the
+        # competition agrees, allow a conservative contextual match for the
+        # other side. This covers provider naming differences while still
+        # requiring four independent fixture signals.
+        contextual_fixture = bool(date_pass and hours <= 3.0 and competition_pass)
+        home_pass = bool(
+            home_score >= 0.82
+            or (contextual_fixture and home_score >= 0.40 and away_score >= 0.95)
+        )
+        away_pass = bool(
+            away_score >= 0.82
+            or (contextual_fixture and away_score >= 0.40 and home_score >= 0.95)
+        )
         checks = {
             "home_score": round(home_score, 4),
             "away_score": round(away_score, 4),
             "date_delta_hours": round(hours, 3) if math.isfinite(hours) else None,
             "competition_score": round(competition_score, 4),
             "orientation": "reversed" if reversed_order else "forward",
-            "home_pass": home_score >= 0.82,
-            "away_pass": away_score >= 0.82,
+            "home_pass": home_pass,
+            "away_pass": away_pass,
             "date_pass": date_pass,
-            "competition_pass": bool(
-                expected_family in candidate_families
-                if expected_family is not None
-                else competition_score >= 0.55
-            ),
+            "competition_pass": competition_pass,
             "expected_competition_family": expected_family,
             "candidate_competition_families": sorted(candidate_families),
             "score_required": bool(require_score and expected_score_known),
