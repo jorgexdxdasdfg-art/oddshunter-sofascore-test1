@@ -108,6 +108,36 @@ renderSummary = function(){
   requestAnimationFrame(()=>drawSummaryExpectedChart($("summaryExpectedChart"),combinedHistorySeries("xg_for",10),combinedHistorySeries("goals_for",10)));
 };
 
+function ohComparisonLabel(label){
+  return String(label||"")==="BTTS"?"Ambos marcan":String(label||"");
+}
+
+function ohComparisonValue(value,kind){
+  return value===null||value===undefined?"N/D":kind==="percent"?`${visibleNumber(value)}%`:visibleNumber(value);
+}
+
+renderComparison = function(){
+  const p=state.currentMatch,c=p.comparison||{},rows=c.rows||[];
+  const homeName=p.event.home_team,awayName=p.event.away_team;
+  const joint=rows.filter(row=>row.kind==="percent"&&row.home!==null&&row.away!==null).map(row=>({
+    label:String(row.label||"")==="BTTS"?"BTTS":String(row.label||""),
+    value:Math.round((Number(row.home)+Number(row.away))/2*10)/10
+  }));
+  $("matchContent").innerHTML=`<div class="oh-comparison-reference">
+    <section class="panel oh-last-matches-panel">
+      <h3>Últimos partidos</h3>
+      <table class="oh-last-matches-table">
+        <thead><tr><th>${esc(homeName)}</th><th>Métrica</th><th>${esc(awayName)}</th></tr></thead>
+        <tbody>${rows.map(row=>`<tr title="${esc(row.note||"")}"><td>${ohComparisonValue(row.home,row.kind)}</td><td>${esc(ohComparisonLabel(row.label))}</td><td>${ohComparisonValue(row.away,row.kind)}</td></tr>`).join("")}</tbody>
+      </table>
+    </section>
+    <section class="panel oh-joint-panel">
+      <h3>Tendencia conjunta</h3>
+      <div class="oh-joint-list">${joint.map(item=>`<div class="oh-joint-row"><span>${esc(item.label)}</span><div class="oh-joint-track"><i style="width:${Math.max(0,Math.min(100,item.value))}%"></i></div><strong>${visibleNumber(item.value)}%</strong></div>`).join("")||'<p class="muted">Sin métricas conjuntas suficientes.</p>'}</div>
+    </section>
+  </div>`;
+};
+
 function ohTrendSeries(side,key){
   return seriesFrom(side,key).slice(-10);
 }
