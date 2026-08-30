@@ -36,9 +36,18 @@ jobs:
           python - <<'PY'
           import json,os,urllib.parse,urllib.request
 
-          token=os.environ["VERCEL_TOKEN"]
-          project_id=os.environ["VERCEL_PROJECT_ID"]
-          team_id=os.environ["VERCEL_ORG_ID"]
+          # Normalize accidental surrounding whitespace copied with a secret.
+          token=os.environ["VERCEL_TOKEN"].strip()
+          project_id=os.environ["VERCEL_PROJECT_ID"].strip()
+          team_id=os.environ["VERCEL_ORG_ID"].strip()
+          if not token or not project_id or not team_id:
+              raise SystemExit("EMPTY_VERCEL_SECRET_AFTER_NORMALIZATION")
+          if any("\n" in value or "\r" in value for value in (token,project_id,team_id)):
+              raise SystemExit("INVALID_INTERNAL_LINE_BREAK_IN_VERCEL_SECRET")
+          with open(os.environ["GITHUB_ENV"],"a",encoding="utf-8") as env_file:
+              env_file.write(f"VERCEL_TOKEN={token}\n")
+              env_file.write(f"VERCEL_PROJECT_ID={project_id}\n")
+              env_file.write(f"VERCEL_ORG_ID={team_id}\n")
           headers={"Authorization":f"Bearer {token}","User-Agent":"OddsHunter-Vercel-Deploy/1.0"}
 
           def get(path,params=None):
