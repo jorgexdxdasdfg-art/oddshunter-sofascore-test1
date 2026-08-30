@@ -7,6 +7,7 @@ on:
     paths:
       - cloud_live_status_sync.py
       - futbol24_client.py
+      - sofascore_event_client.py
       - deploy/oddshunter-live-sync.service
       - deploy/oddshunter-live-sync.timer
       - tests/test_cloud_live_status_sync.py
@@ -29,8 +30,8 @@ jobs:
         run: |
           set -eEuo pipefail
           python -m pip install --quiet pytest
-          python -m py_compile cloud_live_status_sync.py
-          python -m pytest -q tests/test_cloud_live_status_sync.py tests/test_futbol24_resolver.py
+          python -m py_compile cloud_live_status_sync.py sofascore_event_client.py
+          python -m pytest -q tests/test_cloud_live_status_sync.py tests/test_futbol24_resolver.py tests/test_sofascore_event_client.py
 
       - name: Preparar SSH
         env:
@@ -62,6 +63,10 @@ jobs:
             -o BatchMode=yes -o StrictHostKeyChecking=yes \
             futbol24_client.py \
             "$VPS_USER@$VPS_HOST:/tmp/futbol24_client_V1.py"
+          scp -i ~/.ssh/oddshunter_live -P "$VPS_PORT" \
+            -o BatchMode=yes -o StrictHostKeyChecking=yes \
+            sofascore_event_client.py \
+            "$VPS_USER@$VPS_HOST:/tmp/sofascore_event_client_V1.py"
           scp -i ~/.ssh/oddshunter_live -P "$VPS_PORT" \
             -o BatchMode=yes -o StrictHostKeyChecking=yes \
             deploy/oddshunter-live-sync.service \
@@ -122,6 +127,8 @@ jobs:
           $SUDO install -o root -g root -m 0644 \
             /tmp/futbol24_client_V1.py "$CUR/futbol24_client.py"
           $SUDO install -o root -g root -m 0644 \
+            /tmp/sofascore_event_client_V1.py "$CUR/sofascore_event_client.py"
+          $SUDO install -o root -g root -m 0644 \
             /tmp/oddshunter-live-sync.service /etc/systemd/system/oddshunter-live-sync.service
           $SUDO install -o root -g root -m 0644 \
             /tmp/oddshunter-live-sync.timer /etc/systemd/system/oddshunter-live-sync.timer
@@ -135,18 +142,14 @@ jobs:
           PY
           echo "LIVE_SYNC_INSTALL=PASS"
 
-          # Bootstrap the exact matches reported from the phone plus a small
-          # recent sample. Stop the timer and any previous oneshot first;
-          # otherwise `systemctl start` can reuse an already-running invocation
-          # that never received this temporary priority list.
+          # Sweep the whole recent pending window once on deployment. The
+          # permanent minute timer keeps bounded rotating batches afterwards.
           $SUDO systemctl stop oddshunter-live-sync.timer || true
           $SUDO systemctl stop oddshunter-live-sync.service || true
           $SUDO install -d -m 0755 /run/systemd/system/oddshunter-live-sync.service.d
           $SUDO tee /run/systemd/system/oddshunter-live-sync.service.d/bootstrap.conf >/dev/null <<'UNIT'
           [Service]
-          Environment=ODDSHUNTER_LIVE_PRIORITY_EVENT_IDS=16391180,16363245,16629467,15235441,15353117,15235449,15353113,15285816
-          Environment=ODDSHUNTER_LIVE_PRIORITY_EVENT_IDS=16629438,16416304,16361896,16416290
-          Environment=ODDSHUNTER_LIVE_NEAR_LIMIT=4
+          Environment=ODDSHUNTER_LIVE_NEAR_LIMIT=80
           Environment=ODDSHUNTER_LIVE_OVERDUE_LIMIT=40
           Environment=ODDSHUNTER_LIVE_RECONCILE_HOURS=0
           Environment=ODDSHUNTER_LIVE_RECONCILE_LIMIT=0

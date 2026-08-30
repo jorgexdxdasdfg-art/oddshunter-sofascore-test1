@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from futbol24_client import Futbol24Client
+from sofascore_event_client import SofaScoreEventClient
 from xg_pipeline import MatchRef
 
 
@@ -516,9 +517,10 @@ def run(
     provider_messages: list[str] = []
 
     def provider_logger(message: str) -> None:
-        print(f"F24-LIVE> {message}")
+        print(f"LIVE-SOURCE> {message}")
         provider_messages.append(str(message))
 
+    sofa = SofaScoreEventClient(logger=provider_logger)
     f24 = Futbol24Client(project_root=ROOT, logger=provider_logger)
     try:
         for row in candidates:
@@ -534,12 +536,22 @@ def run(
                 report["events"].append(item)
                 continue
             try:
-                snapshot = f24.get_match_snapshot(match_ref(row, competition))
+                snapshot = None
+                update = None
+                try:
+                    snapshot = sofa.get_match_snapshot(row)
+                    update = normalized_update(snapshot)
+                    item["source"] = "sofascore-event-id"
+                except Exception as exc:
+                    provider_logger(f"SofaScore exacto falló event_id={row['event_id']}; respaldo Futbol24: {exc}")
+                if update is None:
+                    snapshot = f24.get_match_snapshot(match_ref(row, competition))
+                    update = normalized_update(snapshot) if isinstance(snapshot, dict) else None
+                    item["source"] = "futbol24-name-fallback"
                 item["snapshot"] = snapshot
                 if not isinstance(snapshot, dict):
                     item["result"] = "SOURCE_UNAVAILABLE"
                 else:
-                    update = normalized_update(snapshot)
                     if update is None:
                         item["result"] = "NO_ACTION"
                     elif dry_run:
