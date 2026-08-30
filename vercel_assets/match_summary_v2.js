@@ -1,4 +1,4 @@
-/* OH_MATCH_BALL_IMAGE_V10 */
+/* OH_MATCH_SUMMARY_FIXES_V11 */
 
 const ohOriginalSetHeaderExactV3=setHeader;
 setHeader=function(view){
@@ -50,7 +50,20 @@ drawSummaryExpectedChart=function(canvas,xgHistory,goalHistory){
   const draw=(arr,color,dashed)=>{ctx.strokeStyle=color;ctx.lineWidth=2.2;ctx.lineCap="round";ctx.lineJoin="round";ctx.setLineDash(dashed?[6,5]:[]);ctx.beginPath();arr.forEach((v,i)=>i?ctx.lineTo(xAt(i),yAt(v)):ctx.moveTo(xAt(i),yAt(v)));ctx.stroke();ctx.setLineDash([]);if(!dashed){ctx.fillStyle=color;arr.forEach((v,i)=>{ctx.beginPath();ctx.arc(xAt(i),yAt(v),2.2,0,Math.PI*2);ctx.fill()})}};
   draw(red,"#ed1c2e",false);draw(black,"#111",true);
   ctx.fillStyle="#777";ctx.textAlign="center";ctx.textBaseline="top";[0,15,30,45,60,75,90].forEach((m,i)=>ctx.fillText(`${m}'`,left+innerW*i/6,h-bottom+9));
-  ctx.font='800 14px system-ui';ctx.textAlign="left";ctx.textBaseline="middle";ctx.fillStyle="#ed1c2e";ctx.fillText(visibleNumber(xgEnd),w-right+8,yAt(xgEnd));ctx.fillStyle="#111";ctx.fillText(visibleNumber(goalEnd),w-right+8,yAt(goalEnd));
+  ctx.font='800 14px system-ui';ctx.textAlign="left";ctx.textBaseline="middle";
+  const redNaturalY=yAt(xgEnd),blackNaturalY=yAt(goalEnd),labelGap=22;
+  let redLabelY=redNaturalY,blackLabelY=blackNaturalY;
+  const minLabelY=top+8,maxLabelY=top+innerH-8;
+  if(Math.abs(redLabelY-blackLabelY)<labelGap){
+    const middle=(redLabelY+blackLabelY)/2;
+    const upper=Math.max(minLabelY,Math.min(maxLabelY-labelGap,middle-labelGap/2));
+    const lower=upper+labelGap;
+    if(redNaturalY<=blackNaturalY){redLabelY=upper;blackLabelY=lower}
+    else{blackLabelY=upper;redLabelY=lower}
+  }
+  const clampLabel=y=>Math.max(minLabelY,Math.min(maxLabelY,y));
+  ctx.fillStyle="#ed1c2e";ctx.fillText(visibleNumber(xgEnd),w-right+8,clampLabel(redLabelY));
+  ctx.fillStyle="#111";ctx.fillText(visibleNumber(goalEnd),w-right+8,clampLabel(blackLabelY));
 };
 
 renderSummary = function(){

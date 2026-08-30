@@ -13,7 +13,7 @@ from typing import Any
 USER_AGENT = "OddsHunter-Vercel-Source-Recover/1.0"
 OLD_LABELS = ("Turso OK · solo lectura", "SQLite OK · solo lectura")
 NEW_LABEL = "Datos actualizados en línea"
-DETAIL_MARKER = "OH_MATCH_BALL_IMAGE_V10"
+DETAIL_MARKER = "OH_MATCH_SUMMARY_FIXES_V11"
 BALL_ASSET_NAME = "ball-3d-v10.png"
 LEGACY_DETAIL_MARKERS = (
     "OH_MATCH_SUMMARY_REFERENCE_V2",
@@ -24,6 +24,7 @@ LEGACY_DETAIL_MARKERS = (
     "OH_MATCH_ICONS_CONTAINED_V7",
     "OH_MATCH_BALL_3D_V8",
     "OH_MATCH_BALL_SIZE_V9",
+    "OH_MATCH_BALL_IMAGE_V10",
     DETAIL_MARKER,
 )
 ASSET_ROOT = Path(__file__).resolve().parent / "vercel_assets"
@@ -141,8 +142,8 @@ def patch_frontend(root: Path) -> dict[str, list[str]]:
     patched_indexes: list[str] = []
     for path in sorted(root.glob("**/index.html")):
         text = path.read_text(encoding="utf-8")
-        updated = re.sub(r"app\.js\?v=[^\"']+", "app.js?v=1.6.8-ball-image", text)
-        updated = re.sub(r"sw\.js\?v=[^\"']+", "sw.js?v=1.6.8-ball-image", updated)
+        updated = re.sub(r"app\.js\?v=[^\"']+", "app.js?v=1.6.9-summary-fixes", text)
+        updated = re.sub(r"sw\.js\?v=[^\"']+", "sw.js?v=1.6.9-summary-fixes", updated)
         if updated != text:
             path.write_text(updated, encoding="utf-8", newline="\n")
             patched_indexes.append(path.relative_to(root).as_posix())
@@ -150,7 +151,7 @@ def patch_frontend(root: Path) -> dict[str, list[str]]:
     patched_workers: list[str] = []
     for path in sorted(root.glob("**/sw.js")):
         text = path.read_text(encoding="utf-8")
-        updated = re.sub(r"oh-mobile-v[^\"']+", "oh-mobile-v1-6-8-ball-image", text)
+        updated = re.sub(r"oh-mobile-v[^\"']+", "oh-mobile-v1-6-9-summary-fixes", text)
         if updated != text:
             path.write_text(updated, encoding="utf-8", newline="\n")
             patched_workers.append(path.relative_to(root).as_posix())
