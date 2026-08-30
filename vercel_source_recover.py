@@ -13,7 +13,12 @@ from typing import Any
 USER_AGENT = "OddsHunter-Vercel-Source-Recover/1.0"
 OLD_LABELS = ("Turso OK · solo lectura", "SQLite OK · solo lectura")
 NEW_LABEL = "Datos actualizados en línea"
-DETAIL_MARKER = "OH_MATCH_SUMMARY_EXACT_V3"
+DETAIL_MARKER = "OH_MATCH_ICONS_3D_V4"
+LEGACY_DETAIL_MARKERS = (
+    "OH_MATCH_SUMMARY_REFERENCE_V2",
+    "OH_MATCH_SUMMARY_EXACT_V3",
+    DETAIL_MARKER,
+)
 ASSET_ROOT = Path(__file__).resolve().parent / "vercel_assets"
 
 
@@ -89,8 +94,11 @@ def patch_frontend(root: Path) -> dict[str, list[str]]:
         for old in OLD_LABELS:
             text = text.replace(old, NEW_LABEL)
         detail_js = (ASSET_ROOT / "match_summary_v2.js").read_text(encoding="utf-8")
-        if DETAIL_MARKER not in text:
-            text = text.rstrip() + "\n\n" + detail_js.rstrip() + "\n"
+        marker_positions = [text.find(f"/* {marker} */") for marker in LEGACY_DETAIL_MARKERS]
+        marker_positions = [position for position in marker_positions if position >= 0]
+        if marker_positions:
+            text = text[: min(marker_positions)].rstrip()
+        text = text.rstrip() + "\n\n" + detail_js.rstrip() + "\n"
         if text != original:
             path.write_text(text, encoding="utf-8", newline="\n")
         patched_apps.append(path.relative_to(root).as_posix())
@@ -99,8 +107,14 @@ def patch_frontend(root: Path) -> dict[str, list[str]]:
     detail_css = (ASSET_ROOT / "match_summary_v2.css").read_text(encoding="utf-8")
     for path in sorted(root.glob("**/assets/css/app.css")):
         text = path.read_text(encoding="utf-8")
-        if DETAIL_MARKER not in text:
-            path.write_text(text.rstrip() + "\n\n" + detail_css.rstrip() + "\n", encoding="utf-8", newline="\n")
+        original = text
+        marker_positions = [text.find(f"/* {marker} */") for marker in LEGACY_DETAIL_MARKERS]
+        marker_positions = [position for position in marker_positions if position >= 0]
+        if marker_positions:
+            text = text[: min(marker_positions)].rstrip()
+        updated = text.rstrip() + "\n\n" + detail_css.rstrip() + "\n"
+        if updated != original:
+            path.write_text(updated, encoding="utf-8", newline="\n")
         patched_styles.append(path.relative_to(root).as_posix())
     if not patched_styles:
         raise RuntimeError("No se encontró assets/css/app.css")
@@ -108,8 +122,8 @@ def patch_frontend(root: Path) -> dict[str, list[str]]:
     patched_indexes: list[str] = []
     for path in sorted(root.glob("**/index.html")):
         text = path.read_text(encoding="utf-8")
-        updated = re.sub(r"app\.js\?v=[^\"']+", "app.js?v=1.6.1-match-summary-exact", text)
-        updated = re.sub(r"sw\.js\?v=[^\"']+", "sw.js?v=1.6.1-match-summary-exact", updated)
+        updated = re.sub(r"app\.js\?v=[^\"']+", "app.js?v=1.6.2-icons-3d", text)
+        updated = re.sub(r"sw\.js\?v=[^\"']+", "sw.js?v=1.6.2-icons-3d", updated)
         if updated != text:
             path.write_text(updated, encoding="utf-8", newline="\n")
             patched_indexes.append(path.relative_to(root).as_posix())
@@ -117,7 +131,7 @@ def patch_frontend(root: Path) -> dict[str, list[str]]:
     patched_workers: list[str] = []
     for path in sorted(root.glob("**/sw.js")):
         text = path.read_text(encoding="utf-8")
-        updated = re.sub(r"oh-mobile-v[^\"']+", "oh-mobile-v1-6-1-match-summary-exact", text)
+        updated = re.sub(r"oh-mobile-v[^\"']+", "oh-mobile-v1-6-2-icons-3d", text)
         if updated != text:
             path.write_text(updated, encoding="utf-8", newline="\n")
             patched_workers.append(path.relative_to(root).as_posix())

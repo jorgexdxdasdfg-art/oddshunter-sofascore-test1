@@ -1,4 +1,4 @@
-/* OH_MATCH_SUMMARY_EXACT_V3 */
+/* OH_MATCH_ICONS_3D_V4 */
 
 const ohOriginalSetHeaderExactV3=setHeader;
 setHeader=function(view){
@@ -7,12 +7,16 @@ setHeader=function(view){
 };
 
 summaryIcon = function(kind){
-  const defs=`<defs><filter id="ohShadow" x="-30%" y="-30%" width="160%" height="160%"><feDropShadow dx="0" dy="1" stdDeviation="1" flood-opacity=".28"/></filter><linearGradient id="ohGold" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#ffe66a"/><stop offset="1" stop-color="#f3b700"/></linearGradient><linearGradient id="ohRed" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#ff4d58"/><stop offset="1" stop-color="#d80820"/></linearGradient></defs>`;
-  if(kind==="ball")return `<svg viewBox="0 0 32 32" aria-hidden="true">${defs}<circle cx="16" cy="16" r="12.5" fill="#fff" stroke="#111" stroke-width="1.4" filter="url(#ohShadow)"/><path d="m16 9 4.2 3-1.6 5h-5.2l-1.6-5 4.2-3Zm-8.9 6.2 4.7-3.2m8.4 0 4.7 3.2M10 24l3.4-7m8.6 7-3.4-7m-8.6 7h12" fill="#111" stroke="#111" stroke-width="1.2" stroke-linejoin="round"/></svg>`;
-  if(kind==="corner")return `<svg viewBox="0 0 32 32" aria-hidden="true">${defs}<path d="M9 27V6" stroke="#4b5563" stroke-width="2.2" stroke-linecap="round"/><path d="M10 7c6-3 8 3 14 0v10c-6 3-8-3-14 0Z" fill="url(#ohRed)" filter="url(#ohShadow)"/><path d="M5 27h11" stroke="#4b5563" stroke-width="2" stroke-linecap="round"/></svg>`;
-  if(kind==="card")return `<svg viewBox="0 0 32 32" aria-hidden="true">${defs}<rect x="9" y="5" width="14" height="22" rx="2.8" fill="url(#ohGold)" filter="url(#ohShadow)"/><path d="M12 8h8" stroke="#fff" stroke-opacity=".55" stroke-width="1.4" stroke-linecap="round"/></svg>`;
-  if(kind==="target")return `<svg viewBox="0 0 32 32" aria-hidden="true">${defs}<circle cx="16" cy="16" r="12" fill="#fff" stroke="#111827" stroke-width="1.6" filter="url(#ohShadow)"/><circle cx="16" cy="16" r="7.5" fill="none" stroke="#111827" stroke-width="2"/><circle cx="16" cy="16" r="3.2" fill="url(#ohRed)"/><path d="M16 2v5M16 25v5M2 16h5M25 16h5" stroke="#111827" stroke-width="1.4" stroke-linecap="round"/></svg>`;
-  return `<svg viewBox="0 0 32 32" aria-hidden="true">${defs}<path d="M5 26V7M5 26h22" fill="none" stroke="#111827" stroke-width="2" stroke-linecap="round"/><path d="m8 22 5-7 4 3 8-11" fill="none" stroke="url(#ohRed)" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" filter="url(#ohShadow)"/><circle cx="8" cy="22" r="1.8" fill="#ed1c2e"/><circle cx="13" cy="15" r="1.8" fill="#ed1c2e"/><circle cx="17" cy="18" r="1.8" fill="#ed1c2e"/><circle cx="25" cy="7" r="1.8" fill="#ed1c2e"/></svg>`;
+  if(kind==="ball"||kind==="ball-premium"){
+    const id=kind==="ball-premium"?"ohBallPremium3d":"ohBall3d";
+    const rim=kind==="ball-premium"?"#777b82":"#8d9095";
+    return `<svg viewBox="0 0 32 32" aria-hidden="true"><defs><filter id="${id}Shadow" x="-35%" y="-35%" width="170%" height="180%"><feDropShadow dx="0" dy="1.6" stdDeviation="1.35" flood-color="#111827" flood-opacity=".34"/></filter><radialGradient id="${id}Sphere" cx="31%" cy="22%" r="76%"><stop stop-color="#ffffff"/><stop offset=".48" stop-color="#f6f7f8"/><stop offset=".78" stop-color="#d9dce0"/><stop offset="1" stop-color="#969ba2"/></radialGradient><linearGradient id="${id}Panel" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#3f4349"/><stop offset=".48" stop-color="#111214"/><stop offset="1" stop-color="#000000"/></linearGradient></defs><g filter="url(#${id}Shadow)"><circle cx="16" cy="15.6" r="12.15" fill="url(#${id}Sphere)" stroke="${rim}" stroke-width=".72"/><path d="m16 9.35 4.05 2.92-1.55 4.77h-5l-1.55-4.77L16 9.35Z" fill="url(#${id}Panel)"/><path d="m11.95 12.27-4.7 2.68.7 5.25 3.95 3.55 2.15-6.71m5.9-4.77 4.7 2.68-.7 5.25-3.95 3.55-2.05-6.71M7.95 20.2l-1.1 1.28M24.05 20.2l1.1 1.28M11.9 23.75l.45 2.2M20 23.75l-.4 2.2" fill="none" stroke="#34373c" stroke-width="1.15" stroke-linecap="round" stroke-linejoin="round"/><path d="M9.2 8.8a10.5 10.5 0 0 1 7.9-4.2" fill="none" stroke="#fff" stroke-width="1.35" stroke-linecap="round" stroke-opacity=".78"/></g></svg>`;
+  }
+  if(kind==="corner")return `<svg viewBox="0 0 32 32" aria-hidden="true"><defs><filter id="ohFlag3dShadow" x="-35%" y="-35%" width="180%" height="190%"><feDropShadow dx="0" dy="1.5" stdDeviation="1.2" flood-color="#111827" flood-opacity=".34"/></filter><linearGradient id="ohFlag3dPole" x1="0" y1="0" x2="1" y2="0"><stop stop-color="#5d6269"/><stop offset=".35" stop-color="#f0f2f4"/><stop offset=".62" stop-color="#9ca1a8"/><stop offset="1" stop-color="#4a4e54"/></linearGradient><linearGradient id="ohFlag3dRed" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#ff6b70"/><stop offset=".4" stop-color="#f52c37"/><stop offset="1" stop-color="#a90013"/></linearGradient></defs><g filter="url(#ohFlag3dShadow)"><ellipse cx="10.2" cy="27.3" rx="6.2" ry="1.45" fill="#5d6269" opacity=".62"/><rect x="8.65" y="4.4" width="2.6" height="22.4" rx="1.3" fill="url(#ohFlag3dPole)"/><path d="M11.15 6.1c5.15-2.35 8.55 2.75 14.05.15v10.2c-5.5 2.6-8.9-2.5-14.05-.15Z" fill="url(#ohFlag3dRed)" stroke="#b70b1d" stroke-width=".55"/><path d="M12.6 7.1c3.8-1.25 7 2.45 10.95.55" fill="none" stroke="#fff" stroke-width="1" stroke-linecap="round" stroke-opacity=".58"/></g></svg>`;
+  if(kind==="card")return `<svg viewBox="0 0 32 32" aria-hidden="true"><defs><filter id="ohCard3dShadow" x="-40%" y="-35%" width="180%" height="190%"><feDropShadow dx="0" dy="1.7" stdDeviation="1.3" flood-color="#111827" flood-opacity=".35"/></filter><linearGradient id="ohCard3dGold" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#fff16a"/><stop offset=".42" stop-color="#ffd52c"/><stop offset="1" stop-color="#e6a700"/></linearGradient></defs><g filter="url(#ohCard3dShadow)"><rect x="8.6" y="4.25" width="14.8" height="23.2" rx="2.55" fill="url(#ohCard3dGold)" stroke="#d09b00" stroke-width=".65"/><path d="M11.1 6.8h8.65" stroke="#fff" stroke-width="1.35" stroke-linecap="round" stroke-opacity=".72"/><circle cx="20.65" cy="24.85" r="1.05" fill="#7f5a00"/></g></svg>`;
+  if(kind==="target")return `<svg viewBox="0 0 32 32" aria-hidden="true"><defs><filter id="ohTarget3dShadow" x="-40%" y="-40%" width="190%" height="195%"><feDropShadow dx="0" dy="1.65" stdDeviation="1.3" flood-color="#111827" flood-opacity=".38"/></filter><radialGradient id="ohTarget3dRim" cx="30%" cy="22%" r="80%"><stop stop-color="#ffffff"/><stop offset=".55" stop-color="#d9dde1"/><stop offset="1" stop-color="#747a82"/></radialGradient><radialGradient id="ohTarget3dRed" cx="34%" cy="28%" r="75%"><stop stop-color="#ff6d70"/><stop offset=".52" stop-color="#ed1c2e"/><stop offset="1" stop-color="#a60011"/></radialGradient></defs><g filter="url(#ohTarget3dShadow)"><circle cx="14.7" cy="17" r="10.9" fill="url(#ohTarget3dRim)"/><circle cx="14.7" cy="17" r="8.7" fill="#fff" stroke="#626870" stroke-width=".45"/><circle cx="14.7" cy="17" r="6.35" fill="url(#ohTarget3dRed)"/><circle cx="14.7" cy="17" r="3.85" fill="#fff"/><circle cx="14.7" cy="17" r="1.75" fill="#f1b719"/><path d="m15.1 16.6 9.45-9.45" stroke="#32363b" stroke-width="1.45" stroke-linecap="round"/><path d="M22.4 5.2v4.05h4.05" fill="#ff3946" stroke="#b50818" stroke-width=".55" stroke-linejoin="round"/></g></svg>`;
+  if(kind==="shield")return `<svg viewBox="0 0 32 32" aria-hidden="true"><defs><filter id="ohShield3dShadow" x="-40%" y="-35%" width="185%" height="190%"><feDropShadow dx="0" dy="1.6" stdDeviation="1.35" flood-color="#111827" flood-opacity=".38"/></filter><linearGradient id="ohShield3dFace" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#9297a1"/><stop offset=".42" stop-color="#5f646e"/><stop offset="1" stop-color="#30343b"/></linearGradient></defs><g filter="url(#ohShield3dShadow)"><path d="M16 3.8 26 7.5v7.35c0 6.35-3.95 10.75-10 13.35-6.05-2.6-10-7-10-13.35V7.5Z" fill="url(#ohShield3dFace)" stroke="#444952" stroke-width=".65"/><path d="M8.4 9.05 16 6.3l7.6 2.75" fill="none" stroke="#fff" stroke-width="1.15" stroke-linecap="round" stroke-opacity=".45"/><path d="m16 10.1 1.65 3.35 3.7.54-2.67 2.6.63 3.67L16 18.52l-3.31 1.74.63-3.67-2.67-2.6 3.7-.54Z" fill="#fff"/></g></svg>`;
+  return `<svg viewBox="0 0 32 32" aria-hidden="true"><defs><filter id="ohChart3dShadow" x="-35%" y="-35%" width="180%" height="190%"><feDropShadow dx="0" dy="1.55" stdDeviation="1.25" flood-color="#111827" flood-opacity=".34"/></filter><linearGradient id="ohChart3dPanel" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#ffffff"/><stop offset=".58" stop-color="#e7e9ec"/><stop offset="1" stop-color="#b9bdc3"/></linearGradient><linearGradient id="ohChart3dGreen" x1="0" y1="1" x2="1" y2="0"><stop stop-color="#087e45"/><stop offset="1" stop-color="#20bd6a"/></linearGradient></defs><g filter="url(#ohChart3dShadow)"><rect x="4.4" y="4.4" width="23.2" height="23.2" rx="3.1" fill="url(#ohChart3dPanel)"/><path d="M8.2 9.1v14.7h16.1" fill="none" stroke="#4d535b" stroke-width="1.8" stroke-linecap="round"/><path d="m10.4 21 4.3-5.5 3.65 2.35 5.55-7.05" fill="none" stroke="url(#ohChart3dGreen)" stroke-width="2.45" stroke-linecap="round" stroke-linejoin="round"/><path d="m21.15 10.8 3.35-.55-.42 3.37" fill="#12a95b"/><path d="M6.6 6.4h12.8" stroke="#fff" stroke-width="1.15" stroke-linecap="round" stroke-opacity=".7"/></g></svg>`;
 };
 
 summaryMetric = function(label,value,suffix="",lead="",icon="ball",tone="green"){
@@ -20,7 +24,7 @@ summaryMetric = function(label,value,suffix="",lead="",icon="ball",tone="green")
     <div class="summary-metric-title"><span class="summary-metric-icon">${summaryIcon(icon)}</span><span>${esc(label)}</span></div>
     ${lead?`<span class="summary-lead">${esc(lead)}</span>`:""}
     <strong class="summary-primary-value">${val(value,suffix)}</strong>
-    ${!lead&&["shots","xg"].includes(icon)?'<span class="summary-caption">Promedio</span>':""}
+    ${!lead&&["shots","target","xg"].includes(icon)?'<span class="summary-caption">Promedio</span>':""}
   </div>`;
 };
 
@@ -60,7 +64,7 @@ renderSummary = function(){
   $("matchContent").innerHTML=`
     <div class="summary-metric-grid">
       ${summaryMetric("BTTS",s.btts_yes,"%","Sí","ball","green")}
-      ${summaryMetric("Goles (2.5)",s.goals_over_2_5,"%","Más","ball","green")}
+      ${summaryMetric("Goles (2.5)",s.goals_over_2_5,"%","Más","ball-premium","green")}
       ${summaryMetric("Corners (9.5)",s.corners_over_9_5,"%","Más","corner","green")}
       ${summaryMetric("Tarjetas (3.5)",s.cards_over_3_5,"%","Más","card","green")}
       ${summaryMetric("Remates",s.shots_total,"","","target","dark")}
@@ -77,13 +81,13 @@ renderSummary = function(){
     <div class="panel expected-values-panel">
       <h3>Valores esperados</h3>
       <div class="expected-values-grid">
-        ${ohExpectedMetric("ball","xG",s.xg_home,s.xg_away)}
+        ${ohExpectedMetric("xg","xG",s.xg_home,s.xg_away)}
         ${ohExpectedMetric("corner","Córners",homeHistory.corners,awayHistory.corners)}
         ${ohExpectedMetric("card","Amarillas",homeHistory.yellow_cards,awayHistory.yellow_cards)}
         ${ohExpectedMetric("target","Remates",s.shots_home,s.shots_away)}
       </div>
       <div class="one-x-two">
-        <div class="one-x-title"><span>${summaryIcon("target")}</span>Probabilidades 1X2</div>
+        <div class="one-x-title"><span>${summaryIcon("shield")}</span>Probabilidades 1X2</div>
         <div class="one-x-grid"><div><small>Local</small><strong class="home-prob">${val(pr.home_win,"%")}</strong></div><div><small>Empate</small><strong>${val(pr.draw,"%")}</strong></div><div><small>Visitante</small><strong>${val(pr.away_win,"%")}</strong></div></div>
       </div>
     </div>
