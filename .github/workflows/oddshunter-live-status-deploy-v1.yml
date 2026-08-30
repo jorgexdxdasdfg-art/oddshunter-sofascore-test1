@@ -6,9 +6,11 @@ on:
     branches: [main]
     paths:
       - cloud_live_status_sync.py
+      - futbol24_client.py
       - deploy/oddshunter-live-sync.service
       - deploy/oddshunter-live-sync.timer
       - tests/test_cloud_live_status_sync.py
+      - tests/test_futbol24_resolver.py
       - .github/workflows/oddshunter-live-status-deploy-v1.yml
 
 permissions:
@@ -56,6 +58,10 @@ jobs:
             -o BatchMode=yes -o StrictHostKeyChecking=yes \
             cloud_live_status_sync.py \
             "$VPS_USER@$VPS_HOST:/tmp/cloud_live_status_sync_V1.py"
+          scp -i ~/.ssh/oddshunter_live -P "$VPS_PORT" \
+            -o BatchMode=yes -o StrictHostKeyChecking=yes \
+            futbol24_client.py \
+            "$VPS_USER@$VPS_HOST:/tmp/futbol24_client_V1.py"
           scp -i ~/.ssh/oddshunter_live -P "$VPS_PORT" \
             -o BatchMode=yes -o StrictHostKeyChecking=yes \
             deploy/oddshunter-live-sync.service \
@@ -107,8 +113,14 @@ jobs:
             $SUDO cp -a "$CUR/cloud_live_status_sync.py" \
               "$CUR/cloud_live_status_sync.py.PRE_LIVE_V1_$STAMP"
           fi
+          if [ -f "$CUR/futbol24_client.py" ]; then
+            $SUDO cp -a "$CUR/futbol24_client.py" \
+              "$CUR/futbol24_client.py.PRE_LIVE_V1_$STAMP"
+          fi
           $SUDO install -o root -g root -m 0644 \
             /tmp/cloud_live_status_sync_V1.py "$CUR/cloud_live_status_sync.py"
+          $SUDO install -o root -g root -m 0644 \
+            /tmp/futbol24_client_V1.py "$CUR/futbol24_client.py"
           $SUDO install -o root -g root -m 0644 \
             /tmp/oddshunter-live-sync.service /etc/systemd/system/oddshunter-live-sync.service
           $SUDO install -o root -g root -m 0644 \
@@ -183,7 +195,11 @@ jobs:
           set -eEuo pipefail
           python - <<'PY'
           import json,time,urllib.request
-          targets={16821936,16708159,16316771,16629463,16629438,16416304,16361896,16416290}
+          expected={
+              16821936:(1,4), 16708159:(1,0), 16316771:(2,3), 16629463:(1,5),
+              16629438:(1,0), 16416304:(3,2), 16361896:(4,0), 16416290:(1,0),
+          }
+          targets=set(expected)
           found={}
           for offset in (-2,-1,0):
               url=f"https://oddshunter-mobile.vercel.app/api/day?offset={offset}&limit=1000&cb={time.time_ns()}"
@@ -198,6 +214,12 @@ jobs:
               print("TARGET_API =",json.dumps(row,ensure_ascii=False,sort_keys=True))
               if row is None:
                   raise SystemExit(f"API_TARGET_MISSING={event_id}")
+              status=str(row.get("status") or "").upper()
+              score=(row.get("home_score"),row.get("away_score"))
+              if status not in {"FT","FINAL","FINISHED","ENDED","AET","PEN"}:
+                  raise SystemExit(f"API_TARGET_NOT_FINAL={event_id}:{status}")
+              if score != expected[event_id]:
+                  raise SystemExit(f"API_TARGET_WRONG_SCORE={event_id}:{score}")
           health_url=f"https://oddshunter-mobile.vercel.app/api/health?cb={time.time_ns()}"
           with urllib.request.urlopen(health_url,timeout=45) as response:
               health=json.load(response)
