@@ -9,7 +9,7 @@ from typing import Any, Callable, Mapping
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
-BASE_URL = "https://www.sofascore.com/api/v1/event/{event_id}"
+BASE_URL = "https://api.sofascore.com/api/v1/event/{event_id}"
 RETRYABLE_STATUS = {429, 500, 502, 503, 504}
 
 def _integer(value: Any) -> int | None:
