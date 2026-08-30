@@ -625,6 +625,13 @@ class Futbol24Client:
         # competition agrees, allow a conservative contextual match for the
         # other side. This covers provider naming differences while still
         # requiring four independent fixture signals.
+        rescheduled_pass = bool(
+            home_score >= 0.95
+            and away_score >= 0.95
+            and competition_pass
+            and hours <= 168.0
+        )
+        date_pass = bool(date_pass or rescheduled_pass)
         contextual_fixture = bool(date_pass and hours <= 3.0 and competition_pass)
         home_pass = bool(
             home_score >= 0.82
@@ -643,6 +650,7 @@ class Futbol24Client:
             "home_pass": home_pass,
             "away_pass": away_pass,
             "date_pass": date_pass,
+            "rescheduled_pass": rescheduled_pass,
             "competition_pass": competition_pass,
             "expected_competition_family": expected_family,
             "candidate_competition_families": sorted(candidate_families),

@@ -271,6 +271,7 @@ def normalized_update(snapshot: dict[str, Any]) -> dict[str, Any] | None:
     provider = str(snapshot.get("provider_status") or "").strip()
     home = snapshot.get("home_goals")
     away = snapshot.get("away_goals")
+    kickoff = snapshot.get("kickoff")
 
     if state == "live":
         return {
@@ -279,6 +280,7 @@ def normalized_update(snapshot: dict[str, Any]) -> dict[str, Any] | None:
             "home_score": int(home) if home is not None else None,
             "away_score": int(away) if away is not None else None,
             "state": state,
+            "kickoff": kickoff,
         }
     if state == "finished" and home is not None and away is not None:
         return {
@@ -287,6 +289,16 @@ def normalized_update(snapshot: dict[str, Any]) -> dict[str, Any] | None:
             "home_score": int(home),
             "away_score": int(away),
             "state": state,
+            "kickoff": kickoff,
+        }
+    if state == "scheduled" and kickoff:
+        return {
+            "status": "NS",
+            "status_description": provider or "scheduled",
+            "home_score": int(home) if home is not None else None,
+            "away_score": int(away) if away is not None else None,
+            "state": state,
+            "kickoff": kickoff,
         }
     if state == "terminal":
         token = provider.upper().replace(" ", "_") or "CANCELED"
@@ -296,6 +308,7 @@ def normalized_update(snapshot: dict[str, Any]) -> dict[str, Any] | None:
             "home_score": int(home) if home is not None else None,
             "away_score": int(away) if away is not None else None,
             "state": state,
+            "kickoff": kickoff,
         }
     return None
 
@@ -323,29 +336,33 @@ def publish_remote(
         update["status"],
         update["home_score"],
         update["away_score"],
+        update.get("kickoff"),
         updated_at,
         event_id,
     ]
     client.execute(
         "UPDATE matches SET status=?,home_goals=COALESCE(?,home_goals),"
-        "away_goals=COALESCE(?,away_goals),updated_at=? WHERE sofascore_id=?",
+        "away_goals=COALESCE(?,away_goals),kickoff=COALESCE(?,kickoff),"
+        "updated_at=? WHERE sofascore_id=?",
         params,
     )
     client.execute(
         "UPDATE mobile_events SET status=?,status_description=?,"
-        "home_score=COALESCE(?,home_score),away_score=COALESCE(?,away_score) "
+        "home_score=COALESCE(?,home_score),away_score=COALESCE(?,away_score),"
+        "kickoff=COALESCE(?,kickoff) "
         "WHERE event_id=?",
         [
             update["status"],
             update["status_description"],
             update["home_score"],
             update["away_score"],
+            update.get("kickoff"),
             event_id,
         ],
     )
 
     remote = client.query(
-        "SELECT competition_key,event_id,status,status_description,home_score,away_score "
+        "SELECT competition_key,event_id,status,status_description,home_score,away_score,kickoff "
         "FROM mobile_events WHERE event_id=?",
         [event_id],
     )
@@ -377,7 +394,7 @@ def publish_remote(
             ],
         )
         remote = client.query(
-            "SELECT competition_key,event_id,status,status_description,home_score,away_score "
+            "SELECT competition_key,event_id,status,status_description,home_score,away_score,kickoff "
             "FROM mobile_events WHERE event_id=?",
             [event_id],
         )
@@ -391,6 +408,8 @@ def publish_remote(
             raise RuntimeError(f"Marcador local Turso no verificado: event_id={event_id}")
         if update["away_score"] is not None and int(got.get("away_score")) != update["away_score"]:
             raise RuntimeError(f"Marcador visitante Turso no verificado: event_id={event_id}")
+        if update.get("kickoff") and parse_dt(got.get("kickoff")) != parse_dt(update["kickoff"]):
+            raise RuntimeError(f"Kickoff Turso no verificado: event_id={event_id}")
     return len(remote)
 
 
@@ -400,12 +419,13 @@ def update_local(row: dict[str, Any], update: dict[str, Any], updated_at: str) -
         con.execute("BEGIN IMMEDIATE")
         changed = con.execute(
             "UPDATE matches SET status=?,home_goals=COALESCE(?,home_goals),"
-            "away_goals=COALESCE(?,away_goals),updated_at=? "
+            "away_goals=COALESCE(?,away_goals),kickoff=COALESCE(?,kickoff),updated_at=? "
             "WHERE match_id=? AND sofascore_id=?",
             [
                 update["status"],
                 update["home_score"],
                 update["away_score"],
+                update.get("kickoff"),
                 updated_at,
                 int(row["match_id"]),
                 int(row["event_id"]),

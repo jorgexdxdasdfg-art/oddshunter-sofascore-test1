@@ -62,6 +62,7 @@ def test_normalized_update_live_and_final() -> None:
         "home_score": 2,
         "away_score": 1,
         "state": "live",
+        "kickoff": None,
     }
     assert live.normalized_update(
         {"state": "finished", "home_goals": 3, "away_goals": 0}
@@ -71,6 +72,7 @@ def test_normalized_update_live_and_final() -> None:
         "home_score": 3,
         "away_score": 0,
         "state": "finished",
+        "kickoff": None,
     }
     assert live.normalized_update(
         {"state": "finished", "home_goals": None, "away_goals": None}
@@ -124,6 +126,7 @@ def test_publish_remote_changes_mobile_live_state() -> None:
         "home_score": 1,
         "away_score": 0,
         "state": "live",
+        "kickoff": None,
     }
     assert live.publish_remote(
         client,
