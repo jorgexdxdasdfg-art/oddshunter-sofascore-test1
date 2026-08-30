@@ -70,9 +70,12 @@ jobs:
           set -eEuo pipefail
           ssh -i ~/.ssh/oddshunter_live -p "$VPS_PORT" \
             -o BatchMode=yes -o StrictHostKeyChecking=yes \
-            "$VPS_USER@$VPS_HOST" 'bash -s' <<'REMOTE' | tee live_deploy_evidence.txt
+            "$VPS_USER@$VPS_HOST" 'bash -s' 2>&1 <<'REMOTE' | tee live_deploy_evidence.txt
           set -eEuo pipefail
+          echo "SSH_REMOTE=PASS"
           if [ "$(id -u)" -eq 0 ]; then SUDO=""; else SUDO="sudo -n"; fi
+          $SUDO true
+          echo "SUDO_GATE=PASS"
 
           CUR="$(readlink -f /opt/oddshunter/current)"
           DB="$CUR/data/oddshunter.db"
@@ -80,10 +83,14 @@ jobs:
           STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
           BACKUP="/var/lib/oddshunter/data/oddshunter.db.PRE_LIVE_V1_$STAMP"
 
-          test -f "$DB"
-          test -x "$PY"
-          test -f /etc/oddshunter/oddshunter.env
           echo "CURRENT=$CUR"
+          if [ ! -f "$DB" ]; then echo "MISSING_DB=$DB"; exit 41; fi
+          if [ ! -x "$PY" ]; then echo "MISSING_PYTHON=$PY"; exit 42; fi
+          if [ ! -f /etc/oddshunter/oddshunter.env ]; then
+            echo "MISSING_ENV=/etc/oddshunter/oddshunter.env"
+            exit 43
+          fi
+          echo "REMOTE_PATHS=PASS"
           echo "DB_BACKUP=$BACKUP"
           $SUDO cp -a "$DB" "$BACKUP"
 
