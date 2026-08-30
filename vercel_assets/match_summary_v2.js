@@ -215,13 +215,13 @@ function ohDrawTrendLine(canvas,homeValues,awayValues,homeFinalAverage=null,away
   const homeAverage=Number.isFinite(homeFinalAverage)?homeFinalAverage:ohTrendAverage(homeValues);
   const awayAverage=Number.isFinite(awayFinalAverage)?awayFinalAverage:ohTrendAverage(awayValues);
   if(homeAverage===null&&awayAverage===null)return;
-  const labelX=width-right+7,minY=top+7,maxY=top+innerHeight-7,gap=17;
+  const labelX=width-1,minY=top+7,maxY=top+innerHeight-7,gap=17;
   let homeY=homeAverage===null?null:yAt(homeAverage),awayY=awayAverage===null?null:yAt(awayAverage);
   if(homeY!==null&&awayY!==null&&Math.abs(homeY-awayY)<gap){
     const middle=(homeY+awayY)/2,upper=Math.max(minY,Math.min(maxY-gap,middle-gap/2));
     if(homeY<=awayY){homeY=upper;awayY=upper+gap}else{awayY=upper;homeY=upper+gap}
   }
-  ctx.font="800 13px system-ui";ctx.textAlign="left";ctx.textBaseline="middle";
+  ctx.font="800 13px system-ui";ctx.textAlign="right";ctx.textBaseline="middle";
   if(homeY!==null){ctx.fillStyle="#d62c31";ctx.fillText(homeAverage.toFixed(2),labelX,Math.max(minY,Math.min(maxY,homeY)))}
   if(awayY!==null){ctx.fillStyle="#17181b";ctx.fillText(awayAverage.toFixed(2),labelX,Math.max(minY,Math.min(maxY,awayY)))}
 }
