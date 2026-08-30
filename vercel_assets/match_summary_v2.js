@@ -117,6 +117,14 @@ function ohTrendAverage(values){
   return finite.length?finite.reduce((sum,value)=>sum+value,0)/finite.length:null;
 }
 
+function ohTrendRollingAverage(values,windowSize=3){
+  return values.map((value,index)=>{
+    if(!Number.isFinite(value))return null;
+    const window=values.slice(Math.max(0,index-windowSize+1),index+1).filter(Number.isFinite);
+    return window.length?window.reduce((sum,item)=>sum+item,0)/window.length:null;
+  });
+}
+
 function ohTrendPercentage(side,predicate){
   const scored=ohTrendSeries(side,"goals_for");
   const received=ohTrendSeries(side,"goals_against");
@@ -156,16 +164,16 @@ function ohTrendInfo(){
 
 function ohTrendCard(title,canvasId,homeName,awayName){
   return `<section class="oh-trend-card oh-trend-line-card">
-    <div class="oh-trend-title"><h3>${esc(title)}</h3>${ohTrendInfo()}</div>
+    <div class="oh-trend-title"><div><h3>${esc(title)}</h3><small>Promedio móvil · 3 partidos</small></div>${ohTrendInfo()}</div>
     ${ohTrendLegend(homeName,awayName)}
     <canvas class="oh-trend-line-canvas" id="${canvasId}"></canvas>
   </section>`;
 }
 
-function ohDrawTrendLine(canvas,homeValues,awayValues){
+function ohDrawTrendLine(canvas,homeValues,awayValues,homeFinalAverage=null,awayFinalAverage=null){
   if(!canvas)return;
   const dpr=window.devicePixelRatio||1;
-  const width=Math.max(300,canvas.clientWidth||320),height=174;
+  const width=Math.max(280,canvas.clientWidth||320),height=118;
   canvas.width=Math.round(width*dpr);canvas.height=Math.round(height*dpr);
   const ctx=canvas.getContext("2d");
   ctx.setTransform(dpr,0,0,dpr,0,0);ctx.clearRect(0,0,width,height);
@@ -175,12 +183,12 @@ function ohDrawTrendLine(canvas,homeValues,awayValues){
     ctx.fillStyle="#7a7a80";ctx.font="12px system-ui";ctx.textAlign="center";
     ctx.fillText("Sin datos históricos suficientes",width/2,height/2);return;
   }
-  const left=29,right=50,top=8,bottom=28;
+  const left=27,right=44,top=5,bottom=22;
   const innerWidth=width-left-right,innerHeight=height-top-bottom;
   const maxValue=Math.max(3,Math.ceil(Math.max(...finite)));
   const xAt=index=>left+innerWidth*(count<=1?0:index/(count-1));
   const yAt=value=>top+innerHeight-(Math.max(0,Math.min(maxValue,value))/maxValue)*innerHeight;
-  ctx.font="10px system-ui";ctx.textBaseline="middle";
+  ctx.font="9px system-ui";ctx.textBaseline="middle";
   for(let value=0;value<=maxValue;value++){
     const y=yAt(value);
     ctx.strokeStyle="#e3e3e6";ctx.lineWidth=1;ctx.setLineDash(value? [3,3]:[]);
@@ -198,21 +206,22 @@ function ohDrawTrendLine(canvas,homeValues,awayValues){
     ctx.stroke();
     values.forEach((value,index)=>{
       if(!Number.isFinite(value))return;
-      ctx.beginPath();ctx.arc(xAt(index),yAt(value),2.45,0,Math.PI*2);ctx.fill();
+      ctx.beginPath();ctx.arc(xAt(index),yAt(value),2,0,Math.PI*2);ctx.fill();
     });
   };
   draw(homeValues,"#d62c31");draw(awayValues,"#242529");
-  ctx.fillStyle="#77787e";ctx.font="10px system-ui";ctx.textAlign="center";ctx.textBaseline="top";
-  for(let index=0;index<count;index++)ctx.fillText(String(index+1),xAt(index),height-bottom+8);
-  const homeAverage=ohTrendAverage(homeValues),awayAverage=ohTrendAverage(awayValues);
+  ctx.fillStyle="#77787e";ctx.font="9px system-ui";ctx.textAlign="center";ctx.textBaseline="top";
+  for(let index=0;index<count;index++)ctx.fillText(String(index+1),xAt(index),height-bottom+6);
+  const homeAverage=Number.isFinite(homeFinalAverage)?homeFinalAverage:ohTrendAverage(homeValues);
+  const awayAverage=Number.isFinite(awayFinalAverage)?awayFinalAverage:ohTrendAverage(awayValues);
   if(homeAverage===null&&awayAverage===null)return;
-  const labelX=width-right+10,minY=top+9,maxY=top+innerHeight-9,gap=21;
+  const labelX=width-right+7,minY=top+7,maxY=top+innerHeight-7,gap=17;
   let homeY=homeAverage===null?null:yAt(homeAverage),awayY=awayAverage===null?null:yAt(awayAverage);
   if(homeY!==null&&awayY!==null&&Math.abs(homeY-awayY)<gap){
     const middle=(homeY+awayY)/2,upper=Math.max(minY,Math.min(maxY-gap,middle-gap/2));
     if(homeY<=awayY){homeY=upper;awayY=upper+gap}else{awayY=upper;homeY=upper+gap}
   }
-  ctx.font="800 15px system-ui";ctx.textAlign="left";ctx.textBaseline="middle";
+  ctx.font="800 13px system-ui";ctx.textAlign="left";ctx.textBaseline="middle";
   if(homeY!==null){ctx.fillStyle="#d62c31";ctx.fillText(homeAverage.toFixed(2),labelX,Math.max(minY,Math.min(maxY,homeY)))}
   if(awayY!==null){ctx.fillStyle="#17181b";ctx.fillText(awayAverage.toFixed(2),labelX,Math.max(minY,Math.min(maxY,awayY)))}
 }
@@ -220,12 +229,12 @@ function ohDrawTrendLine(canvas,homeValues,awayValues){
 function ohDrawTrendBtts(canvas,homeValues,awayValues){
   if(!canvas)return;
   const dpr=window.devicePixelRatio||1;
-  const width=Math.max(240,canvas.clientWidth||300),height=92;
+  const width=Math.max(240,canvas.clientWidth||300),height=70;
   canvas.width=Math.round(width*dpr);canvas.height=Math.round(height*dpr);
   const ctx=canvas.getContext("2d");ctx.setTransform(dpr,0,0,dpr,0,0);ctx.clearRect(0,0,width,height);
   const count=Math.max(homeValues.length,awayValues.length);
   if(!count){ctx.fillStyle="#777";ctx.font="12px system-ui";ctx.textAlign="center";ctx.fillText("Sin datos",width/2,height/2);return}
-  const left=7,right=49,top=3,bottom=22,innerWidth=width-left-right,innerHeight=height-top-bottom;
+  const left=7,right=43,top=2,bottom=18,innerWidth=width-left-right,innerHeight=height-top-bottom;
   const slot=innerWidth/count,barWidth=Math.max(4,Math.min(9,slot*.27));
   const drawBar=(index,value,offset,color)=>{
     if(!Number.isFinite(value))return;
@@ -238,8 +247,8 @@ function ohDrawTrendBtts(canvas,homeValues,awayValues){
     drawBar(index,awayValues[index],barWidth*.62,"#242529");
   }
   ctx.strokeStyle="#e3e3e6";ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(left,top+innerHeight+.5);ctx.lineTo(width-right,top+innerHeight+.5);ctx.stroke();
-  ctx.fillStyle="#77787e";ctx.font="10px system-ui";ctx.textAlign="center";ctx.textBaseline="top";
-  for(let index=0;index<count;index++)ctx.fillText(String(index+1),left+slot*index+slot/2,height-bottom+7);
+  ctx.fillStyle="#77787e";ctx.font="9px system-ui";ctx.textAlign="center";ctx.textBaseline="top";
+  for(let index=0;index<count;index++)ctx.fillText(String(index+1),left+slot*index+slot/2,height-bottom+5);
 }
 
 const ohOriginalRenderMatchTabTrendsV12=renderMatchTab;
@@ -278,8 +287,8 @@ renderTrends = function(){
     </section>
   </div>`;
   requestAnimationFrame(()=>{
-    ohDrawTrendLine($("ohTrendGoals"),homeGoals,awayGoals);
-    ohDrawTrendLine($("ohTrendAgainst"),homeAgainst,awayAgainst);
+    ohDrawTrendLine($("ohTrendGoals"),ohTrendRollingAverage(homeGoals),ohTrendRollingAverage(awayGoals),ohTrendAverage(homeGoals),ohTrendAverage(awayGoals));
+    ohDrawTrendLine($("ohTrendAgainst"),ohTrendRollingAverage(homeAgainst),ohTrendRollingAverage(awayAgainst),ohTrendAverage(homeAgainst),ohTrendAverage(awayAgainst));
     ohDrawTrendBtts($("ohTrendBtts"),ohTrendRollingBtts("home"),ohTrendRollingBtts("away"));
   });
 };

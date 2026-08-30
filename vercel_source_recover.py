@@ -142,8 +142,8 @@ def patch_frontend(root: Path) -> dict[str, list[str]]:
     patched_indexes: list[str] = []
     for path in sorted(root.glob("**/index.html")):
         text = path.read_text(encoding="utf-8")
-        updated = re.sub(r"app\.js\?v=[^\"']+", "app.js?v=1.7.0-trends-reference", text)
-        updated = re.sub(r"sw\.js\?v=[^\"']+", "sw.js?v=1.7.0-trends-reference", updated)
+        updated = re.sub(r"app\.js\?v=[^\"']+", "app.js?v=1.7.1-trends-rolling", text)
+        updated = re.sub(r"sw\.js\?v=[^\"']+", "sw.js?v=1.7.1-trends-rolling", updated)
         if updated != text:
             path.write_text(updated, encoding="utf-8", newline="\n")
             patched_indexes.append(path.relative_to(root).as_posix())
@@ -151,7 +151,7 @@ def patch_frontend(root: Path) -> dict[str, list[str]]:
     patched_workers: list[str] = []
     for path in sorted(root.glob("**/sw.js")):
         text = path.read_text(encoding="utf-8")
-        updated = re.sub(r"oh-mobile-v[^\"']+", "oh-mobile-v1-7-0-trends-reference", text)
+        updated = re.sub(r"oh-mobile-v[^\"']+", "oh-mobile-v1-7-1-trends-rolling", text)
         if updated != text:
             path.write_text(updated, encoding="utf-8", newline="\n")
             patched_workers.append(path.relative_to(root).as_posix())
