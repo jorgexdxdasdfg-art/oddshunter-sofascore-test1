@@ -379,34 +379,142 @@ renderAllLists=function(){
 };
 ohRenderLiveList();
 
-function ohLineupPlayer(player){
-  const shirt=player?.shirt_number??"—";
-  const name=player?.name||"Jugador";
-  const position=player?.position||"";
-  const sot=Number(player?.shots_on_target);
-  const stat=Number.isFinite(sot)?`<span class="oh-lineup-sot">SOT ${sot}</span>`:"";
-  return `<li class="oh-lineup-player">
-    <span class="oh-lineup-shirt">${esc(shirt)}</span>
-    <span class="oh-lineup-player-name"><strong>${esc(name)}</strong>${position?`<small>${esc(position)}</small>`:""}</span>
-    ${stat}
-  </li>`;
+let ohLineupTab="starters";
+
+function ohLineupSot(player){
+  const value=Number(player?.avg_shots_on_target);
+  return Number.isFinite(value)?value:null;
 }
 
-function ohLineupGroup(title,players){
-  const rows=Array.isArray(players)?players:[];
-  return `<div class="oh-lineup-group"><h4>${esc(title)} <span>${rows.length}</span></h4>
-    ${rows.length?`<ul>${rows.map(ohLineupPlayer).join("")}</ul>`:'<p class="muted">Sin datos guardados.</p>'}
+function ohShortPlayerName(name){
+  const parts=String(name||"Jugador").trim().split(/\s+/).filter(Boolean);
+  if(parts.length<2)return parts[0]||"Jugador";
+  return `${parts[0].charAt(0)}. ${parts.at(-1)}`;
+}
+
+function ohJerseySvg(number){
+  return `<svg viewBox="0 0 44 40" aria-hidden="true"><path d="M13 5 18 2h8l5 3 9 5-5 9-5-3v21H14V16l-5 3-5-9 9-5Z" fill="var(--shirt)" stroke="rgba(0,0,0,.28)" stroke-width="1.2" stroke-linejoin="round"/><path d="M18 2c.5 3 7.5 3 8 0" fill="none" stroke="rgba(255,255,255,.38)" stroke-width="1.4"/><text x="22" y="24" text-anchor="middle" fill="var(--shirt-ink)" font-size="10" font-weight="900">${esc(number??"—")}</text></svg>`;
+}
+
+function ohPitchPlayer(player){
+  const sot=ohLineupSot(player);
+  return `<div class="oh-pitch-player" title="${esc(player?.name||"Jugador")}">
+    <span class="oh-player-jersey">${ohJerseySvg(player?.shirt_number)}</span>
+    <strong>${esc(ohShortPlayerName(player?.name))}</strong>
+    <small>${sot===null?"N/D":sot.toFixed(1)} a puerta</small>
   </div>`;
 }
 
-function ohLineupTeam(side,teamName){
-  const data=side&&typeof side==="object"?side:{};
-  const formation=data.formation?`<span class="oh-lineup-formation">${esc(data.formation)}</span>`:"";
-  return `<section class="panel oh-lineup-team-panel">
-    <div class="oh-lineup-team-title"><h3>${esc(teamName)}</h3>${formation}</div>
-    ${ohLineupGroup("Titulares",data.starters)}
-    ${ohLineupGroup("Suplentes",data.substitutes)}
+function ohFormationRows(side){
+  const starters=Array.isArray(side?.starters)?side.starters:[];
+  if(!starters.length)return [];
+  const keeper=starters.find(player=>String(player?.position||"").toUpperCase()==="G")||starters[0];
+  const outfield=starters.filter(player=>player!==keeper);
+  const counts=String(side?.formation||"").match(/\d+/g)?.map(Number).filter(value=>value>0)||[];
+  if(counts.length&&counts.reduce((sum,value)=>sum+value,0)===outfield.length){
+    const rows=[];
+    let cursor=0;
+    counts.forEach(count=>{rows.push(outfield.slice(cursor,cursor+count));cursor+=count});
+    return [...rows.reverse(),[keeper]];
+  }
+  const forwards=outfield.filter(player=>String(player?.position||"").toUpperCase()==="F");
+  const midfield=outfield.filter(player=>String(player?.position||"").toUpperCase()==="M");
+  const defense=outfield.filter(player=>String(player?.position||"").toUpperCase()==="D");
+  const unplaced=outfield.filter(player=>!["F","M","D"].includes(String(player?.position||"").toUpperCase()));
+  return [forwards,midfield,[...defense,...unplaced],[keeper]].filter(row=>row.length);
+}
+
+function ohPitchTeam(side,teamName,sideKey){
+  const rows=ohFormationRows(side);
+  return `<section class="oh-pitch-team ${sideKey}" style="--rows:${Math.max(1,rows.length)}">
+    <div class="oh-pitch-team-name"><strong>${esc(teamName)}</strong><span>•</span><b>${esc(side?.formation||"N/D")}</b></div>
+    <div class="oh-pitch-lineup">${rows.map(row=>`<div class="oh-pitch-row" style="--players:${row.length}">${row.map(ohPitchPlayer).join("")}</div>`).join("")}</div>
   </section>`;
+}
+
+function ohLineupListPlayer(player){
+  const sot=ohLineupSot(player);
+  return `<li><span class="oh-list-shirt">${esc(player?.shirt_number??"—")}</span><span><strong>${esc(player?.name||"Jugador")}</strong><small>${esc(player?.position||"")}</small></span><b>${sot===null?"N/D":sot.toFixed(2)} a puerta</b></li>`;
+}
+
+function ohLineupList(title,players,teamName,sideKey){
+  const rows=Array.isArray(players)?players:[];
+  return `<section class="panel oh-lineup-list-panel ${sideKey}"><h3>${esc(teamName)}</h3><h4>${esc(title)} · ${rows.length}</h4>${rows.length?`<ul>${rows.map(ohLineupListPlayer).join("")}</ul>`:'<p class="muted">Sin datos guardados.</p>'}</section>`;
+}
+
+function ohTeamSotAverage(side){
+  const values=(Array.isArray(side?.starters)?side.starters:[]).map(ohLineupSot).filter(Number.isFinite);
+  return values.length?values.reduce((sum,value)=>sum+value,0)/values.length:null;
+}
+
+function ohLineupSummary(data,event){
+  const home=ohTeamSotAverage(data.home),away=ohTeamSotAverage(data.away);
+  return `<section class="panel oh-lineup-summary"><h3>Promedio de remates a puerta por jugador</h3><p>Valor promedio por partido basado en hasta los últimos 10 encuentros disponibles.</p><div class="oh-lineup-summary-grid">
+    <div class="home"><span><i></i>${esc(event.home_team||"Local")}</span><strong>${home===null?"N/D":home.toFixed(2)} a puerta</strong></div>
+    <div class="away"><span><i></i>${esc(event.away_team||"Visitante")}</span><strong>${away===null?"N/D":away.toFixed(2)} a puerta</strong></div>
+  </div><footer><span>${infoSvg()}</span> Estadística mostrada: <strong>remates a puerta (solo)</strong></footer></section>`;
+}
+
+function ohLineupPanelMarkup(){
+  const p=state.currentMatch||{},event=p.event||{},data=p.lineups?.data||{};
+  if(ohLineupTab==="substitutes")return `<div class="oh-lineup-lists">${ohLineupList("Suplentes",data.home?.substitutes,event.home_team||"Local","home")}${ohLineupList("Suplentes",data.away?.substitutes,event.away_team||"Visitante","away")}</div>`;
+  if(ohLineupTab==="absences")return `<div class="lineup-placeholder oh-absence-placeholder"><div><h3>Bajas todavía no guardadas</h3><p>OddsHunter no mostrará lesiones o sanciones hasta tenerlas guardadas para este partido.</p></div></div>`;
+  return `<div class="oh-lineup-pitch" id="ohLineupPitch">
+    <div class="oh-field-lines"><i></i></div>
+    ${ohPitchTeam(data.home,event.home_team||"Local","home")}
+    ${ohPitchTeam(data.away,event.away_team||"Visitante","away")}
+  </div>${ohLineupSummary(data,event)}`;
+}
+
+function ohFallbackTeamColor(teamId){
+  const palette=["#c62828","#1565c0","#6a1b9a","#ef6c00","#00897b","#2e7d32","#263238","#ad1457"];
+  return palette[Math.abs(Number(teamId)||0)%palette.length];
+}
+
+function ohInkForColor([red,green,blue]){
+  return (red*299+green*587+blue*114)/1000>155?"#101014":"#fff";
+}
+
+function ohExtractCrestColor(teamId,sideKey){
+  const shell=document.querySelector(".oh-lineups-shell");
+  if(!shell)return;
+  const fallback=ohFallbackTeamColor(teamId);
+  shell.style.setProperty(`--${sideKey}-shirt`,fallback);
+  shell.style.setProperty(`--${sideKey}-ink`,"#fff");
+  const image=new Image();
+  image.crossOrigin="anonymous";
+  image.onload=()=>{
+    try{
+      const canvas=document.createElement("canvas"),size=48;
+      canvas.width=size;canvas.height=size;
+      const context=canvas.getContext("2d",{willReadFrequently:true});
+      context.drawImage(image,0,0,size,size);
+      const pixels=context.getImageData(0,0,size,size).data,buckets=new Map();
+      for(let index=0;index<pixels.length;index+=4){
+        const red=pixels[index],green=pixels[index+1],blue=pixels[index+2],alpha=pixels[index+3];
+        if(alpha<150||red>238&&green>238&&blue>238)continue;
+        const max=Math.max(red,green,blue),min=Math.min(red,green,blue),sat=max-min;
+        if(max<28||sat<26)continue;
+        const rgb=[Math.round(red/24)*24,Math.round(green/24)*24,Math.round(blue/24)*24].map(value=>Math.min(255,value));
+        const key=rgb.join(","),score=(buckets.get(key)?.score||0)+1+sat/90;
+        buckets.set(key,{rgb,score});
+      }
+      const winner=[...buckets.values()].sort((left,right)=>right.score-left.score)[0];
+      if(!winner)return;
+      const [red,green,blue]=winner.rgb,color=`rgb(${red} ${green} ${blue})`;
+      shell.style.setProperty(`--${sideKey}-shirt`,color);
+      shell.style.setProperty(`--${sideKey}-ink`,ohInkForColor(winner.rgb));
+    }catch(_error){}
+  };
+  image.src=`/api/crest/${encodeURIComponent(teamId)}?palette=1`;
+}
+
+function ohWireLineupTabs(){
+  qsa("[data-lineup-tab]").forEach(button=>button.onclick=()=>{
+    ohLineupTab=button.dataset.lineupTab;
+    qsa("[data-lineup-tab]").forEach(item=>item.classList.toggle("active",item===button));
+    $("ohLineupPanel").innerHTML=ohLineupPanelMarkup();
+  });
 }
 
 lineupStrip=function(lineups){
@@ -426,24 +534,36 @@ lineupStrip=function(lineups){
 renderLineups=function(){
   const p=state.currentMatch||{},event=p.event||{},lineups=p.lineups||{},data=lineups.data||{};
   const structured=Boolean(data.home||data.away);
-  const status=lineups.confirmed?"Alineaciones confirmadas":"Última alineación guardada de cada equipo";
-  const detail=lineups.confirmed
-    ?"Datos correspondientes a este partido."
-    :"El partido aún no tiene alineaciones oficiales. Se muestra la última alineación disponible en OddsHunter.";
-  $("lineupsContent").innerHTML=`<div class="oh-lineups-page">
-    <div class="lineups-hero">
-      <div class="match-detail-meta">${esc(event.competition_name||event.competition_key||"")}</div>
-      <h2>${esc(event.home_team||"Local")} vs ${esc(event.away_team||"Visitante")}</h2>
-    </div>
+  ohLineupTab="starters";
+  $("lineupsContent").innerHTML=`<div class="oh-lineups-page oh-lineups-shell">
     ${lineups.available&&structured?`
-      <div class="oh-lineup-status ${lineups.confirmed?"confirmed":"historical"}"><strong>${esc(status)}</strong><span>${esc(detail)}</span></div>
-      <div class="oh-lineup-grid">
-        ${ohLineupTeam(data.home,event.home_team||"Local")}
-        ${ohLineupTeam(data.away,event.away_team||"Visitante")}
-      </div>`:
+      <section class="oh-lineups-matchup"><div>${crest(event.home_team_id,event.home_team)}<strong>${esc(event.home_team||"Local")}</strong></div><b>VS</b><div>${crest(event.away_team_id,event.away_team)}<strong>${esc(event.away_team||"Visitante")}</strong></div></section>
+      <div class="analysis-tabs oh-lineup-tabs"><button class="active" data-lineup-tab="starters">Titulares</button><button data-lineup-tab="substitutes">Suplentes</button><button data-lineup-tab="absences">Bajas</button></div>
+      <div id="ohLineupPanel">${ohLineupPanelMarkup()}</div>`:
       `<div class="lineup-placeholder"><div><h3>Alineaciones todavía no guardadas</h3><p>${esc(lineups.reason||"Sin datos disponibles")}</p></div></div>`}
   </div>`;
   showView("lineups");
+  ohWireLineupTabs();
+  if(lineups.available&&structured){
+    ohExtractCrestColor(event.home_team_id,"home");
+    ohExtractCrestColor(event.away_team_id,"away");
+  }
+};
+
+const ohBaseSetHeaderLineupsV14=setHeader;
+setHeader=function(view){
+  ohBaseSetHeaderLineupsV14(view);
+  if(view!=="lineups")return;
+  document.querySelector(".app-header")?.classList.add("match-mode");
+  $("themeBtn")?.classList.add("hidden");
+  const favorite=$("detailHeaderFav"),event=state.currentMatch?.event;
+  if(favorite&&event){
+    favorite.classList.remove("hidden");
+    favorite.innerHTML=starSvg(isFav(event.event_id));
+    favorite.classList.toggle("active",isFav(event.event_id));
+    favorite.onclick=()=>{toggleFav(event.event_id);favorite.innerHTML=starSvg(isFav(event.event_id));favorite.classList.toggle("active",isFav(event.event_id))};
+  }
 };
 
 /* OH_SQLITE_MATCH_DATA_BRIDGE_V12 */
+/* OH_LINEUP_PITCH_REFERENCE_V14 */

@@ -96,8 +96,30 @@ LINEUP_FUNCTION = '''def _database_lineup_payload(event_id: int) -> dict[str, An
                 (selected_match_id, int(team_id)),
             ).fetchall()]
             formation = next((row.get("formation") for row in side_rows if row.get("formation")), None)
+            player_sot_values: dict[int, list[float]] = {}
+            if has_player_stats and side_rows:
+                player_ids = sorted({int(row["player_id"]) for row in side_rows if row.get("player_id") is not None})
+                placeholders = ",".join("?" for _ in player_ids)
+                stats_rows = conn.execute(
+                    f"""
+                    SELECT ps.player_id, ps.shots_on_target, historical.kickoff
+                    FROM player_match_stats ps
+                    JOIN matches historical ON historical.match_id=ps.match_id
+                    WHERE ps.team_id=? AND ps.player_id IN ({placeholders})
+                      AND COALESCE(ps.appeared,1)=1
+                      AND historical.kickoff<=(SELECT kickoff FROM matches WHERE match_id=?)
+                    ORDER BY historical.kickoff DESC, ps.match_id DESC;
+                    """,
+                    (int(team_id), *player_ids, int(match["match_id"])),
+                ).fetchall()
+                for stat in stats_rows:
+                    player_id = int(stat["player_id"])
+                    values = player_sot_values.setdefault(player_id, [])
+                    if len(values) < 10 and stat["shots_on_target"] is not None:
+                        values.append(float(stat["shots_on_target"]))
 
             def player(row: dict[str, Any]) -> dict[str, Any]:
+                values = player_sot_values.get(int(row["player_id"]), []) if row.get("player_id") is not None else []
                 return {
                     "player_id": row.get("player_id"),
                     "name": row.get("player_name"),
@@ -107,6 +129,8 @@ LINEUP_FUNCTION = '''def _database_lineup_payload(event_id: int) -> dict[str, An
                     "minutes_played": row.get("minutes_played"),
                     "shots": row.get("shots"),
                     "shots_on_target": row.get("shots_on_target"),
+                    "avg_shots_on_target": round(sum(values) / len(values), 2) if values else None,
+                    "sot_sample": len(values),
                 }
 
             return {
@@ -204,6 +228,16 @@ def patch_backend(root: Path) -> list[str]:
     )
     present = [signal in text for signal in patched_signals]
     if all(present):
+        if '"avg_shots_on_target"' not in text:
+            pattern = re.compile(
+                r"def _database_lineup_payload\(event_id: int\) -> dict\[str, Any\] \| None:\n.*?(?=def list_teams\()",
+                re.DOTALL,
+            )
+            text, count = pattern.subn(LINEUP_FUNCTION, text, count=1)
+            if count != 1:
+                raise RuntimeError(f"Actualización de promedios SOT esperaba 1 bloque y encontró {count}")
+            compile(text, str(path), "exec")
+            path.write_text(text, encoding="utf-8", newline="\n")
         compile(text, str(path), "exec")
         return [path.relative_to(root).as_posix()]
     if any(present):
