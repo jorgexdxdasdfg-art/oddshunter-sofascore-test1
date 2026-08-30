@@ -179,6 +179,9 @@ jobs:
             artifacts/production_health.json
             artifacts/vercel_source_manifest.json
             vercel_source/src/api/**
+            vercel_source/src/app.py
+            vercel_source/src/backend/**
+            vercel_source/src/tools/**
             vercel_source/src/requirements.txt
             vercel_source/src/package.json
             vercel_source/src/vercel.json
