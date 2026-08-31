@@ -133,6 +133,9 @@ COMPETITION_FAMILIES: dict[str, tuple[str, ...]] = {
         "super league", "gre d1"
     ),
     "iceland-besta-deild": ("liga islandia a", "besta deild", "ice d1"),
+    "turkey-super-lig": (
+        "trendyol super lig", "turkey super lig", "super lig", "tur d1"
+    ),
     "mexico-liga-mx": ("liga mx", "ligamx apertura", "mex d1"),
     "brazil-serie-a": ("brasil serie a", "brazil serie a", "bra d1"),
     "england-championship": ("championship", "eng d2"),
@@ -168,6 +171,7 @@ FUTBOL24_TEAM_ALIASES: dict[str, tuple[str, ...]] = {
     "red bull bragantino": ("RB Bragantino/SP",),
     "al ittihad": ("Ittihad Jeddah", "Al Ittihad Jeddah"),
     "al fateh": ("Al Fateh (KSA)",),
+    "amed sportif faaliyetler": ("Amed SK", "Amedspor"),
 }
 
 
@@ -678,6 +682,7 @@ class Futbol24Client:
         generic_domestic_label = any(
             _normalize(value) in {
                 "campeonato serie a",
+                "premier",
                 "primera division",
                 "primera división",
             }

@@ -234,6 +234,50 @@ class ResolverTests(unittest.TestCase):
         self.assertTrue(validation["valid"])
         self.assertTrue(validation["competition_pass"])
 
+    def test_exact_iceland_fixture_accepts_futbol24_premier_label(self):
+        client = self.client()
+        match = MatchRef(
+            competition="Liga Islandia A",
+            season="2026",
+            kickoff="2026-08-31T19:15:00+00:00",
+            home_team="Breidablik",
+            away_team="Stjarnan FC",
+        )
+        candidate = {
+            "date": "2026-08-31T19:15:00+00:00",
+            "league": {"name": "Premier"},
+            "team1": {"name": "Breidablik"},
+            "team2": {"name": "Stjarnan FC"},
+            "score1": "0-2",
+        }
+
+        validation = client._candidate_validation(match, candidate, require_score=False)
+
+        self.assertTrue(validation["valid"])
+        self.assertTrue(validation["competition_pass"])
+
+    def test_turkey_super_lig_family_and_amed_alias_are_validated(self):
+        client = self.client()
+        match = MatchRef(
+            competition="Trendyol Süper Lig",
+            season="2026",
+            kickoff="2026-08-31T18:30:00+00:00",
+            home_team="Amed Sportif Faaliyetler",
+            away_team="Trabzonspor",
+        )
+        candidate = {
+            "date": "2026-08-31T18:30:00+00:00",
+            "league": {"name": "Super Lig"},
+            "team1": {"name": "Amedspor"},
+            "team2": {"name": "Trabzonspor"},
+            "score1": "1-1",
+        }
+
+        validation = client._candidate_validation(match, candidate, require_score=False)
+
+        self.assertTrue(validation["valid"])
+        self.assertTrue(validation["competition_pass"])
+
     def test_final_actuals_preserve_real_halves_stats_and_goal_timeline(self):
         actuals = MODULE.Futbol24Client._final_actuals(
             {
