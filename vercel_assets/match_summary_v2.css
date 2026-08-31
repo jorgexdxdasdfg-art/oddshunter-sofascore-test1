@@ -83,3 +83,55 @@
 .oh-home-mode [data-view="home"] .probability-bar{height:26px;margin-top:10px;border:0;border-radius:14px}.oh-home-mode [data-view="home"] .probability-bar div{min-width:28px;font-size:11px;font-weight:800}.oh-home-mode [data-view="home"] .match-footer{min-height:25px;margin-top:9px}.oh-home-mode [data-view="home"] .analysis-badge{min-width:46px;height:25px;padding:0 9px;display:inline-flex;align-items:center;justify-content:center;border-radius:999px;font-size:10px;line-height:1;font-weight:500}
 .oh-home-mode .bottom-nav{min-height:76px;padding:8px 4px max(8px,env(safe-area-inset-bottom));background:color-mix(in srgb,var(--panel) 98%,transparent)}.oh-home-mode .bottom-nav button{gap:4px;font-weight:500}.oh-home-mode .bottom-nav .nav-icon{width:27px;height:27px}.oh-home-mode .bottom-nav small{font-size:10.5px;line-height:1.15}.oh-home-mode .bottom-nav button.active{font-weight:700}
 @media(max-width:430px){.oh-home-mode main{padding-inline:14px}.oh-home-mode .app-header{padding-left:14px;padding-right:14px}.oh-home-mode [data-view="home"] .day-tabs{gap:10px}.oh-home-mode [data-view="home"] .day-tabs button{height:48px;font-size:15px}.oh-home-mode [data-view="home"] .chips{gap:7px}.oh-home-mode [data-view="home"] .chip{padding-inline:16px}.oh-home-mode [data-view="home"] .match-card{padding-inline:12px}.oh-home-mode [data-view="home"] .v13-teams{grid-template-columns:minmax(0,1fr) 42px minmax(0,1fr)}.oh-home-mode [data-view="home"] .team-side-home{grid-template-columns:33px minmax(0,1fr)}.oh-home-mode [data-view="home"] .team-side-away{grid-template-columns:minmax(0,1fr) 33px}.oh-home-mode [data-view="home"] .team-favorite{width:33px}.oh-home-mode [data-view="home"] .match-team .crest{width:66px;height:66px}}
+
+/* OH_HOME_COMPACT_PHONE_REFERENCE_V18 */
+@media(max-width:430px){
+  .oh-home-mode .app-shell{padding-bottom:calc(76px + env(safe-area-inset-bottom))}
+  .oh-home-mode .app-header{height:calc(78px + env(safe-area-inset-top));padding:calc(8px + env(safe-area-inset-top)) 14px 8px;gap:10px}
+  .oh-home-mode .brand{gap:9px}
+  .oh-home-mode .logo-box,.oh-home-mode .logo-box span{width:52px;height:52px;flex-basis:52px}
+  .oh-home-mode .brand strong{font-size:18px;font-weight:800;letter-spacing:-.3px}
+  .oh-home-mode .brand small{margin-top:4px;font-size:10px;font-weight:400}
+  .oh-home-mode #themeBtn{width:44px;height:44px;flex-basis:44px;border-radius:14px;font-size:16px}
+  .oh-home-mode main{padding-inline:14px}
+  .oh-home-mode [data-view="home"] .day-tabs{gap:9px;padding:12px 0 2px}
+  .oh-home-mode [data-view="home"] .day-tabs button{height:42px;border-radius:21px;font-size:14px;font-weight:700}
+  .oh-home-mode [data-view="home"] .search-box{height:50px;margin:14px 0;padding:0 14px;gap:10px;border-radius:20px}
+  .oh-home-mode [data-view="home"] .search-box>span{width:22px;height:22px;flex-basis:22px}
+  .oh-home-mode [data-view="home"] .search-box>span:before{left:2px;top:2px;width:12px;height:12px}
+  .oh-home-mode [data-view="home"] .search-box>span:after{left:14px;top:16px;width:8px}
+  .oh-home-mode [data-view="home"] .search-box input{height:48px;font-size:14.5px;font-weight:500}
+  .oh-home-mode [data-view="home"] .chips{gap:7px;padding:0 0 14px}
+  .oh-home-mode [data-view="home"] .chip{height:40px;min-height:40px;padding-inline:14px;border-radius:20px;font-size:13px;font-weight:650}
+  .oh-home-mode [data-view="home"] .section-head{margin:14px 0 8px}
+  .oh-home-mode [data-view="home"] .section-head h2{font-size:16px;font-weight:850}
+  .oh-home-mode [data-view="home"] .section-head button{font-size:14px;font-weight:750}
+  .oh-home-mode [data-view="home"] .day-group-title{margin:2px 4px 6px;font-size:13px;font-weight:750}
+  .oh-home-mode [data-view="home"] .cards{gap:10px;margin-bottom:18px}
+  .oh-home-mode [data-view="home"] .match-card{padding:10px 12px 9px;border-radius:16px}
+  .oh-home-mode [data-view="home"] .match-meta{min-height:16px;margin-bottom:6px;font-size:10px;font-weight:550}
+  .oh-home-mode [data-view="home"] .competition-label{gap:5px;font-weight:550}
+  .oh-home-mode [data-view="home"] .competition-icon{width:16px;height:16px;flex-basis:16px}
+  .oh-home-mode [data-view="home"] .match-time{font-size:10px}
+  .oh-home-mode [data-view="home"] .final-label{font-weight:850}
+  .oh-home-mode [data-view="home"] .starting-label{font-weight:750}
+  .oh-home-mode [data-view="home"] .v13-teams{grid-template-columns:minmax(0,1fr) 38px minmax(0,1fr);gap:2px;min-height:86px}
+  .oh-home-mode [data-view="home"] .team-side-home{grid-template-columns:29px minmax(0,1fr)}
+  .oh-home-mode [data-view="home"] .team-side-away{grid-template-columns:minmax(0,1fr) 29px}
+  .oh-home-mode [data-view="home"] .team-favorite{width:29px;height:42px}
+  .oh-home-mode [data-view="home"] .team-favorite svg{width:24px;height:24px}
+  .oh-home-mode [data-view="home"] .match-team{gap:3px;font-size:12.5px;font-weight:750;line-height:1.12}
+  .oh-home-mode [data-view="home"] .match-team .crest{width:56px;height:56px;padding:3px}
+  .oh-home-mode [data-view="home"] .match-team>span{min-height:27px;line-height:1.12}
+  .oh-home-mode [data-view="home"] .score-center{font-size:18px;font-weight:850}
+  .oh-home-mode [data-view="home"] .versus-center .vs{font-size:17px;font-weight:800}
+  .oh-home-mode [data-view="home"] .probability-bar{height:22px;margin-top:7px;border-radius:12px}
+  .oh-home-mode [data-view="home"] .probability-bar div{font-size:10.5px;font-weight:850}
+  .oh-home-mode [data-view="home"] .match-footer{min-height:22px;margin-top:6px}
+  .oh-home-mode [data-view="home"] .analysis-badge{min-width:42px;height:22px;padding-inline:8px;font-size:9px;font-weight:550}
+  .oh-home-mode .bottom-nav{min-height:64px;padding:5px 4px max(5px,env(safe-area-inset-bottom))}
+  .oh-home-mode .bottom-nav button{gap:3px;font-weight:500}
+  .oh-home-mode .bottom-nav .nav-icon{width:24px;height:24px}
+  .oh-home-mode .bottom-nav small{font-size:9.5px;line-height:1.1}
+  .oh-home-mode .bottom-nav button.active{font-weight:750}
+}
