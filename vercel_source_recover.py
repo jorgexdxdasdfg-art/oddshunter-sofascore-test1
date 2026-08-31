@@ -145,9 +145,9 @@ def patch_frontend(root: Path) -> dict[str, list[str]]:
     patched_indexes: list[str] = []
     for path in sorted(root.glob("**/index.html")):
         text = path.read_text(encoding="utf-8")
-        updated = re.sub(r"app\.css\?v=[^\"']+", "app.css?v=1.12.9-summary-emphasis", text)
-        updated = re.sub(r"app\.js\?v=[^\"']+", "app.js?v=1.12.9-summary-emphasis", updated)
-        updated = re.sub(r"sw\.js\?v=[^\"']+", "sw.js?v=1.12.9-summary-emphasis", updated)
+        updated = re.sub(r"app\.css\?v=[^\"']+", "app.css?v=1.12.10-gray-scorelines", text)
+        updated = re.sub(r"app\.js\?v=[^\"']+", "app.js?v=1.12.10-gray-scorelines", updated)
+        updated = re.sub(r"sw\.js\?v=[^\"']+", "sw.js?v=1.12.10-gray-scorelines", updated)
         if updated != text:
             path.write_text(updated, encoding="utf-8", newline="\n")
             patched_indexes.append(path.relative_to(root).as_posix())
@@ -155,7 +155,7 @@ def patch_frontend(root: Path) -> dict[str, list[str]]:
     patched_workers: list[str] = []
     for path in sorted(root.glob("**/sw.js")):
         text = path.read_text(encoding="utf-8")
-        updated = re.sub(r"oh-mobile-v[^\"']+", "oh-mobile-v1-12-9-summary-emphasis", text)
+        updated = re.sub(r"oh-mobile-v[^\"']+", "oh-mobile-v1-12-10-gray-scorelines", text)
         if updated != text:
             path.write_text(updated, encoding="utf-8", newline="\n")
             patched_workers.append(path.relative_to(root).as_posix())

@@ -64,5 +64,3 @@
 .one-x-title{font-size:16px;font-weight:850}
 .one-x-grid strong{font-size:14px;font-weight:850}
 .one-x-grid strong.max-prob{color:var(--red);font-weight:900}
-.scoreline{background:color-mix(in srgb,var(--red) 9%,var(--panel-2))}
-.scoreline-fill{background:color-mix(in srgb,var(--red) 20%,transparent)}
