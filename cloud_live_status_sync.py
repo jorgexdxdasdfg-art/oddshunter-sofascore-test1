@@ -132,6 +132,30 @@ def _pending(row: sqlite3.Row) -> bool:
     return status not in FINAL_STATUSES or row["home_goals"] is None or row["away_goals"] is None
 
 
+def _rotated_batch(
+    rows: list[Any],
+    now: datetime,
+    limit: int,
+) -> list[Any]:
+    """Return a bounded minute-rotating window without starving fixtures.
+
+    The live timer intentionally polls a small provider-safe batch.  Taking
+    the first N recent fixtures every minute permanently starves the remaining
+    simultaneous matches.  Advancing by one full batch per minute guarantees
+    that every pending fixture is revisited quickly while keeping the same
+    request ceiling.
+    """
+    size = len(rows)
+    cap = max(0, int(limit))
+    if size == 0 or cap == 0:
+        return []
+    if size <= cap:
+        return list(rows)
+    start = (int(now.timestamp() // 60) * cap) % size
+    rotated = rows[start:] + rows[:start]
+    return list(rotated[:cap])
+
+
 def select_candidates(
     con: sqlite3.Connection,
     now: datetime,
@@ -163,15 +187,12 @@ def select_candidates(
             fair_overdue.append(overdue[right])
             right -= 1
 
-    # Rotate the overdue window every minute. Taking the first N rows on every
-    # invocation retries the same failures forever and starves the rest of the
-    # backlog. The timer runs once per minute, so every unfinished row gets a
-    # bounded opportunity without flooding the provider in one run.
-    if fair_overdue:
-        rotation = int(now.timestamp() // 60) % len(fair_overdue)
-        fair_overdue = fair_overdue[rotation:] + fair_overdue[:rotation]
-
-    chosen = recent[:near_limit] + fair_overdue[:overdue_limit]
+    # Rotate both windows. Simultaneous fixtures are common and the service
+    # deliberately uses a small near_limit; without rotation, rows beyond that
+    # fixed prefix can remain NS throughout the whole match.
+    chosen = _rotated_batch(recent, now, near_limit) + _rotated_batch(
+        fair_overdue, now, overdue_limit
+    )
     return [dict(row) for row in chosen]
 
 
@@ -251,10 +272,9 @@ def select_remote_candidates(
     overdue = [row for row in pool if parse_dt(row["kickoff"]) < recent_floor]
     recent.sort(key=lambda row: abs((now - parse_dt(row["kickoff"])).total_seconds()))
     overdue.sort(key=lambda row: parse_dt(row["kickoff"]), reverse=True)
-    if overdue:
-        rotation = int(now.timestamp() // 60) % len(overdue)
-        overdue = overdue[rotation:] + overdue[:rotation]
-    return explicit + recent[:near_limit] + overdue[:overdue_limit]
+    return explicit + _rotated_batch(recent, now, near_limit) + _rotated_batch(
+        overdue, now, overdue_limit
+    )
 
 def match_ref(row: dict[str, Any], competition: dict[str, Any]) -> MatchRef:
     return MatchRef(
