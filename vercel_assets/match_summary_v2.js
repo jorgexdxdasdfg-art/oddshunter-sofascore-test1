@@ -569,6 +569,7 @@ setHeader=function(view){
 /* OH_LINEUP_PITCH_REFERENCE_V14 */
 
 /* OH_EXPECTED_REAL_REFERENCE_V15 */
+/* OH_EXPECTED_REAL_COMPARISON_V16 */
 function ohERFinite(value){
   const number=Number(value);
   return value!==null&&value!==undefined&&value!==""&&Number.isFinite(number)?number:null;
@@ -584,107 +585,85 @@ function ohERValue(value,suffix=""){
   return number===null?"N/D":`${visibleNumber(Math.round(number*100)/100)}${suffix}`;
 }
 
-function ohERInfoIcon(){
-  return `<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 10.5v6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><circle cx="12" cy="7.4" r="1.15" fill="currentColor"/></svg>`;
+function ohERMetricCard(icon,label,home,away){
+  return `<div class="oh-er-v16-metric"><div>${summaryIcon(icon)}<span>${esc(label)}</span></div><strong>${ohERValue(home)} <i>-</i> ${ohERValue(away)}</strong><small>Local - Visitante</small></div>`;
 }
 
-function ohERStatCard(label,home,away,suffix=""){
-  return `<div class="oh-er-stat"><span>${esc(label)}</span><strong class="home"><i></i>${ohERValue(home,suffix)}</strong><strong><i></i>${ohERValue(away,suffix)}</strong></div>`;
+function ohERWinner(home,away){
+  const h=ohERFinite(home),a=ohERFinite(away);
+  return h===null||a===null?null:h>a?"Local":a>h?"Visitante":"Empate";
 }
 
-function ohERGenerators(side,teamName){
-  const players=Array.isArray(side)?side.slice(0,3):[];
-  return `<div class="oh-er-generator-team"><h4>${esc(teamName)}</h4>${players.length?players.map(player=>`<div><span>${player.shirt_number??""}</span><b>${esc(player.name||"Jugador")}</b><strong>${ohERValue(player.xg)}</strong></div>`).join(""):'<p class="muted">xG individual N/D</p>'}</div>`;
+function ohERPredictedWinner(probabilities){
+  const entries=[["Local",ohERFinite(probabilities?.home_win)],["Empate",ohERFinite(probabilities?.draw)],["Visitante",ohERFinite(probabilities?.away_win)]].filter(item=>item[1]!==null);
+  return entries.length?entries.sort((a,b)=>b[1]-a[1])[0][0]:null;
 }
 
-function ohERSeries(value){
-  if(!Array.isArray(value))return [];
-  return value.map((item,index)=>{
-    if(typeof item==="number")return {minute:index*10,value:ohERFinite(item)};
-    return {minute:ohERFinite(item?.minute??item?.time),value:ohERFinite(item?.value??item?.xg??item?.goals)};
-  }).filter(item=>item.minute!==null&&item.value!==null);
+function ohEREvaluation(predicted,actual,kind="count"){
+  const p=ohERFinite(predicted),a=ohERFinite(actual);
+  if(p===null||a===null)return {label:"N/D",className:"na",difference:null};
+  const difference=Math.abs(p-a);
+  if(kind==="xg")return difference<=.25?{label:"Exacto",className:"exact",difference}:difference<=.75?{label:"Desviación media",className:"medium",difference}:{label:"Desviación alta",className:"high",difference};
+  return difference<=.5?{label:"Exacto",className:"exact",difference}:difference<=1.5?{label:"Desviación baja",className:"low",difference}:difference<=3?{label:"Desviación media",className:"medium",difference}:{label:"Desviación alta",className:"high",difference};
 }
 
-function ohDrawExpectedRealChart(canvas,xgSeries,goalSeries){
-  if(!canvas)return;
-  const red=ohERSeries(xgSeries),black=ohERSeries(goalSeries);
-  const dpr=window.devicePixelRatio||1,width=Math.max(280,canvas.clientWidth||320),height=190;
-  canvas.width=Math.round(width*dpr);canvas.height=Math.round(height*dpr);
-  const context=canvas.getContext("2d");context.setTransform(dpr,0,0,dpr,0,0);context.clearRect(0,0,width,height);
-  const left=31,right=46,top=13,bottom=29,innerWidth=width-left-right,innerHeight=height-top-bottom;
-  const values=[...red,...black].map(item=>item.value);
-  if(!values.length){
-    context.fillStyle=getComputedStyle(document.documentElement).getPropertyValue("--muted").trim()||"#777";
-    context.font="600 12px system-ui";context.textAlign="center";context.textBaseline="middle";
-    context.fillText("Evolución temporal no disponible",width/2,height/2);
-    return;
-  }
-  const maximum=Math.max(1,Math.ceil(Math.max(...values)*2)/2),xAt=minute=>left+innerWidth*Math.max(0,Math.min(90,minute))/90,yAt=value=>top+innerHeight-innerHeight*value/maximum;
-  context.font="9px system-ui";context.textBaseline="middle";
-  for(let index=0;index<=3;index++){
-    const y=top+innerHeight*index/3;
-    context.strokeStyle="#e5e5e7";context.lineWidth=1;context.beginPath();context.moveTo(left,y);context.lineTo(width-right,y);context.stroke();
-    context.fillStyle="#77787e";context.textAlign="right";context.fillText(visibleNumber(maximum*(1-index/3)),left-6,y);
-  }
-  const draw=(series,color,dashed)=>{
-    if(!series.length)return;
-    context.strokeStyle=color;context.fillStyle=color;context.lineWidth=2.1;context.lineCap="round";context.lineJoin="round";context.setLineDash(dashed?[5,4]:[]);context.beginPath();
-    series.forEach((item,index)=>index?context.lineTo(xAt(item.minute),yAt(item.value)):context.moveTo(xAt(item.minute),yAt(item.value)));context.stroke();context.setLineDash([]);
-    series.forEach(item=>{context.beginPath();context.arc(xAt(item.minute),yAt(item.value),2.1,0,Math.PI*2);context.fill()});
-  };
-  draw(red,"#d62c31",false);draw(black,"#17181b",true);
-  context.fillStyle="#77787e";context.font="9px system-ui";context.textAlign="center";context.textBaseline="top";
-  [0,15,30,45,60,75,90].forEach(minute=>context.fillText(`${minute}'`,xAt(minute),height-bottom+8));
+function ohERTableRow(label,predicted,actual,kind="count"){
+  const evaluation=ohEREvaluation(predicted,actual,kind);
+  return `<tr><th>${esc(label)}</th><td>${ohERValue(predicted)}</td><td>${ohERValue(actual)}</td><td>${evaluation.difference===null?"—":ohERValue(evaluation.difference)}</td><td class="${evaluation.className}">${evaluation.label}</td></tr>`;
+}
+
+function ohERConclusion(predicted,actual){
+  const sentences=[];
+  const px=ohERSum(predicted.xgHome,predicted.xgAway),ax=ohERSum(actual.xgHome,actual.xgAway);
+  if(px!==null&&ax!==null){const d=Math.abs(px-ax);sentences.push(d<=.5?"El xG previsto estuvo muy cerca del xG real.":d<=1.25?"El xG previsto mantuvo una desviación moderada.":"El xG previsto tuvo una desviación alta frente al xG real.")}
+  [["córners",predicted.corners,actual.corners],["amarillas",predicted.yellows,actual.yellows],["remates",predicted.shots,actual.shots]].forEach(([label,p,a])=>{if(p===null||a===null)return;sentences.push(Math.abs(p-a)<=.5?`El software coincidió con el total real de ${label}.`:`El software ${p<a?"subestimó":"sobreestimó"} el total real de ${label}.`)});
+  return sentences.join(" ")||"La comparación se completará cuando OddsHunter guarde todas las estadísticas reales del partido.";
 }
 
 renderExpected=function(){
-  const page=state.currentMatch||{},expectedReal=page.expected_real||{};
+  const page=state.currentMatch||{},expectedReal=page.expected_real||{},event=page.event||{},summary=page.summary||{},probabilities=summary.probabilities||{};
   if(!expectedReal.available){
-    $("matchContent").innerHTML=`<div class="panel expected-lock"><h3>Esperado / Real</h3><p>${esc(expectedReal.reason||"Disponible al finalizar.")}</p><p>El análisis previo permanece congelado para compararlo con los datos reales al terminar.</p></div>`;
+    $("matchContent").innerHTML=`<div class="panel expected-lock"><h3>Esperado / Real</h3><p>${esc(expectedReal.reason||"Disponible al finalizar.")}</p><p>La predicción ya está guardada y la comparación aparecerá automáticamente al terminar el partido.</p></div>`;
     return;
   }
-  const real=expectedReal.real||{},expected=expectedReal.expected||{},event=page.event||{};
-  const actualXgTotal=ohERSum(real.home_xg,real.away_xg);
-  const expectedTotal=actualXgTotal??ohERSum(expected.xg_home??expected.goals_home,expected.xg_away??expected.goals_away);
-  const goalTotal=ohERSum(real.home_goals,real.away_goals);
-  const expectedFirst=ohERFinite(expectedReal.xg_by_half?.first),expectedSecond=ohERFinite(expectedReal.xg_by_half?.second);
-  const goalsFirst=ohERSum(real.home_goals_1h,real.away_goals_1h),goalsSecond=ohERSum(real.home_goals_2h,real.away_goals_2h);
-  const conversionHome=ohERFinite(real.home_shots)>0&&ohERFinite(real.home_goals)!==null?real.home_goals/real.home_shots*100:null;
-  const conversionAway=ohERFinite(real.away_shots)>0&&ohERFinite(real.away_goals)!==null?real.away_goals/real.away_shots*100:null;
-  const zones=expectedReal.xg_zone_map||{},generators=expectedReal.generators||{};
-  $("matchContent").innerHTML=`<div class="oh-expected-real-reference">
-    <section class="panel oh-er-chart-card">
-      <div class="oh-er-heading"><h3>Goles esperados (xG) vs Goles reales</h3><span>${ohERInfoIcon()}</span></div>
-      <div class="oh-er-legend"><span><i class="home"></i>xG esperado</span><span><i></i>Goles reales</span></div>
-      <div class="oh-er-chart-wrap"><canvas id="ohExpectedRealChart"></canvas><div class="oh-er-chart-totals"><strong>${ohERValue(expectedTotal)}</strong><small>xG esperado</small><strong>${ohERValue(goalTotal)}</strong><small>Goles reales</small></div></div>
-      <p>${expectedReal.temporal_xg_available?"Evolución real del partido.":"La evolución minuto a minuto no está guardada para este encuentro."}</p>
+  const real=expectedReal.real||{},expected=expectedReal.expected||{},homeHistory=page.comparison?.home?.summary||{},awayHistory=page.comparison?.away?.summary||{};
+  const predicted={
+    xgHome:ohERFinite(expected.xg_home??summary.xg_home??expected.goals_home),xgAway:ohERFinite(expected.xg_away??summary.xg_away??expected.goals_away),
+    cornersHome:ohERFinite(expected.corners_home??homeHistory.corners),cornersAway:ohERFinite(expected.corners_away??awayHistory.corners),
+    yellowsHome:ohERFinite(expected.yellow_cards_home??homeHistory.yellow_cards),yellowsAway:ohERFinite(expected.yellow_cards_away??awayHistory.yellow_cards),
+    shotsHome:ohERFinite(expected.shots_home??summary.shots_home),shotsAway:ohERFinite(expected.shots_away??summary.shots_away)
+  };
+  predicted.corners=ohERSum(predicted.cornersHome,predicted.cornersAway);predicted.yellows=ohERSum(predicted.yellowsHome,predicted.yellowsAway);predicted.shots=ohERSum(predicted.shotsHome,predicted.shotsAway);
+  const actual={xgHome:ohERFinite(real.home_xg),xgAway:ohERFinite(real.away_xg),corners:ohERSum(real.home_corners,real.away_corners),yellows:ohERSum(real.home_yellow_cards,real.away_yellow_cards),shots:ohERSum(real.home_shots,real.away_shots)};
+  const homeGoals=ohERFinite(real.home_goals??event.home_score),awayGoals=ohERFinite(real.away_goals??event.away_score),predictedWinner=ohERPredictedWinner(probabilities),actualWinner=ohERWinner(homeGoals,awayGoals),winnerHit=predictedWinner!==null&&actualWinner!==null&&predictedWinner===actualWinner;
+  const resultEvaluation=predictedWinner===null||actualWinner===null?"N/D":winnerHit?"Acertado":"No acertado";
+  $("matchContent").innerHTML=`<div class="oh-er-comparison-v16">
+    <section class="panel oh-er-v16-score">
+      <div class="oh-er-v16-team"><button data-er-fav type="button">${starSvg(isFav(event.event_id))}</button>${crest(event.home_team_id,event.home_team)}<strong>${esc(event.home_team||"Local")}</strong></div>
+      <div class="oh-er-v16-score-center"><div><b>${ohERValue(homeGoals)}</b><i>-</i><b class="away">${ohERValue(awayGoals)}</b></div><strong>FT</strong><small>${esc(event.competition_name||event.competition_key||"")} · ${esc(fmtKickoff(event.kickoff))}</small></div>
+      <div class="oh-er-v16-team away">${crest(event.away_team_id,event.away_team)}<button data-er-fav type="button">${starSvg(isFav(event.event_id))}</button><strong>${esc(event.away_team||"Visitante")}</strong></div>
     </section>
-    <section class="panel oh-er-halves">
-      <h3>xG por tiempos</h3>
-      <div class="oh-er-half-row labels"><span></span><b>1T</b><b>2T</b><b>Total</b></div>
-      <div class="oh-er-half-row home"><strong>xG esperado</strong><b>${ohERValue(expectedFirst)}</b><b>${ohERValue(expectedSecond)}</b><b>${ohERValue(expectedTotal)}</b></div>
-      <div class="oh-er-half-row"><strong>Goles reales</strong><b>${ohERValue(goalsFirst)}</b><b>${ohERValue(goalsSecond)}</b><b>${ohERValue(goalTotal)}</b></div>
+    <section class="panel oh-er-v16-duel">
+      <div class="oh-er-v16-side prediction"><h3>🤖 <span>Predicción del software</span></h3><div class="oh-er-v16-metrics">
+        ${ohERMetricCard("xg","xG",predicted.xgHome,predicted.xgAway)}${ohERMetricCard("corner","Córners",predicted.cornersHome,predicted.cornersAway)}${ohERMetricCard("card","Amarillas",predicted.yellowsHome,predicted.yellowsAway)}${ohERMetricCard("target","Remates",predicted.shotsHome,predicted.shotsAway)}
+      </div><div class="oh-er-v16-outcome"><h4>${summaryIcon("shield")}Probabilidades 1X2</h4><div><span>Local<strong>${ohERValue(probabilities.home_win,"%")}</strong></span><span>Empate<strong>${ohERValue(probabilities.draw,"%")}</strong></span><span>Visitante<strong>${ohERValue(probabilities.away_win,"%")}</strong></span></div></div></div>
+      <div class="oh-er-v16-side reality"><h3>📌 <span>Resultado real</span></h3><div class="oh-er-v16-metrics">
+        ${ohERMetricCard("xg","xG real",real.home_xg,real.away_xg)}${ohERMetricCard("corner","Córners",real.home_corners,real.away_corners)}${ohERMetricCard("card","Amarillas",real.home_yellow_cards,real.away_yellow_cards)}${ohERMetricCard("target","Remates",real.home_shots,real.away_shots)}
+      </div><div class="oh-er-v16-final"><span>🏆 Resultado final</span><strong>${ohERValue(homeGoals)} <i>-</i> <b>${ohERValue(awayGoals)}</b></strong></div></div>
     </section>
-    <section class="panel oh-er-shots">
-      <h3>Disparos y ocasiones</h3>
-      <div class="oh-er-stats-grid">
-        ${ohERStatCard("Remates totales",real.home_shots,real.away_shots)}
-        ${ohERStatCard("Remates al arco",real.home_sot,real.away_sot)}
-        ${ohERStatCard("Ocasiones claras",real.home_big_chances,real.away_big_chances)}
-        ${ohERStatCard("% Conversión",conversionHome,conversionAway,"%")}
-      </div>
-      <div class="oh-er-team-legend"><span><i class="home"></i>${esc(event.home_team||"Local")}</span><span><i></i>${esc(event.away_team||"Visitante")}</span></div>
-    </section>
-    <section class="panel oh-er-zones">
-      <h3>Mapa de xG (por zonas)</h3>
-      <div class="oh-er-pitch ${expectedReal.xg_zone_map_available?"available":"unavailable"}"><i></i><b></b><span>${expectedReal.xg_zone_map_available?"":zones.reason||"Datos por zonas N/D"}</span></div>
-      <div class="oh-er-zone-legend"><span>${esc(event.home_team||"Local")} (xG)</span><i class="home"></i><span>${esc(event.away_team||"Visitante")} (xG)</span><i></i></div>
-    </section>
-    <section class="panel oh-er-generators">
-      <h3>Mayores generadores de xG</h3>
-      <div>${ohERGenerators(generators.home,event.home_team||"Local")}${ohERGenerators(generators.away,event.away_team||"Visitante")}</div>
-    </section>
-    <footer class="oh-er-footer">Datos reales guardados por OddsHunter · No se estiman métricas faltantes</footer>
+    <section class="panel oh-er-v16-table"><h3>⚖️ Comparación predicción vs realidad</h3><div><table><thead><tr><th>Métrica</th><th>Predicción</th><th>Realidad</th><th>Diferencia</th><th>Evaluación</th></tr></thead><tbody>
+      ${ohERTableRow("xG real local",predicted.xgHome,actual.xgHome,"xg")}${ohERTableRow("xG real visitante",predicted.xgAway,actual.xgAway,"xg")}${ohERTableRow("Córners totales",predicted.corners,actual.corners)}${ohERTableRow("Amarillas totales",predicted.yellows,actual.yellows)}${ohERTableRow("Remates totales",predicted.shots,actual.shots)}
+      <tr><th>Tendencia 1X2</th><td>${predictedWinner||"N/D"}</td><td>${actualWinner||"N/D"}</td><td>—</td><td class="${winnerHit?"exact":predictedWinner&&actualWinner?"miss":"na"}">${resultEvaluation}</td></tr>
+    </tbody></table></div></section>
+    <section class="panel oh-er-v16-conclusion"><h3>📈 Conclusión del análisis</h3><p>${esc(ohERConclusion(predicted,actual))}</p></section>
   </div>`;
-  requestAnimationFrame(()=>ohDrawExpectedRealChart($("ohExpectedRealChart"),expectedReal.temporal_xg?.expected,expectedReal.temporal_xg?.goals));
+  qsa("[data-er-fav]").forEach(button=>button.onclick=()=>{toggleFav(event.event_id);renderMatchHeader();renderExpected()});
+};
+
+const ohOriginalRenderMatchTabExpectedV16=renderMatchTab;
+renderMatchTab=function(){
+  ohOriginalRenderMatchTabExpectedV16();
+  const expectedMode=state.currentMatchTab==="expected",matchView=document.querySelector('[data-view="match"]');
+  matchView?.classList.toggle("oh-er-mode",expectedMode);
+  $("matchHeader")?.classList.toggle("hidden",expectedMode||state.currentMatchTab==="trends");
 };

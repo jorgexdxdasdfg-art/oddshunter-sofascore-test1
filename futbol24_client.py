@@ -937,6 +937,8 @@ class Futbol24Client:
             ("SHOTS_TOTAL", "home_shots", "away_shots"),
             ("SHOTS_ON_TARGET", "home_sot", "away_sot"),
             ("BIG_CHANCES", "home_big_chances", "away_big_chances"),
+            ("CORNERS", "home_corners", "away_corners"),
+            ("YELLOWCARDS", "home_yellow_cards", "away_yellow_cards"),
         ):
             home_value, away_value = pair(code)
             actual[home_key] = home_value

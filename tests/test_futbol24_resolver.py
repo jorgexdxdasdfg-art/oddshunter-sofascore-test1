@@ -243,6 +243,8 @@ class ResolverTests(unittest.TestCase):
                     {"code": "EXPECTED_GOALS", "home": 0.2228, "away": 3.1592},
                     {"code": "SHOTS_TOTAL", "home": 1, "away": 30},
                     {"code": "SHOTS_ON_TARGET", "home": 1, "away": 14},
+                    {"code": "CORNERS", "home": 0, "away": 13},
+                    {"code": "YELLOWCARDS", "home": 5, "away": 1},
                 ],
                 "actions": [
                     {"action": {"minute": 6, "type_score": True}},
@@ -259,6 +261,10 @@ class ResolverTests(unittest.TestCase):
         self.assertEqual(actuals["real"]["away_goals_2h"], 4.0)
         self.assertEqual(actuals["real"]["home_shots"], 1.0)
         self.assertEqual(actuals["real"]["away_sot"], 14.0)
+        self.assertEqual(actuals["real"]["home_corners"], 0.0)
+        self.assertEqual(actuals["real"]["away_corners"], 13.0)
+        self.assertEqual(actuals["real"]["home_yellow_cards"], 5.0)
+        self.assertEqual(actuals["real"]["away_yellow_cards"], 1.0)
         self.assertIsNone(actuals["real"]["home_big_chances"])
         self.assertEqual(actuals["temporal_xg"]["goals"][-1], {"minute": 90, "value": 7.0})
 if __name__ == "__main__":
