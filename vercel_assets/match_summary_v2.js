@@ -72,6 +72,9 @@ renderSummary = function(){
   const awayHistory=p.comparison?.away?.summary||{};
   const scorelines=(s.top_scorelines||[]).slice(0,5);
   const maxScore=Math.max(1,...scorelines.map(x=>Number(x.probability)||0));
+  const oneXValues=[pr.home_win,pr.draw,pr.away_win].map(value=>Number(value));
+  const oneXMax=Math.max(...oneXValues.filter(Number.isFinite));
+  const oneXClass=value=>Number(value)===oneXMax?" max-prob":"";
   $("matchContent").innerHTML=`
     <div class="summary-metric-grid">
       ${summaryMetric("BTTS",s.btts_yes,"%","Sí","ball","green")}
@@ -99,7 +102,7 @@ renderSummary = function(){
       </div>
       <div class="one-x-two">
         <div class="one-x-title"><span>${summaryIcon("shield")}</span>Probabilidades 1X2</div>
-        <div class="one-x-grid"><div><small>Local</small><strong class="home-prob">${val(pr.home_win,"%")}</strong></div><div><small>Empate</small><strong>${val(pr.draw,"%")}</strong></div><div><small>Visitante</small><strong>${val(pr.away_win,"%")}</strong></div></div>
+        <div class="one-x-grid"><div><small>Local</small><strong class="${oneXClass(pr.home_win).trim()}">${val(pr.home_win,"%")}</strong></div><div><small>Empate</small><strong class="${oneXClass(pr.draw).trim()}">${val(pr.draw,"%")}</strong></div><div><small>Visitante</small><strong class="${oneXClass(pr.away_win).trim()}">${val(pr.away_win,"%")}</strong></div></div>
       </div>
     </div>
 
