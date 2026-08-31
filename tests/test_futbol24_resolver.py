@@ -233,5 +233,33 @@ class ResolverTests(unittest.TestCase):
 
         self.assertTrue(validation["valid"])
         self.assertTrue(validation["competition_pass"])
+
+    def test_final_actuals_preserve_real_halves_stats_and_goal_timeline(self):
+        actuals = MODULE.Futbol24Client._final_actuals(
+            {
+                "id": 3328766,
+                "match": {"score2": "HT 1-2"},
+                "stats": [
+                    {"code": "EXPECTED_GOALS", "home": 0.2228, "away": 3.1592},
+                    {"code": "SHOTS_TOTAL", "home": 1, "away": 30},
+                    {"code": "SHOTS_ON_TARGET", "home": 1, "away": 14},
+                ],
+                "actions": [
+                    {"action": {"minute": 6, "type_score": True}},
+                    {"action": {"minute": 11, "type_score": True}},
+                    {"action": {"minute": 45, "type_score": True}},
+                ],
+            },
+            reversed_order=False,
+            home_score=1.0,
+            away_score=6.0,
+        )
+
+        self.assertEqual(actuals["real"]["home_goals_1h"], 1.0)
+        self.assertEqual(actuals["real"]["away_goals_2h"], 4.0)
+        self.assertEqual(actuals["real"]["home_shots"], 1.0)
+        self.assertEqual(actuals["real"]["away_sot"], 14.0)
+        self.assertIsNone(actuals["real"]["home_big_chances"])
+        self.assertEqual(actuals["temporal_xg"]["goals"][-1], {"minute": 90, "value": 7.0})
 if __name__ == "__main__":
     unittest.main()

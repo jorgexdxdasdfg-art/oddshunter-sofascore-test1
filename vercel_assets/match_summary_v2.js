@@ -644,7 +644,8 @@ renderExpected=function(){
     return;
   }
   const real=expectedReal.real||{},expected=expectedReal.expected||{},event=page.event||{};
-  const expectedTotal=ohERSum(expected.xg_home??expected.goals_home,expected.xg_away??expected.goals_away);
+  const actualXgTotal=ohERSum(real.home_xg,real.away_xg);
+  const expectedTotal=actualXgTotal??ohERSum(expected.xg_home??expected.goals_home,expected.xg_away??expected.goals_away);
   const goalTotal=ohERSum(real.home_goals,real.away_goals);
   const expectedFirst=ohERFinite(expectedReal.xg_by_half?.first),expectedSecond=ohERFinite(expectedReal.xg_by_half?.second);
   const goalsFirst=ohERSum(real.home_goals_1h,real.away_goals_1h),goalsSecond=ohERSum(real.home_goals_2h,real.away_goals_2h);

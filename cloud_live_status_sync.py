@@ -564,6 +564,94 @@ def publish_lineup_snapshot(
         raise RuntimeError(f"Alineación Turso no verificada: event_id={event_id}")
 
 
+def normalized_final_actuals_payload(
+    row: dict[str, Any],
+    snapshot: dict[str, Any] | None,
+    updated_at: str,
+) -> dict[str, Any] | None:
+    if str((snapshot or {}).get("state") or "").lower() != "finished":
+        return None
+    raw = snapshot.get("final_actuals") if isinstance(snapshot, dict) else None
+    real = raw.get("real") if isinstance(raw, dict) else None
+    if not isinstance(real, dict):
+        return None
+    return {
+        **raw,
+        "event_id": int(row["event_id"]),
+        "match_id": row.get("match_id"),
+        "updated_at": updated_at,
+    }
+
+
+def publish_final_actuals(
+    client: Any,
+    row: dict[str, Any],
+    competition: dict[str, Any],
+    payload: dict[str, Any],
+) -> None:
+    event_id = int(row["event_id"])
+    real = payload.get("real") or {}
+    client.execute(
+        "UPDATE matches SET home_goals_1h=COALESCE(?,home_goals_1h),"
+        "away_goals_1h=COALESCE(?,away_goals_1h),"
+        "home_goals_2h=COALESCE(?,home_goals_2h),"
+        "away_goals_2h=COALESCE(?,away_goals_2h) WHERE sofascore_id=?",
+        [
+            real.get("home_goals_1h"),
+            real.get("away_goals_1h"),
+            real.get("home_goals_2h"),
+            real.get("away_goals_2h"),
+            event_id,
+        ],
+    )
+    competition_key = slugify(competition.get("key"))
+    client.execute(
+        "INSERT INTO mobile_analysis_docs "
+        "(competition_key,event_id,doc_name,json_text,source_mtime) VALUES (?,?,?,?,?) "
+        "ON CONFLICT (competition_key,event_id,doc_name) DO UPDATE SET "
+        "json_text=excluded.json_text,source_mtime=excluded.source_mtime",
+        [
+            competition_key,
+            event_id,
+            "expected_real_actuals",
+            json.dumps(payload, ensure_ascii=False, separators=(",", ":")),
+            utc_now().timestamp(),
+        ],
+    )
+    check = client.query(
+        "SELECT doc_name FROM mobile_analysis_docs WHERE competition_key=? "
+        "AND event_id=? AND doc_name='expected_real_actuals'",
+        [competition_key, event_id],
+    )
+    if len(check) != 1:
+        raise RuntimeError(f"Estadísticas finales Turso no verificadas: event_id={event_id}")
+
+
+def update_local_final_actuals(row: dict[str, Any], payload: dict[str, Any]) -> None:
+    real = payload.get("real") or {}
+    con = connect_db(read_only=False)
+    try:
+        con.execute("BEGIN IMMEDIATE")
+        con.execute(
+            "UPDATE matches SET home_goals_1h=COALESCE(?,home_goals_1h),"
+            "away_goals_1h=COALESCE(?,away_goals_1h),"
+            "home_goals_2h=COALESCE(?,home_goals_2h),"
+            "away_goals_2h=COALESCE(?,away_goals_2h) "
+            "WHERE match_id=? AND sofascore_id=?",
+            [
+                real.get("home_goals_1h"), real.get("away_goals_1h"),
+                real.get("home_goals_2h"), real.get("away_goals_2h"),
+                int(row["match_id"]), int(row["event_id"]),
+            ],
+        )
+        con.commit()
+    except Exception:
+        con.rollback()
+        raise
+    finally:
+        con.close()
+
+
 def update_local(row: dict[str, Any], update: dict[str, Any], updated_at: str) -> None:
     con = connect_db(read_only=False)
     try:
@@ -701,11 +789,32 @@ def run(
                         snapshot = f24.get_match_snapshot(match_ref(row, competition))
                         update = normalized_update(snapshot) if isinstance(snapshot, dict) else None
                         item["source"] = "futbol24-name-fallback"
+                if (
+                    update is not None
+                    and update.get("state") == "finished"
+                    and isinstance(snapshot, dict)
+                    and not isinstance(snapshot.get("final_actuals"), dict)
+                ):
+                    enrichment = f24.get_match_snapshot(match_ref(row, competition))
+                    if (
+                        isinstance(enrichment, dict)
+                        and enrichment.get("home_goals") == update.get("home_score")
+                        and enrichment.get("away_goals") == update.get("away_score")
+                    ):
+                        snapshot = {
+                            **snapshot,
+                            "lineups": enrichment.get("lineups") or snapshot.get("lineups"),
+                            "final_actuals": enrichment.get("final_actuals"),
+                        }
+                        item["source"] = f"{item.get('source')}+futbol24-final-actuals"
                 item["snapshot"] = snapshot
                 if not isinstance(snapshot, dict):
                     item["result"] = "SOURCE_UNAVAILABLE"
                 else:
                     lineup = normalized_lineup_payload(row, snapshot)
+                    final_actuals = normalized_final_actuals_payload(
+                        row, snapshot, iso_utc(utc_now())
+                    )
                     if update is None:
                         item["result"] = "NO_ACTION"
                     elif dry_run:
@@ -716,6 +825,13 @@ def run(
                         publish_remote(client, row, competition, update, stamp)
                         if not row.get("remote_only"):
                             update_local(row, update, stamp)
+                        if final_actuals is not None:
+                            publish_final_actuals(
+                                client, row, competition, final_actuals
+                            )
+                            if not row.get("remote_only"):
+                                update_local_final_actuals(row, final_actuals)
+                            item["final_actuals"] = "PUBLISHED"
                         item["update"] = update
                         item["result"] = "PUBLISHED"
                     if lineup is not None:

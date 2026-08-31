@@ -908,6 +908,98 @@ class Futbol24Client:
         }
 
     @staticmethod
+    def _final_actuals(
+        details: dict[str, Any] | None,
+        *,
+        reversed_order: bool,
+        home_score: float | None,
+        away_score: float | None,
+    ) -> dict[str, Any] | None:
+        """Normalize real post-match values already present in Futbol24.
+
+        This deliberately does not estimate unavailable fields.  The mobile
+        client can therefore distinguish a genuine zero from missing data.
+        """
+
+        if not isinstance(details, dict):
+            return None
+        stats = Futbol24Client._stats_by_code(details)
+
+        def pair(code: str) -> tuple[float | None, float | None]:
+            row = stats.get(code) or {}
+            first = _to_number(row.get("home"))
+            second = _to_number(row.get("away"))
+            return (second, first) if reversed_order else (first, second)
+
+        actual: dict[str, Any] = {}
+        for code, home_key, away_key in (
+            ("EXPECTED_GOALS", "home_xg", "away_xg"),
+            ("SHOTS_TOTAL", "home_shots", "away_shots"),
+            ("SHOTS_ON_TARGET", "home_sot", "away_sot"),
+            ("BIG_CHANCES", "home_big_chances", "away_big_chances"),
+        ):
+            home_value, away_value = pair(code)
+            actual[home_key] = home_value
+            actual[away_key] = away_value
+
+        match = details.get("match") if isinstance(details.get("match"), dict) else {}
+        half_match = re.search(
+            r"(?:HT\s*)?(\d+)\s*[-:]\s*(\d+)",
+            str(match.get("score2") or ""),
+            flags=re.IGNORECASE,
+        )
+        half_home = float(half_match.group(1)) if half_match else None
+        half_away = float(half_match.group(2)) if half_match else None
+        if reversed_order:
+            half_home, half_away = half_away, half_home
+        actual.update(
+            {
+                "home_goals_1h": half_home,
+                "away_goals_1h": half_away,
+                "home_goals_2h": (
+                    home_score - half_home
+                    if home_score is not None and half_home is not None
+                    else None
+                ),
+                "away_goals_2h": (
+                    away_score - half_away
+                    if away_score is not None and half_away is not None
+                    else None
+                ),
+            }
+        )
+
+        goal_points: list[dict[str, Any]] = [{"minute": 0, "value": 0.0}]
+        total = 0.0
+        for wrapper in details.get("actions") or []:
+            action = wrapper.get("action") if isinstance(wrapper, dict) else None
+            if not isinstance(action, dict) or not action.get("type_score"):
+                continue
+            minute = _to_number(action.get("minute"))
+            if minute is None:
+                continue
+            total += 1.0
+            goal_points.append({"minute": min(90.0, minute), "value": total})
+        final_total = (
+            home_score + away_score
+            if home_score is not None and away_score is not None
+            else total
+        )
+        if goal_points[-1]["minute"] < 90 or goal_points[-1]["value"] != final_total:
+            goal_points.append({"minute": 90, "value": final_total})
+
+        return {
+            "real": actual,
+            "temporal_xg": {"expected": [], "goals": goal_points},
+            "temporal_xg_available": False,
+            "xg_by_half": {"first": None, "second": None},
+            "xg_zone_map_available": False,
+            "generators": {"home": [], "away": []},
+            "source": "futbol24",
+            "source_match_id": details.get("id"),
+        }
+
+    @staticmethod
     def _identity(details: dict[str, Any]) -> dict[str, Any]:
         match = details.get("match") or {}
         slug = str(match.get("slug") or "")
@@ -1010,6 +1102,12 @@ class Futbol24Client:
                 "home": lineups.get("away"),
                 "away": lineups.get("home"),
             }
+        actuals = self._final_actuals(
+            details,
+            reversed_order=validation.get("orientation") == "reversed",
+            home_score=home_score,
+            away_score=away_score,
+        )
 
         return {
             "source": "futbol24",
@@ -1030,6 +1128,7 @@ class Futbol24Client:
             "identity_validation": validation,
             "details_available": details is not None,
             "lineups": lineups,
+            "final_actuals": actuals,
         }
 
     def get_direct_xg(self, match: MatchRef) -> DirectXG | None:

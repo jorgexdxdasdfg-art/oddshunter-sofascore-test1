@@ -40,6 +40,40 @@ EXPECTED_REAL_SELECT_PATCHED = """            SELECT m.match_id, m.home_goals, m
                    m.home_goals_2h, m.away_goals_2h,
                    hs.xg_for AS home_xg, as_.xg_for AS away_xg,"""
 
+EXPECTED_REAL_RESULT_ANCHOR = '''        if row:
+            result["real"] = dict(row)
+    finally:
+'''
+
+EXPECTED_REAL_RESULT_PATCHED = '''        if row:
+            result["real"] = dict(row)
+        if _table_exists(conn, "mobile_analysis_docs"):
+            actual_row = conn.execute(
+                "SELECT json_text FROM mobile_analysis_docs "
+                "WHERE event_id=? AND doc_name='expected_real_actuals' "
+                "ORDER BY source_mtime DESC LIMIT 1;",
+                (int(event.get("event_id")),),
+            ).fetchone()
+            if actual_row:
+                try:
+                    actual = safe_dict(json.loads(actual_row["json_text"]))
+                except (TypeError, ValueError, json.JSONDecodeError):
+                    actual = {}
+                actual_real = {
+                    key: value
+                    for key, value in safe_dict(actual.get("real")).items()
+                    if value is not None
+                }
+                result["real"] = {**safe_dict(result.get("real")), **actual_real}
+                for key in (
+                    "temporal_xg", "temporal_xg_available", "xg_by_half",
+                    "xg_zone_map", "xg_zone_map_available", "generators",
+                ):
+                    if key in actual:
+                        result[key] = actual[key]
+    finally:
+'''
+
 LINEUP_FUNCTION = '''# OH_LINEUP_LATEST_TEAM_FALLBACK_V2
 def _database_lineup_payload(event_id: int) -> dict[str, Any] | None:
     try:
@@ -328,6 +362,13 @@ def patch_backend(root: Path) -> list[str]:
             EXPECTED_REAL_SELECT,
             EXPECTED_REAL_SELECT_PATCHED,
             "parciales reales en esperado/real",
+        )
+    if "doc_name='expected_real_actuals'" not in text:
+        text = replace_once(
+            text,
+            EXPECTED_REAL_RESULT_ANCHOR,
+            EXPECTED_REAL_RESULT_PATCHED,
+            "estadísticas finales reales en esperado/real",
         )
     patched_signals = (
         TEAM_RECENT_SCORE_COLUMNS_PATCHED,

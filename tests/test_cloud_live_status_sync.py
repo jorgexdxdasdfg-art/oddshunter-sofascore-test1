@@ -195,6 +195,30 @@ def test_normalized_lineup_payload_keeps_real_starters_and_bench() -> None:
     assert payload["away"]["starters"][0]["shirt_number"] == 1
 
 
+def test_normalized_final_actuals_payload_keeps_only_provider_actuals() -> None:
+    payload = live.normalized_final_actuals_payload(
+        {"event_id": 77, "match_id": 700},
+        {
+            "final_actuals": {
+                "real": {
+                    "home_goals_1h": 1,
+                    "away_goals_1h": 2,
+                    "home_shots": 1,
+                    "away_shots": 30,
+                },
+                "temporal_xg": {"expected": [], "goals": []},
+                "source": "futbol24",
+            }
+        },
+        "2026-08-30T15:00:00+00:00",
+    )
+
+    assert payload is not None
+    assert payload["event_id"] == 77
+    assert payload["real"]["away_shots"] == 30
+    assert payload["source"] == "futbol24"
+
+
 def test_select_candidates_prefers_due_and_keeps_overdue_fairness() -> None:
     con = sqlite3.connect(":memory:")
     con.row_factory = sqlite3.Row
