@@ -585,8 +585,9 @@ function ohERValue(value,suffix=""){
   return number===null?"N/D":`${visibleNumber(Math.round(number*100)/100)}${suffix}`;
 }
 
-function ohERMetricCard(icon,label,home,away,className=""){
-  return `<div class="oh-er-v16-metric ${className}"><div>${summaryIcon(icon)}<span>${esc(label)}</span></div><strong>${ohERValue(home)} <i>-</i> ${ohERValue(away)}</strong><small>Local - Visitante</small></div>`;
+function ohERMetricCard(icon,label,home,away,decimals=null){
+  const format=value=>{const number=ohERFinite(value);return decimals===null?ohERValue(value):number===null?"N/D":number.toFixed(decimals)};
+  return `<div class="oh-er-v16-metric"><div>${summaryIcon(icon)}<span>${esc(label)}</span></div><strong>${format(home)} <i>-</i> ${format(away)}</strong><small>Local - Visitante</small></div>`;
 }
 
 function ohERWinner(home,away){
@@ -645,7 +646,7 @@ renderExpected=function(){
     </section>
     <section class="panel oh-er-v16-duel">
       <div class="oh-er-v16-side prediction"><h3>🤖 <span>Predicción del software</span></h3><div class="oh-er-v16-metrics">
-        ${ohERMetricCard("xg","xG",predicted.xgHome,predicted.xgAway)}${ohERMetricCard("corner","Córners",predicted.cornersHome,predicted.cornersAway)}${ohERMetricCard("card","Amarillas",predicted.yellowsHome,predicted.yellowsAway)}${ohERMetricCard("target","Remates",predicted.shotsHome,predicted.shotsAway,"compact-value")}
+        ${ohERMetricCard("xg","xG",predicted.xgHome,predicted.xgAway)}${ohERMetricCard("corner","Córners",predicted.cornersHome,predicted.cornersAway)}${ohERMetricCard("card","Amarillas",predicted.yellowsHome,predicted.yellowsAway)}${ohERMetricCard("target","Remates",predicted.shotsHome,predicted.shotsAway,1)}
       </div><div class="oh-er-v16-outcome"><h4>${summaryIcon("shield")}Probabilidades 1X2</h4><div><span>Local<strong>${ohERValue(probabilities.home_win,"%")}</strong></span><span>Empate<strong>${ohERValue(probabilities.draw,"%")}</strong></span><span>Visitante<strong>${ohERValue(probabilities.away_win,"%")}</strong></span></div></div></div>
       <div class="oh-er-v16-side reality"><h3>📌 <span>Resultado real</span></h3><div class="oh-er-v16-metrics">
         ${ohERMetricCard("xg","xG real",real.home_xg,real.away_xg)}${ohERMetricCard("corner","Córners",real.home_corners,real.away_corners)}${ohERMetricCard("card","Amarillas",real.home_yellow_cards,real.away_yellow_cards)}${ohERMetricCard("target","Remates",real.home_shots,real.away_shots)}
