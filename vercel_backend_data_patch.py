@@ -32,6 +32,14 @@ COMPARISON_AVAILABLE = """            {"label": "+0.5 HT", "home": hsum.get("ove
 EVENT_TABLES_ANCHOR = '        preferred = ["matches", "partidos"]\n'
 EVENT_TABLES_PATCHED = '        preferred = ["mobile_events", "matches", "partidos"]\n'
 
+EXPECTED_REAL_SELECT = """            SELECT m.match_id, m.home_goals, m.away_goals,
+                   hs.xg_for AS home_xg, as_.xg_for AS away_xg,"""
+
+EXPECTED_REAL_SELECT_PATCHED = """            SELECT m.match_id, m.home_goals, m.away_goals,
+                   m.home_goals_1h, m.away_goals_1h,
+                   m.home_goals_2h, m.away_goals_2h,
+                   hs.xg_for AS home_xg, as_.xg_for AS away_xg,"""
+
 LINEUP_FUNCTION = '''# OH_LINEUP_LATEST_TEAM_FALLBACK_V2
 def _database_lineup_payload(event_id: int) -> dict[str, Any] | None:
     try:
@@ -313,6 +321,13 @@ def patch_backend(root: Path) -> list[str]:
             EVENT_TABLES_ANCHOR,
             EVENT_TABLES_PATCHED,
             "estado móvil en detalle",
+        )
+    if EXPECTED_REAL_SELECT_PATCHED not in text:
+        text = replace_once(
+            text,
+            EXPECTED_REAL_SELECT,
+            EXPECTED_REAL_SELECT_PATCHED,
+            "parciales reales en esperado/real",
         )
     patched_signals = (
         TEAM_RECENT_SCORE_COLUMNS_PATCHED,

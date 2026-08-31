@@ -145,9 +145,9 @@ def patch_frontend(root: Path) -> dict[str, list[str]]:
     patched_indexes: list[str] = []
     for path in sorted(root.glob("**/index.html")):
         text = path.read_text(encoding="utf-8")
-        updated = re.sub(r"app\.css\?v=[^\"']+", "app.css?v=1.10.0-lineup-pitch", text)
-        updated = re.sub(r"app\.js\?v=[^\"']+", "app.js?v=1.10.0-lineup-pitch", updated)
-        updated = re.sub(r"sw\.js\?v=[^\"']+", "sw.js?v=1.10.0-lineup-pitch", updated)
+        updated = re.sub(r"app\.css\?v=[^\"']+", "app.css?v=1.11.0-expected-real", text)
+        updated = re.sub(r"app\.js\?v=[^\"']+", "app.js?v=1.11.0-expected-real", updated)
+        updated = re.sub(r"sw\.js\?v=[^\"']+", "sw.js?v=1.11.0-expected-real", updated)
         if updated != text:
             path.write_text(updated, encoding="utf-8", newline="\n")
             patched_indexes.append(path.relative_to(root).as_posix())
@@ -155,14 +155,14 @@ def patch_frontend(root: Path) -> dict[str, list[str]]:
     patched_workers: list[str] = []
     for path in sorted(root.glob("**/sw.js")):
         text = path.read_text(encoding="utf-8")
-        updated = re.sub(r"oh-mobile-v[^\"']+", "oh-mobile-v1-10-0-lineup-pitch", text)
+        updated = re.sub(r"oh-mobile-v[^\"']+", "oh-mobile-v1-11-0-expected-real", text)
         if updated != text:
             path.write_text(updated, encoding="utf-8", newline="\n")
             patched_workers.append(path.relative_to(root).as_posix())
 
     for path in app_candidates:
         text = path.read_text(encoding="utf-8")
-        if any(old in text for old in OLD_LABELS) or NEW_LABEL not in text or DETAIL_MARKER not in text:
+        if any(old in text for old in OLD_LABELS) or NEW_LABEL not in text or DETAIL_MARKER not in text or "OH_EXPECTED_REAL_REFERENCE_V15" not in text:
             raise RuntimeError(f"El parche de frontend quedó incompleto en {path}")
     return {"backend": patched_backend, "app_js": patched_apps, "app_css": patched_styles, "icon_assets": patched_icons, "index_html": patched_indexes, "service_worker": patched_workers}
 

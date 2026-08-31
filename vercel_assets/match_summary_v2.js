@@ -567,3 +567,123 @@ setHeader=function(view){
 
 /* OH_SQLITE_MATCH_DATA_BRIDGE_V12 */
 /* OH_LINEUP_PITCH_REFERENCE_V14 */
+
+/* OH_EXPECTED_REAL_REFERENCE_V15 */
+function ohERFinite(value){
+  const number=Number(value);
+  return value!==null&&value!==undefined&&value!==""&&Number.isFinite(number)?number:null;
+}
+
+function ohERSum(...values){
+  const numbers=values.map(ohERFinite);
+  return numbers.every(value=>value!==null)?numbers.reduce((sum,value)=>sum+value,0):null;
+}
+
+function ohERValue(value,suffix=""){
+  const number=ohERFinite(value);
+  return number===null?"N/D":`${visibleNumber(Math.round(number*100)/100)}${suffix}`;
+}
+
+function ohERInfoIcon(){
+  return `<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 10.5v6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><circle cx="12" cy="7.4" r="1.15" fill="currentColor"/></svg>`;
+}
+
+function ohERStatCard(label,home,away,suffix=""){
+  return `<div class="oh-er-stat"><span>${esc(label)}</span><strong class="home"><i></i>${ohERValue(home,suffix)}</strong><strong><i></i>${ohERValue(away,suffix)}</strong></div>`;
+}
+
+function ohERGenerators(side,teamName){
+  const players=Array.isArray(side)?side.slice(0,3):[];
+  return `<div class="oh-er-generator-team"><h4>${esc(teamName)}</h4>${players.length?players.map(player=>`<div><span>${player.shirt_number??""}</span><b>${esc(player.name||"Jugador")}</b><strong>${ohERValue(player.xg)}</strong></div>`).join(""):'<p class="muted">xG individual N/D</p>'}</div>`;
+}
+
+function ohERSeries(value){
+  if(!Array.isArray(value))return [];
+  return value.map((item,index)=>{
+    if(typeof item==="number")return {minute:index*10,value:ohERFinite(item)};
+    return {minute:ohERFinite(item?.minute??item?.time),value:ohERFinite(item?.value??item?.xg??item?.goals)};
+  }).filter(item=>item.minute!==null&&item.value!==null);
+}
+
+function ohDrawExpectedRealChart(canvas,xgSeries,goalSeries){
+  if(!canvas)return;
+  const red=ohERSeries(xgSeries),black=ohERSeries(goalSeries);
+  const dpr=window.devicePixelRatio||1,width=Math.max(280,canvas.clientWidth||320),height=190;
+  canvas.width=Math.round(width*dpr);canvas.height=Math.round(height*dpr);
+  const context=canvas.getContext("2d");context.setTransform(dpr,0,0,dpr,0,0);context.clearRect(0,0,width,height);
+  const left=31,right=46,top=13,bottom=29,innerWidth=width-left-right,innerHeight=height-top-bottom;
+  const values=[...red,...black].map(item=>item.value);
+  if(!values.length){
+    context.fillStyle=getComputedStyle(document.documentElement).getPropertyValue("--muted").trim()||"#777";
+    context.font="600 12px system-ui";context.textAlign="center";context.textBaseline="middle";
+    context.fillText("Evolución temporal no disponible",width/2,height/2);
+    return;
+  }
+  const maximum=Math.max(1,Math.ceil(Math.max(...values)*2)/2),xAt=minute=>left+innerWidth*Math.max(0,Math.min(90,minute))/90,yAt=value=>top+innerHeight-innerHeight*value/maximum;
+  context.font="9px system-ui";context.textBaseline="middle";
+  for(let index=0;index<=3;index++){
+    const y=top+innerHeight*index/3;
+    context.strokeStyle="#e5e5e7";context.lineWidth=1;context.beginPath();context.moveTo(left,y);context.lineTo(width-right,y);context.stroke();
+    context.fillStyle="#77787e";context.textAlign="right";context.fillText(visibleNumber(maximum*(1-index/3)),left-6,y);
+  }
+  const draw=(series,color,dashed)=>{
+    if(!series.length)return;
+    context.strokeStyle=color;context.fillStyle=color;context.lineWidth=2.1;context.lineCap="round";context.lineJoin="round";context.setLineDash(dashed?[5,4]:[]);context.beginPath();
+    series.forEach((item,index)=>index?context.lineTo(xAt(item.minute),yAt(item.value)):context.moveTo(xAt(item.minute),yAt(item.value)));context.stroke();context.setLineDash([]);
+    series.forEach(item=>{context.beginPath();context.arc(xAt(item.minute),yAt(item.value),2.1,0,Math.PI*2);context.fill()});
+  };
+  draw(red,"#d62c31",false);draw(black,"#17181b",true);
+  context.fillStyle="#77787e";context.font="9px system-ui";context.textAlign="center";context.textBaseline="top";
+  [0,15,30,45,60,75,90].forEach(minute=>context.fillText(`${minute}'`,xAt(minute),height-bottom+8));
+}
+
+renderExpected=function(){
+  const page=state.currentMatch||{},expectedReal=page.expected_real||{};
+  if(!expectedReal.available){
+    $("matchContent").innerHTML=`<div class="panel expected-lock"><h3>Esperado / Real</h3><p>${esc(expectedReal.reason||"Disponible al finalizar.")}</p><p>El análisis previo permanece congelado para compararlo con los datos reales al terminar.</p></div>`;
+    return;
+  }
+  const real=expectedReal.real||{},expected=expectedReal.expected||{},event=page.event||{};
+  const expectedTotal=ohERSum(expected.xg_home??expected.goals_home,expected.xg_away??expected.goals_away);
+  const goalTotal=ohERSum(real.home_goals,real.away_goals);
+  const expectedFirst=ohERFinite(expectedReal.xg_by_half?.first),expectedSecond=ohERFinite(expectedReal.xg_by_half?.second);
+  const goalsFirst=ohERSum(real.home_goals_1h,real.away_goals_1h),goalsSecond=ohERSum(real.home_goals_2h,real.away_goals_2h);
+  const conversionHome=ohERFinite(real.home_shots)>0&&ohERFinite(real.home_goals)!==null?real.home_goals/real.home_shots*100:null;
+  const conversionAway=ohERFinite(real.away_shots)>0&&ohERFinite(real.away_goals)!==null?real.away_goals/real.away_shots*100:null;
+  const zones=expectedReal.xg_zone_map||{},generators=expectedReal.generators||{};
+  $("matchContent").innerHTML=`<div class="oh-expected-real-reference">
+    <section class="panel oh-er-chart-card">
+      <div class="oh-er-heading"><h3>Goles esperados (xG) vs Goles reales</h3><span>${ohERInfoIcon()}</span></div>
+      <div class="oh-er-legend"><span><i class="home"></i>xG esperado</span><span><i></i>Goles reales</span></div>
+      <div class="oh-er-chart-wrap"><canvas id="ohExpectedRealChart"></canvas><div class="oh-er-chart-totals"><strong>${ohERValue(expectedTotal)}</strong><small>xG esperado</small><strong>${ohERValue(goalTotal)}</strong><small>Goles reales</small></div></div>
+      <p>${expectedReal.temporal_xg_available?"Evolución real del partido.":"La evolución minuto a minuto no está guardada para este encuentro."}</p>
+    </section>
+    <section class="panel oh-er-halves">
+      <h3>xG por tiempos</h3>
+      <div class="oh-er-half-row labels"><span></span><b>1T</b><b>2T</b><b>Total</b></div>
+      <div class="oh-er-half-row home"><strong>xG esperado</strong><b>${ohERValue(expectedFirst)}</b><b>${ohERValue(expectedSecond)}</b><b>${ohERValue(expectedTotal)}</b></div>
+      <div class="oh-er-half-row"><strong>Goles reales</strong><b>${ohERValue(goalsFirst)}</b><b>${ohERValue(goalsSecond)}</b><b>${ohERValue(goalTotal)}</b></div>
+    </section>
+    <section class="panel oh-er-shots">
+      <h3>Disparos y ocasiones</h3>
+      <div class="oh-er-stats-grid">
+        ${ohERStatCard("Remates totales",real.home_shots,real.away_shots)}
+        ${ohERStatCard("Remates al arco",real.home_sot,real.away_sot)}
+        ${ohERStatCard("Ocasiones claras",real.home_big_chances,real.away_big_chances)}
+        ${ohERStatCard("% Conversión",conversionHome,conversionAway,"%")}
+      </div>
+      <div class="oh-er-team-legend"><span><i class="home"></i>${esc(event.home_team||"Local")}</span><span><i></i>${esc(event.away_team||"Visitante")}</span></div>
+    </section>
+    <section class="panel oh-er-zones">
+      <h3>Mapa de xG (por zonas)</h3>
+      <div class="oh-er-pitch ${expectedReal.xg_zone_map_available?"available":"unavailable"}"><i></i><b></b><span>${expectedReal.xg_zone_map_available?"":zones.reason||"Datos por zonas N/D"}</span></div>
+      <div class="oh-er-zone-legend"><span>${esc(event.home_team||"Local")} (xG)</span><i class="home"></i><span>${esc(event.away_team||"Visitante")} (xG)</span><i></i></div>
+    </section>
+    <section class="panel oh-er-generators">
+      <h3>Mayores generadores de xG</h3>
+      <div>${ohERGenerators(generators.home,event.home_team||"Local")}${ohERGenerators(generators.away,event.away_team||"Visitante")}</div>
+    </section>
+    <footer class="oh-er-footer">Datos reales guardados por OddsHunter · No se estiman métricas faltantes</footer>
+  </div>`;
+  requestAnimationFrame(()=>ohDrawExpectedRealChart($("ohExpectedRealChart"),expectedReal.temporal_xg?.expected,expectedReal.temporal_xg?.goals));
+};
