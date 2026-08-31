@@ -29,6 +29,9 @@ COMPARISON_UNAVAILABLE = """            {"label": "+0.5 HT", "home": None, "away
 COMPARISON_AVAILABLE = """            {"label": "+0.5 HT", "home": hsum.get("over_0_5_ht"), "away": asum.get("over_0_5_ht"), "kind": "percent"},
             {"label": "+0.5 ST", "home": hsum.get("over_0_5_st"), "away": asum.get("over_0_5_st"), "kind": "percent"},"""
 
+EVENT_TABLES_ANCHOR = '        preferred = ["matches", "partidos"]\n'
+EVENT_TABLES_PATCHED = '        preferred = ["mobile_events", "matches", "partidos"]\n'
+
 LINEUP_FUNCTION = '''# OH_LINEUP_LATEST_TEAM_FALLBACK_V2
 def _database_lineup_payload(event_id: int) -> dict[str, Any] | None:
     try:
@@ -303,6 +306,14 @@ def patch_backend(root: Path) -> list[str]:
 
     path = primary[0]
     text = path.read_text(encoding="utf-8")
+    original_text = text
+    if EVENT_TABLES_PATCHED not in text:
+        text = replace_once(
+            text,
+            EVENT_TABLES_ANCHOR,
+            EVENT_TABLES_PATCHED,
+            "estado móvil en detalle",
+        )
     patched_signals = (
         TEAM_RECENT_SCORE_COLUMNS_PATCHED,
         '"over_0_5_ht": _frequency',
@@ -322,6 +333,8 @@ def patch_backend(root: Path) -> list[str]:
             compile(text, str(path), "exec")
             path.write_text(text, encoding="utf-8", newline="\n")
         compile(text, str(path), "exec")
+        if text != original_text:
+            path.write_text(text, encoding="utf-8", newline="\n")
         return [path.relative_to(root).as_posix()]
     if any(present):
         raise RuntimeError(f"El backend contiene un parche de datos incompleto: {path}")
