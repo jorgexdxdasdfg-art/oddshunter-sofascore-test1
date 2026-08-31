@@ -670,3 +670,11 @@ renderMatchTab=function(){
   matchView?.classList.toggle("oh-er-mode",expectedMode);
   $("matchHeader")?.classList.toggle("hidden",expectedMode||state.currentMatchTab==="trends");
 };
+
+/* OH_HOME_VISUAL_REFERENCE_V17 */
+const ohBaseSetHeaderHomeV17=setHeader;
+setHeader=function(view){
+  ohBaseSetHeaderHomeV17(view);
+  document.body.classList.toggle("oh-home-mode",view==="home");
+};
+document.body.classList.toggle("oh-home-mode",document.querySelector('[data-view="home"]')?.classList.contains("active"));

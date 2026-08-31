@@ -17,6 +17,7 @@ OLD_LABELS = ("Turso OK · solo lectura", "SQLite OK · solo lectura")
 NEW_LABEL = "Datos actualizados en línea"
 DETAIL_MARKER = "OH_MATCH_SUMMARY_FIXES_V11"
 BALL_ASSET_NAME = "ball-3d-v10.png"
+BRAND_ASSET_NAME = "oddshunter-brand-logo.png"
 LEGACY_DETAIL_MARKERS = (
     "OH_MATCH_SUMMARY_REFERENCE_V2",
     "OH_MATCH_SUMMARY_EXACT_V3",
@@ -134,6 +135,10 @@ def patch_frontend(root: Path) -> dict[str, list[str]]:
     if not ball_source.is_file():
         raise RuntimeError(f"No se encontró el balón 3D: {ball_source}")
     ball_bytes = ball_source.read_bytes()
+    brand_source = ASSET_ROOT / "oddshunter_brand_logo.png"
+    if not brand_source.is_file():
+        raise RuntimeError(f"No se encontró el logo de OddsHunter: {brand_source}")
+    brand_bytes = brand_source.read_bytes()
     patched_icons: list[str] = []
     for static_root in sorted({path.parents[2] for path in app_candidates}):
         target = static_root / "assets" / "icons" / BALL_ASSET_NAME
@@ -141,13 +146,18 @@ def patch_frontend(root: Path) -> dict[str, list[str]]:
         if not target.is_file() or target.read_bytes() != ball_bytes:
             target.write_bytes(ball_bytes)
         patched_icons.append(target.relative_to(root).as_posix())
+        brand_target = static_root / "assets" / "icons" / BRAND_ASSET_NAME
+        if not brand_target.is_file() or brand_target.read_bytes() != brand_bytes:
+            brand_target.write_bytes(brand_bytes)
+        patched_icons.append(brand_target.relative_to(root).as_posix())
 
     patched_indexes: list[str] = []
     for path in sorted(root.glob("**/index.html")):
         text = path.read_text(encoding="utf-8")
-        updated = re.sub(r"app\.css\?v=[^\"']+", "app.css?v=1.12.10-gray-scorelines", text)
-        updated = re.sub(r"app\.js\?v=[^\"']+", "app.js?v=1.12.10-gray-scorelines", updated)
-        updated = re.sub(r"sw\.js\?v=[^\"']+", "sw.js?v=1.12.10-gray-scorelines", updated)
+        updated = re.sub(r"app\.css\?v=[^\"']+", "app.css?v=1.13.0-home-reference", text)
+        updated = re.sub(r"app\.js\?v=[^\"']+", "app.js?v=1.13.0-home-reference", updated)
+        updated = re.sub(r"sw\.js\?v=[^\"']+", "sw.js?v=1.13.0-home-reference", updated)
+        updated = re.sub(r'(<div class="logo-box"><img\s+)src="[^"]+"', rf'\1src="/assets/icons/{BRAND_ASSET_NAME}"', updated)
         if updated != text:
             path.write_text(updated, encoding="utf-8", newline="\n")
             patched_indexes.append(path.relative_to(root).as_posix())
@@ -155,7 +165,7 @@ def patch_frontend(root: Path) -> dict[str, list[str]]:
     patched_workers: list[str] = []
     for path in sorted(root.glob("**/sw.js")):
         text = path.read_text(encoding="utf-8")
-        updated = re.sub(r"oh-mobile-v[^\"']+", "oh-mobile-v1-12-10-gray-scorelines", text)
+        updated = re.sub(r"oh-mobile-v[^\"']+", "oh-mobile-v1-13-0-home-reference", text)
         if updated != text:
             path.write_text(updated, encoding="utf-8", newline="\n")
             patched_workers.append(path.relative_to(root).as_posix())
