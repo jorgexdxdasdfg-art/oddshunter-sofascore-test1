@@ -29,6 +29,19 @@ REPORT = DATA / "automation" / "cloud_live_status" / "last.json"
 FINAL_STATUSES = {"FT", "AET", "PEN", "FINISHED", "FINAL"}
 SPECIAL_STATUSES = {"CANCELED", "CANCELLED", "POSTPONED", "ABANDONED"}
 
+# Correcciones de calendario verificadas cuando el proveedor que originó el
+# evento conserva una fecha antigua. No se inventa un resultado: se exige que
+# la identidad de ambos equipos siga coincidiendo antes de aplicar el cambio.
+VERIFIED_SCHEDULE_CORRECTIONS: dict[int, dict[str, Any]] = {
+    16690997: {
+        "home_team": "Barranquilla FC",
+        "away_team": "Millonarios",
+        # Miércoles 16 de septiembre de 2026, 20:30 en Colombia/Ecuador.
+        "kickoff": "2026-09-17T01:30:00+00:00",
+        "provider_status": "rescheduled",
+    },
+}
+
 
 def utc_now() -> datetime:
     return datetime.now(timezone.utc)
@@ -312,6 +325,25 @@ def normalized_update(snapshot: dict[str, Any]) -> dict[str, Any] | None:
             "kickoff": kickoff,
         }
     return None
+
+
+def verified_schedule_snapshot(row: dict[str, Any]) -> dict[str, Any] | None:
+    """Devuelve una reprogramación manual solo si la identidad es exacta."""
+    event_id = int(row.get("event_id") or 0)
+    correction = VERIFIED_SCHEDULE_CORRECTIONS.get(event_id)
+    if correction is None:
+        return None
+    if slugify(row.get("home_team")) != slugify(correction["home_team"]):
+        return None
+    if slugify(row.get("away_team")) != slugify(correction["away_team"]):
+        return None
+    return {
+        "state": "scheduled",
+        "provider_status": correction["provider_status"],
+        "home_goals": None,
+        "away_goals": None,
+        "kickoff": correction["kickoff"],
+    }
 
 
 def turso_client() -> Any:
@@ -654,18 +686,21 @@ def run(
                 report["events"].append(item)
                 continue
             try:
-                snapshot = None
-                update = None
-                try:
-                    snapshot = sofa.get_match_snapshot(row)
-                    update = normalized_update(snapshot)
-                    item["source"] = "sofascore-event-id"
-                except Exception as exc:
-                    provider_logger(f"SofaScore exacto falló event_id={row['event_id']}; respaldo Futbol24: {exc}")
-                if update is None:
-                    snapshot = f24.get_match_snapshot(match_ref(row, competition))
-                    update = normalized_update(snapshot) if isinstance(snapshot, dict) else None
-                    item["source"] = "futbol24-name-fallback"
+                snapshot = verified_schedule_snapshot(row)
+                update = normalized_update(snapshot) if snapshot is not None else None
+                if snapshot is not None:
+                    item["source"] = "verified-schedule-correction"
+                else:
+                    try:
+                        snapshot = sofa.get_match_snapshot(row)
+                        update = normalized_update(snapshot)
+                        item["source"] = "sofascore-event-id"
+                    except Exception as exc:
+                        provider_logger(f"SofaScore exacto falló event_id={row['event_id']}; respaldo Futbol24: {exc}")
+                    if update is None:
+                        snapshot = f24.get_match_snapshot(match_ref(row, competition))
+                        update = normalized_update(snapshot) if isinstance(snapshot, dict) else None
+                        item["source"] = "futbol24-name-fallback"
                 item["snapshot"] = snapshot
                 if not isinstance(snapshot, dict):
                     item["result"] = "SOURCE_UNAVAILABLE"

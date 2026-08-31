@@ -79,6 +79,23 @@ def test_normalized_update_live_and_final() -> None:
     ) is None
 
 
+def test_verified_schedule_correction_requires_exact_event_and_teams() -> None:
+    row = {
+        "event_id": 16690997,
+        "home_team": "Barranquilla FC",
+        "away_team": "Millonarios",
+    }
+    snapshot = live.verified_schedule_snapshot(row)
+    assert snapshot == {
+        "state": "scheduled",
+        "provider_status": "rescheduled",
+        "home_goals": None,
+        "away_goals": None,
+        "kickoff": "2026-09-17T01:30:00+00:00",
+    }
+    assert live.verified_schedule_snapshot({**row, "away_team": "Otro"}) is None
+
+
 class FakeTurso:
     def __init__(self) -> None:
         self.rows: dict[int, dict[str, object]] = {
