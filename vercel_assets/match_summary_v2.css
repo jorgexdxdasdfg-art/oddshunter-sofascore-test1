@@ -58,3 +58,4 @@
 .oh-er-v16-conclusion{padding:14px 13px;border-color:color-mix(in srgb,#d71928 28%,var(--line))!important}.oh-er-v16-conclusion h3{color:#d71928}.oh-er-v16-conclusion p{margin:0;font-size:11px;line-height:1.55;color:var(--text)}
 @media(max-width:430px){.oh-er-v16-score{grid-template-columns:minmax(0,1fr) 92px minmax(0,1fr);padding-inline:12px;gap:7px}.oh-er-v16-team .crest{width:60px;height:60px}.oh-er-v16-team strong{font-size:12px}.oh-er-v16-score-center b{font-size:25px}.oh-er-v16-duel{padding-inline:5px}.oh-er-v16-side{padding-inline:5px}.oh-er-v16-side h3{font-size:11px}.oh-er-v16-metrics{gap:5px}.oh-er-v16-metric{padding:7px 5px;min-height:88px}.oh-er-v16-metric strong{font-size:12px}.oh-er-v16-outcome,.oh-er-v16-final{padding-inline:6px}.oh-er-v16-table{padding-inline:7px}.oh-er-v16-table th,.oh-er-v16-table td{font-size:7.5px}}
 .oh-er-v16-metric strong{font-weight:850}
+.oh-er-v16-table tbody td:last-child{font-weight:800}
