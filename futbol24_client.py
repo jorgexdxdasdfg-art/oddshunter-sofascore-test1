@@ -124,10 +124,13 @@ COMPETITION_FAMILIES: dict[str, tuple[str, ...]] = {
         "primera división",
         "spa d1",
     ),
-    "chile-primera": ("liga chile a", "chile primera", "chi d1"),
+    "chile-primera": (
+        "liga chile a", "liga de primera", "chile primera", "chi d1"
+    ),
     "ecuador-ligapro": ("liga pro ec", "ligapro", "ecu d1"),
     "greece-super-league": (
-        "greece stoiximan super league", "stoiximan super league", "gre d1"
+        "greece stoiximan super league", "stoiximan super league",
+        "super league", "gre d1"
     ),
     "iceland-besta-deild": ("liga islandia a", "besta deild", "ice d1"),
     "mexico-liga-mx": ("liga mx", "ligamx apertura", "mex d1"),
@@ -142,6 +145,15 @@ COMPETITION_FAMILIES: dict[str, tuple[str, ...]] = {
 FUTBOL24_TEAM_ALIASES: dict[str, tuple[str, ...]] = {
     "al hazem": ("Al Hazm",),
     "al shabab": ("Shabab Riyadh", "Al Shabab Riyadh"),
+    "al qadsiah": ("Al Qadisiya (KSA)", "Qadisiya (KSA)"),
+    "al faisaly": ("Al Faisaly (KSA)",),
+    "aris thessaloniki": ("Aris Salonica",),
+    "ofi crete": ("OFI Creta",),
+    "asteras aktor": ("Asteras Tripoli",),
+    "olympiacos fc": ("Olympiakos Pireus",),
+    "universidad de concepcion": ("Univ de Concepcion",),
+    "universidad de chile": ("Univ de Chile",),
+    "colorado springs switchbacks fc": ("CS Switchbacks",),
     "krc genk": ("Racing Genk", "RC Genk"),
     "real racing club": ("Racing Santander", "Racing de Santander"),
     "nps volos": ("Volos NFC", "Volos"),

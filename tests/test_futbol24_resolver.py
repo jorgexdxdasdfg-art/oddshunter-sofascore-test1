@@ -180,6 +180,12 @@ class ResolverTests(unittest.TestCase):
         self.assertIn("Racing Genk", client._expected_names("KRC Genk"))
         self.assertIn("Al Hazm", client._expected_names("Al-Hazem"))
         self.assertIn("Shabab Riyadh", client._expected_names("Al-Shabab"))
+        self.assertIn("Aris Salonica", client._expected_names("Aris Thessaloniki"))
+        self.assertIn("Asteras Tripoli", client._expected_names("Asteras Aktor"))
+        self.assertIn(
+            "CS Switchbacks",
+            client._expected_names("Colorado Springs Switchbacks FC"),
+        )
 
     def test_contextual_team_name_requires_exact_opponent_date_and_competition(self):
         client = self.client()
