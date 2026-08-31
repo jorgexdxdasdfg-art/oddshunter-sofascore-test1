@@ -148,3 +148,89 @@
   .oh-home-mode [data-view="home"] .probability-bar{height:18px;margin-top:6px;border-radius:10px}
   .oh-home-mode [data-view="home"] .probability-bar div{font-size:10px;font-weight:850}
 }
+
+/* OH_COMPACT_SECONDARY_VIEWS_V20 */
+.oh-home-mode :is([data-view="live"],[data-view="upcoming"]){padding-bottom:12px}
+.oh-home-mode :is([data-view="live"],[data-view="upcoming"]) .screen-title{padding:18px 0 14px}
+.oh-home-mode :is([data-view="live"],[data-view="upcoming"]) .screen-title h1{font-size:20px;line-height:1.15;font-weight:850;letter-spacing:-.35px}
+.oh-home-mode [data-view="live"] .oh-live-title h1{display:flex;align-items:center;gap:9px}
+.oh-home-mode [data-view="live"] .oh-live-title-icon,.oh-home-mode [data-view="live"] .oh-live-title-icon svg{width:25px;height:25px}
+.oh-home-mode [data-view="upcoming"] .screen-title .icon-button{width:42px;height:42px;border-radius:14px;font-size:18px}
+.oh-home-mode [data-view="upcoming"] .chips{gap:8px;padding:0 0 16px}
+.oh-home-mode [data-view="upcoming"] .chip{height:40px;min-height:40px;padding:0 16px;border-radius:20px;font-size:13px;font-weight:750}
+.oh-home-mode :is([data-view="live"],[data-view="upcoming"]) .cards{gap:12px;margin-bottom:24px}
+.oh-home-mode :is([data-view="live"],[data-view="upcoming"]) .match-card{padding:14px 14px 12px;border-radius:18px;box-shadow:0 8px 24px rgba(15,23,42,.055)}
+.oh-home-mode :is([data-view="live"],[data-view="upcoming"]) .match-meta{min-height:18px;margin-bottom:9px;font-size:11px;line-height:1.2;font-weight:500}
+.oh-home-mode :is([data-view="live"],[data-view="upcoming"]) .competition-label{gap:6px;font-weight:500}
+.oh-home-mode :is([data-view="live"],[data-view="upcoming"]) .competition-icon{width:18px;height:18px;flex-basis:18px}
+.oh-home-mode :is([data-view="live"],[data-view="upcoming"]) .match-time{font-size:11px}
+.oh-home-mode :is([data-view="live"],[data-view="upcoming"]) .v13-teams{grid-template-columns:minmax(0,1fr) 46px minmax(0,1fr);gap:3px;min-height:105px}
+.oh-home-mode :is([data-view="live"],[data-view="upcoming"]) .team-side-home{grid-template-columns:36px minmax(0,1fr)}
+.oh-home-mode :is([data-view="live"],[data-view="upcoming"]) .team-side-away{grid-template-columns:minmax(0,1fr) 36px}
+.oh-home-mode :is([data-view="live"],[data-view="upcoming"]) .team-favorite{width:36px;height:48px}
+.oh-home-mode :is([data-view="live"],[data-view="upcoming"]) .team-favorite svg{width:27px;height:27px}
+.oh-home-mode :is([data-view="live"],[data-view="upcoming"]) .match-team{gap:5px;font-size:14px;font-weight:750;line-height:1.15}
+.oh-home-mode :is([data-view="live"],[data-view="upcoming"]) .match-team .crest{width:70px;height:70px;padding:4px;border:0;border-radius:50%;background:var(--panel-2)}
+.oh-home-mode :is([data-view="live"],[data-view="upcoming"]) .match-team .crest img{width:100%;height:100%;object-fit:contain}
+.oh-home-mode :is([data-view="live"],[data-view="upcoming"]) .match-team>span{display:flex;align-items:flex-start;justify-content:center;min-height:32px;line-height:1.15}
+.oh-home-mode :is([data-view="live"],[data-view="upcoming"]) .score-center{font-size:20px;line-height:1;font-weight:850}
+.oh-home-mode :is([data-view="live"],[data-view="upcoming"]) .versus-center .vs{font-size:19px;font-weight:800}
+.oh-home-mode :is([data-view="live"],[data-view="upcoming"]) .probability-bar{height:26px;margin-top:10px;border:0;border-radius:14px}
+.oh-home-mode :is([data-view="live"],[data-view="upcoming"]) .probability-bar div{min-width:28px;font-size:11px;font-weight:850}
+.oh-home-mode :is([data-view="live"],[data-view="upcoming"]) .match-footer{min-height:25px;margin-top:9px}
+.oh-home-mode :is([data-view="live"],[data-view="upcoming"]) .analysis-badge{min-width:46px;height:25px;padding:0 9px;display:inline-flex;align-items:center;justify-content:center;border-radius:999px;font-size:10px;line-height:1;font-weight:500}
+.oh-home-mode :is([data-view="profile"],[data-view="stats"],[data-view="favorites"]) .screen-title{padding:18px 0 12px}
+.oh-home-mode :is([data-view="profile"],[data-view="stats"],[data-view="favorites"]) .screen-title h1{font-size:20px;line-height:1.15;font-weight:850;letter-spacing:-.35px}
+.oh-home-mode [data-view="profile"] .profile-card{padding:16px;border-radius:18px;margin:8px 0 14px}
+.oh-home-mode [data-view="profile"] .avatar{width:68px;height:68px;margin-bottom:14px;font-size:21px}
+.oh-home-mode [data-view="profile"] .profile-card label{font-size:11px;margin:8px 0}
+.oh-home-mode [data-view="profile"] .profile-card input,.oh-home-mode [data-view="profile"] .profile-card textarea{margin-top:4px;border-radius:11px;padding:10px 11px;font-size:13px}
+.oh-home-mode [data-view="profile"] .profile-card input{height:42px}
+.oh-home-mode [data-view="profile"] .profile-card textarea{min-height:72px}
+.oh-home-mode [data-view="profile"] .status-note{font-size:11px;line-height:1.3;padding:10px 0}
+.oh-home-mode [data-view="profile"] .primary-button{height:44px;padding:0 14px;font-size:14px;font-weight:850}
+.oh-home-mode [data-view="profile"] .section-head{margin:15px 0 9px}
+.oh-home-mode [data-view="profile"] .section-head h2{font-size:17px;font-weight:850}
+.oh-home-mode [data-view="profile"] .rank-grid{gap:8px}
+.oh-home-mode [data-view="profile"] .rank-grid div{padding:11px 8px;border-radius:13px;font-size:13px;font-weight:650}
+.oh-home-mode [data-view="profile"] .plan-card{padding:13px;border-radius:15px;font-size:12px}
+
+@media(max-width:430px){
+  .oh-home-mode :is([data-view="live"],[data-view="upcoming"]) .screen-title{padding:13px 0 10px}
+  .oh-home-mode :is([data-view="live"],[data-view="upcoming"]) .screen-title h1{font-size:18px;font-weight:850}
+  .oh-home-mode [data-view="live"] .oh-live-title h1{gap:7px}
+  .oh-home-mode [data-view="live"] .oh-live-title-icon,.oh-home-mode [data-view="live"] .oh-live-title-icon svg{width:22px;height:22px}
+  .oh-home-mode [data-view="upcoming"] .screen-title .icon-button{width:38px;height:38px;border-radius:13px;font-size:16px}
+  .oh-home-mode [data-view="upcoming"] .chips{gap:7px;padding-bottom:13px}
+  .oh-home-mode [data-view="upcoming"] .chip{height:36px;min-height:36px;padding-inline:13px;border-radius:18px;font-size:11.5px;font-weight:800}
+  .oh-home-mode :is([data-view="live"],[data-view="upcoming"]) .cards{gap:10px;margin-bottom:18px}
+  .oh-home-mode :is([data-view="live"],[data-view="upcoming"]) .match-card{padding:10px 12px 9px;border-radius:16px}
+  .oh-home-mode :is([data-view="live"],[data-view="upcoming"]) .match-meta{min-height:16px;margin-bottom:6px;font-size:10px;font-weight:550}
+  .oh-home-mode :is([data-view="live"],[data-view="upcoming"]) .competition-label{gap:5px;font-weight:550}
+  .oh-home-mode :is([data-view="live"],[data-view="upcoming"]) .competition-icon{width:16px;height:16px;flex-basis:16px}
+  .oh-home-mode :is([data-view="live"],[data-view="upcoming"]) .match-time{font-size:10px}
+  .oh-home-mode :is([data-view="live"],[data-view="upcoming"]) .v13-teams{grid-template-columns:minmax(0,1fr) 38px minmax(0,1fr);gap:2px;min-height:86px}
+  .oh-home-mode :is([data-view="live"],[data-view="upcoming"]) .team-side-home{grid-template-columns:29px minmax(0,1fr)}
+  .oh-home-mode :is([data-view="live"],[data-view="upcoming"]) .team-side-away{grid-template-columns:minmax(0,1fr) 29px}
+  .oh-home-mode :is([data-view="live"],[data-view="upcoming"]) .team-favorite{width:29px;height:42px}
+  .oh-home-mode :is([data-view="live"],[data-view="upcoming"]) .team-favorite svg{width:24px;height:24px}
+  .oh-home-mode :is([data-view="live"],[data-view="upcoming"]) .match-team{gap:3px;font-size:11.5px;font-weight:800;line-height:1.12}
+  .oh-home-mode :is([data-view="live"],[data-view="upcoming"]) .match-team .crest{width:56px;height:56px;padding:3px}
+  .oh-home-mode :is([data-view="live"],[data-view="upcoming"]) .match-team>span{min-height:27px;line-height:1.12}
+  .oh-home-mode :is([data-view="live"],[data-view="upcoming"]) .score-center{font-size:18px;font-weight:850}
+  .oh-home-mode :is([data-view="live"],[data-view="upcoming"]) .versus-center .vs{font-size:17px;font-weight:800}
+  .oh-home-mode :is([data-view="live"],[data-view="upcoming"]) .probability-bar{height:18px;margin-top:6px;border-radius:10px}
+  .oh-home-mode :is([data-view="live"],[data-view="upcoming"]) .probability-bar div{font-size:10px;font-weight:850}
+  .oh-home-mode :is([data-view="live"],[data-view="upcoming"]) .match-footer{min-height:22px;margin-top:6px}
+  .oh-home-mode :is([data-view="live"],[data-view="upcoming"]) .analysis-badge{min-width:42px;height:22px;padding-inline:8px;font-size:9px;font-weight:550}
+  .oh-home-mode :is([data-view="profile"],[data-view="stats"],[data-view="favorites"]) .screen-title{padding:13px 0 9px}
+  .oh-home-mode :is([data-view="profile"],[data-view="stats"],[data-view="favorites"]) .screen-title h1{font-size:18px;font-weight:850}
+  .oh-home-mode [data-view="profile"] .profile-card{padding:13px;margin-top:5px}
+  .oh-home-mode [data-view="profile"] .avatar{width:62px;height:62px;margin-bottom:11px;font-size:19px}
+  .oh-home-mode [data-view="profile"] .profile-card input{height:39px}
+  .oh-home-mode [data-view="profile"] .profile-card input,.oh-home-mode [data-view="profile"] .profile-card textarea{font-size:12px;padding:8px 10px}
+  .oh-home-mode [data-view="profile"] .profile-card textarea{min-height:65px}
+  .oh-home-mode [data-view="profile"] .primary-button{height:41px;font-size:13px}
+  .oh-home-mode [data-view="profile"] .section-head h2{font-size:15px}
+  .oh-home-mode [data-view="profile"] .rank-grid div{padding:9px 7px;font-size:12px}
+}

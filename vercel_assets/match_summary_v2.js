@@ -675,6 +675,9 @@ renderMatchTab=function(){
 const ohBaseSetHeaderHomeV17=setHeader;
 setHeader=function(view){
   ohBaseSetHeaderHomeV17(view);
-  document.body.classList.toggle("oh-home-mode",view==="home");
+  const compactShell=!new Set(["match","lineups"]).has(view);
+  document.body.classList.toggle("oh-home-mode",compactShell);
 };
-document.body.classList.toggle("oh-home-mode",document.querySelector('[data-view="home"]')?.classList.contains("active"));
+document.body.classList.toggle("oh-home-mode",!document.querySelector('[data-view="match"].active,[data-view="lineups"].active'));
+
+/* OH_COMPACT_SECONDARY_VIEWS_V20 */
