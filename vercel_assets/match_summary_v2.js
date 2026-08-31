@@ -639,9 +639,9 @@ renderExpected=function(){
   const resultEvaluation=predictedWinner===null||actualWinner===null?"N/D":winnerHit?"Acertado":"No acertado";
   $("matchContent").innerHTML=`<div class="oh-er-comparison-v16">
     <section class="panel oh-er-v16-score">
-      <div class="oh-er-v16-team"><button data-er-fav type="button">${starSvg(isFav(event.event_id))}</button>${crest(event.home_team_id,event.home_team)}<strong>${esc(event.home_team||"Local")}</strong></div>
+      <div class="oh-er-v16-team">${crest(event.home_team_id,event.home_team)}<strong>${esc(event.home_team||"Local")}</strong></div>
       <div class="oh-er-v16-score-center"><div><b>${ohERValue(homeGoals)}</b><i>-</i><b class="away">${ohERValue(awayGoals)}</b></div><strong>FT</strong><small>${esc(event.competition_name||event.competition_key||"")} · ${esc(fmtKickoff(event.kickoff))}</small></div>
-      <div class="oh-er-v16-team away">${crest(event.away_team_id,event.away_team)}<button data-er-fav type="button">${starSvg(isFav(event.event_id))}</button><strong>${esc(event.away_team||"Visitante")}</strong></div>
+      <div class="oh-er-v16-team away">${crest(event.away_team_id,event.away_team)}<strong>${esc(event.away_team||"Visitante")}</strong></div>
     </section>
     <section class="panel oh-er-v16-duel">
       <div class="oh-er-v16-side prediction"><h3>🤖 <span>Predicción del software</span></h3><div class="oh-er-v16-metrics">
@@ -657,7 +657,6 @@ renderExpected=function(){
     </tbody></table></div></section>
     <section class="panel oh-er-v16-conclusion"><h3>📈 Conclusión del análisis</h3><p>${esc(ohERConclusion(predicted,actual))}</p></section>
   </div>`;
-  qsa("[data-er-fav]").forEach(button=>button.onclick=()=>{toggleFav(event.event_id);renderMatchHeader();renderExpected()});
 };
 
 const ohOriginalRenderMatchTabExpectedV16=renderMatchTab;
