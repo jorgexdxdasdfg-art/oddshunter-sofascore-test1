@@ -414,6 +414,124 @@ def publish_remote(
     return len(remote)
 
 
+def normalized_lineup_payload(
+    row: dict[str, Any],
+    snapshot: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    """Convierte la alineación verificada de Futbol24 al contrato móvil.
+
+    El documento se guarda separado de las estadísticas originales: no inventa
+    SOT ni altera los históricos. Cuando no haya alineación nueva, el móvil usa
+    el último documento real guardado para cada equipo.
+    """
+    raw_lineups = snapshot.get("lineups") if isinstance(snapshot, dict) else None
+    if not isinstance(raw_lineups, dict):
+        return None
+
+    event_id = int(row["event_id"])
+
+    def side(name: str, team_id: Any) -> dict[str, Any]:
+        raw_side = raw_lineups.get(name)
+        if not isinstance(raw_side, dict):
+            raw_side = {}
+
+        def players(key: str) -> list[dict[str, Any]]:
+            result: list[dict[str, Any]] = []
+            for index, raw in enumerate(raw_side.get(key) or [], start=1):
+                if not isinstance(raw, dict) or not str(raw.get("name") or "").strip():
+                    continue
+                order = raw.get("position") if key == "lineups" else raw.get("order")
+                result.append(
+                    {
+                        "player_id": None,
+                        "name": str(raw.get("name") or "").strip(),
+                        "position": raw.get("position_name") or raw.get("position"),
+                        "shirt_number": raw.get("jersey"),
+                        "lineup_order": order if order is not None else index,
+                        "minutes_played": None,
+                        "shots": None,
+                        "shots_on_target": None,
+                        "avg_shots_on_target": None,
+                        "sot_sample": 0,
+                    }
+                )
+            return result
+
+        return {
+            "team_id": int(team_id) if team_id is not None else None,
+            "source_match_id": event_id,
+            "source_event_id": event_id,
+            "is_current_event_lineup": True,
+            "formation": raw_side.get("formation"),
+            "starters": players("lineups"),
+            "substitutes": players("bench"),
+        }
+
+    payload = {
+        "event_id": event_id,
+        "match_id": row.get("match_id"),
+        "home": side("home", row.get("home_team_id")),
+        "away": side("away", row.get("away_team_id")),
+    }
+    if not any(
+        payload[name][bucket]
+        for name in ("home", "away")
+        for bucket in ("starters", "substitutes")
+    ):
+        return None
+    return payload
+
+
+def publish_lineup_snapshot(
+    client: Any,
+    row: dict[str, Any],
+    competition: dict[str, Any],
+    payload: dict[str, Any],
+    updated_at: str,
+) -> None:
+    event_id = int(row["event_id"])
+    competition_key = slugify(competition.get("key"))
+    encoded = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+    client.execute(
+        "INSERT INTO mobile_analysis_docs "
+        "(competition_key,event_id,doc_name,json_text,source_mtime) VALUES (?,?,?,?,?) "
+        "ON CONFLICT (competition_key,event_id,doc_name) DO UPDATE SET "
+        "json_text=excluded.json_text,source_mtime=excluded.source_mtime",
+        [competition_key, event_id, "lineups", encoded, utc_now().timestamp()],
+    )
+
+    for side_name in ("home", "away"):
+        side = payload.get(side_name)
+        if not isinstance(side, dict) or not (side.get("starters") or side.get("substitutes")):
+            continue
+        team_id = side.get("team_id")
+        if team_id is None:
+            continue
+        latest = json.dumps(
+            {
+                "source_event_id": event_id,
+                "kickoff": row.get("kickoff"),
+                "updated_at": updated_at,
+                "side": side,
+            },
+            ensure_ascii=False,
+            separators=(",", ":"),
+        )
+        client.execute(
+            "INSERT INTO mobile_sync_meta (key,value) VALUES (?,?) "
+            "ON CONFLICT (key) DO UPDATE SET value=excluded.value",
+            [f"lineup_latest:{int(team_id)}", latest],
+        )
+
+    check = client.query(
+        "SELECT doc_name FROM mobile_analysis_docs "
+        "WHERE competition_key=? AND event_id=? AND doc_name='lineups'",
+        [competition_key, event_id],
+    )
+    if len(check) != 1:
+        raise RuntimeError(f"Alineación Turso no verificada: event_id={event_id}")
+
+
 def update_local(row: dict[str, Any], update: dict[str, Any], updated_at: str) -> None:
     con = connect_db(read_only=False)
     try:
@@ -552,6 +670,7 @@ def run(
                 if not isinstance(snapshot, dict):
                     item["result"] = "SOURCE_UNAVAILABLE"
                 else:
+                    lineup = normalized_lineup_payload(row, snapshot)
                     if update is None:
                         item["result"] = "NO_ACTION"
                     elif dry_run:
@@ -564,6 +683,15 @@ def run(
                             update_local(row, update, stamp)
                         item["update"] = update
                         item["result"] = "PUBLISHED"
+                    if lineup is not None:
+                        if dry_run:
+                            item["lineup"] = "DRY_RUN_READY"
+                        else:
+                            stamp = iso_utc(utc_now())
+                            publish_lineup_snapshot(
+                                client, row, competition, lineup, stamp
+                            )
+                            item["lineup"] = "PUBLISHED"
             except Exception as exc:
                 item["result"] = "TECHNICAL_ERROR"
                 item["error"] = f"{type(exc).__name__}: {exc}"

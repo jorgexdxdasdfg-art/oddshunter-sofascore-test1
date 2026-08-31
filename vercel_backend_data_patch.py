@@ -29,7 +29,8 @@ COMPARISON_UNAVAILABLE = """            {"label": "+0.5 HT", "home": None, "away
 COMPARISON_AVAILABLE = """            {"label": "+0.5 HT", "home": hsum.get("over_0_5_ht"), "away": asum.get("over_0_5_ht"), "kind": "percent"},
             {"label": "+0.5 ST", "home": hsum.get("over_0_5_st"), "away": asum.get("over_0_5_st"), "kind": "percent"},"""
 
-LINEUP_FUNCTION = '''def _database_lineup_payload(event_id: int) -> dict[str, Any] | None:
+LINEUP_FUNCTION = '''# OH_LINEUP_LATEST_TEAM_FALLBACK_V2
+def _database_lineup_payload(event_id: int) -> dict[str, Any] | None:
     try:
         conn = read_only_conn()
     except Exception:
@@ -156,6 +157,75 @@ LINEUP_FUNCTION = '''def _database_lineup_payload(event_id: int) -> dict[str, An
         conn.close()
 
 
+def _cloud_latest_lineup_payload(event_id: int) -> dict[str, Any] | None:
+    if not CLOUD_MODE:
+        return None
+    try:
+        conn = read_only_conn()
+    except Exception:
+        return None
+    try:
+        if not _table_exists(conn, "mobile_events") or not _table_exists(conn, "mobile_sync_meta"):
+            return None
+        event = conn.execute(
+            "SELECT home_team_id,away_team_id FROM mobile_events WHERE event_id=? LIMIT 1",
+            (int(event_id),),
+        ).fetchone()
+        if event is None:
+            return None
+
+        sides: dict[str, dict[str, Any]] = {}
+        source_events: list[int] = []
+        for name, column in (("home", "home_team_id"), ("away", "away_team_id")):
+            team_id = event[column]
+            value = None
+            if team_id is not None:
+                value = conn.execute(
+                    "SELECT value FROM mobile_sync_meta WHERE key=? LIMIT 1",
+                    (f"lineup_latest:{int(team_id)}",),
+                ).fetchone()
+            document = {}
+            if value is not None:
+                try:
+                    document = safe_dict(json.loads(str(value["value"] or "{}")))
+                except (TypeError, ValueError, json.JSONDecodeError):
+                    document = {}
+            side = dict(safe_dict(document.get("side")))
+            if side:
+                side["is_current_event_lineup"] = False
+                source_event = document.get("source_event_id")
+                if source_event is not None:
+                    side["source_event_id"] = source_event
+                    source_events.append(int(source_event))
+            else:
+                side = {
+                    "team_id": int(team_id) if team_id is not None else None,
+                    "source_match_id": None,
+                    "source_event_id": None,
+                    "is_current_event_lineup": False,
+                    "formation": None,
+                    "starters": [],
+                    "substitutes": [],
+                }
+            sides[name] = side
+
+        if not any(
+            sides[name].get(bucket)
+            for name in ("home", "away")
+            for bucket in ("starters", "substitutes")
+        ):
+            return None
+        return {
+            "event_id": int(event_id),
+            "match_id": None,
+            "source_event_ids": sorted(set(source_events)),
+            "home": sides["home"],
+            "away": sides["away"],
+        }
+    finally:
+        conn.close()
+
+
 def lineup_payload(competition_key: str, event_id: int) -> dict[str, Any]:
     database_payload = _database_lineup_payload(event_id)
     if database_payload:
@@ -175,7 +245,20 @@ def lineup_payload(competition_key: str, event_id: int) -> dict[str, Any]:
         for name in ("lineups", "lineup", "alineaciones"):
             doc = safe_dict(docs.get(name))
             if doc:
-                return {"available": True, "source": f"{name}.json", "data": doc}
+                return {
+                    "available": True,
+                    "confirmed": True,
+                    "source": f"{name}.json",
+                    "data": doc,
+                }
+        latest = _cloud_latest_lineup_payload(event_id)
+        if latest:
+            return {
+                "available": True,
+                "confirmed": False,
+                "source": "latest_team_lineups",
+                "data": latest,
+            }
         return {
             "available": False,
             "source": None,
@@ -228,14 +311,14 @@ def patch_backend(root: Path) -> list[str]:
     )
     present = [signal in text for signal in patched_signals]
     if all(present):
-        if '"avg_shots_on_target"' not in text:
+        if "OH_LINEUP_LATEST_TEAM_FALLBACK_V2" not in text:
             pattern = re.compile(
                 r"def _database_lineup_payload\(event_id: int\) -> dict\[str, Any\] \| None:\n.*?(?=def list_teams\()",
                 re.DOTALL,
             )
             text, count = pattern.subn(LINEUP_FUNCTION, text, count=1)
             if count != 1:
-                raise RuntimeError(f"Actualización de promedios SOT esperaba 1 bloque y encontró {count}")
+                raise RuntimeError(f"Actualización de alineación histórica esperaba 1 bloque y encontró {count}")
             compile(text, str(path), "exec")
             path.write_text(text, encoding="utf-8", newline="\n")
         compile(text, str(path), "exec")

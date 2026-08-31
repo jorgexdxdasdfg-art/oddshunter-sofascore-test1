@@ -153,6 +153,7 @@ jobs:
           Environment=ODDSHUNTER_LIVE_OVERDUE_LIMIT=40
           Environment=ODDSHUNTER_LIVE_RECONCILE_HOURS=0
           Environment=ODDSHUNTER_LIVE_RECONCILE_LIMIT=0
+          Environment=ODDSHUNTER_LIVE_PRIORITY_EVENT_IDS=16629468,16559906,15426906,15426908,16559922,16559910,16560084,15502667,16629469,15353114,15426911,15502664,15353108,15502867,16690997,15502668,15285813,15353110
           UNIT
 
           $SUDO systemctl daemon-reload
@@ -235,6 +236,7 @@ jobs:
           import json,time,urllib.request
           expected={
               16629438:(1,0), 16416304:(3,2), 16361896:(4,0), 16416290:(1,0),
+              16629468:(1,1), 15353108:(5,1),
           }
           targets=set(expected)
           found={}

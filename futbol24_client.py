@@ -97,7 +97,10 @@ GENERIC_TEAM_WORDS = {
     "the",
 }
 MAX_DATE_DELTA_HOURS = 36.0
-TEAM_RESULTS_LIMIT = 30
+# Futbol24 firma `results/latest` para el tamaño que entrega su web. Desde
+# agosto de 2026 el único valor aceptado por ese endpoint es 6; enviar 30
+# devuelve HTTP 422 y deja todos los partidos de la jornada congelados como NS.
+TEAM_RESULTS_LIMIT = 6
 COMPETITION_FAMILIES: dict[str, tuple[str, ...]] = {
     "leagues-cup": (
         "leagues cup",
@@ -137,6 +140,8 @@ COMPETITION_FAMILIES: dict[str, tuple[str, ...]] = {
 # states: Futbol24 uses a different club name from the schedule source for a
 # handful of teams. The normal resolver still discovers results dynamically.
 FUTBOL24_TEAM_ALIASES: dict[str, tuple[str, ...]] = {
+    "al hazem": ("Al Hazm",),
+    "al shabab": ("Shabab Riyadh", "Al Shabab Riyadh"),
     "krc genk": ("Racing Genk", "RC Genk"),
     "real racing club": ("Racing Santander", "Racing de Santander"),
     "nps volos": ("Volos NFC", "Volos"),
@@ -658,6 +663,14 @@ class Futbol24Client:
             if expected_family is not None
             else competition_score >= 0.55
         )
+        generic_domestic_label = any(
+            _normalize(value) in {
+                "campeonato serie a",
+                "primera division",
+                "primera división",
+            }
+            for value in competition_names
+        )
         # Some schedule rows carry only a generic localized league label.  If
         # both club identities and kickoff are exact, a strong competition
         # name score is enough; this remains stricter than team-name matching.
@@ -666,8 +679,8 @@ class Futbol24Client:
             and home_score >= 0.95
             and away_score >= 0.95
             and hours <= 3.0
-            and bool(candidate_families)
-            and competition_score >= 0.50
+            and expected_family is not None
+            and generic_domestic_label
         ):
             competition_pass = True
         # If one side is an exact identity, the kickoff is almost exact and the
@@ -975,6 +988,16 @@ class Futbol24Client:
             home_score, away_score = away_score, home_score
         state, provider_status = self._status_snapshot(candidate)
         kickoff = _parse_datetime(candidate.get("date"))
+        lineups = (
+            dict(details.get("lineups"))
+            if isinstance(details, dict) and isinstance(details.get("lineups"), dict)
+            else None
+        )
+        if lineups and validation.get("orientation") == "reversed":
+            lineups = {
+                "home": lineups.get("away"),
+                "away": lineups.get("home"),
+            }
 
         return {
             "source": "futbol24",
@@ -994,6 +1017,7 @@ class Futbol24Client:
             "futbol24_url": MATCH_URL.format(slug=slug) if slug else None,
             "identity_validation": validation,
             "details_available": details is not None,
+            "lineups": lineups,
         }
 
     def get_direct_xg(self, match: MatchRef) -> DirectXG | None:

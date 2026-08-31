@@ -151,6 +151,7 @@ class ResolverTests(unittest.TestCase):
             [key for key, _value in signed_params],
             ["expire", "hostGuest", "id", "lang", "limit", "sign"],
         )
+        self.assertEqual(dict(signed_params)["limit"], 6)
 
     def test_result_sync_preserves_validated_database_identity(self):
         source = (ROOT / "cloud_incremental_result_sync.py").read_text(encoding="utf-8")
@@ -177,6 +178,8 @@ class ResolverTests(unittest.TestCase):
 
         self.assertIn("Racing Santander", client._expected_names("Real Racing Club"))
         self.assertIn("Racing Genk", client._expected_names("KRC Genk"))
+        self.assertIn("Al Hazm", client._expected_names("Al-Hazem"))
+        self.assertIn("Shabab Riyadh", client._expected_names("Al-Shabab"))
 
     def test_contextual_team_name_requires_exact_opponent_date_and_competition(self):
         client = self.client()
@@ -202,5 +205,27 @@ class ResolverTests(unittest.TestCase):
         self.assertFalse(
             client._candidate_validation(match, candidate, require_score=False)["valid"]
         )
+
+    def test_exact_fixture_accepts_generic_localized_domestic_league(self):
+        client = self.client()
+        match = MatchRef(
+            competition="Liga Pro EC",
+            season="2026",
+            kickoff="2026-08-30T23:00:00+00:00",
+            home_team="Emelec",
+            away_team="Leones del Norte",
+        )
+        candidate = {
+            "date": "2026-08-30T23:00:00+00:00",
+            "league": {"name": "Campeonato Serie A"},
+            "team1": {"name": "Emelec"},
+            "team2": {"name": "Leones del Norte"},
+            "score1": "2-0",
+        }
+
+        validation = client._candidate_validation(match, candidate, require_score=False)
+
+        self.assertTrue(validation["valid"])
+        self.assertTrue(validation["competition_pass"])
 if __name__ == "__main__":
     unittest.main()

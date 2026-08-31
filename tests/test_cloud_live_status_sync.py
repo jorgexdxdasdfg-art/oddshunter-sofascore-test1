@@ -140,6 +140,44 @@ def test_publish_remote_changes_mobile_live_state() -> None:
     assert client.rows[77]["away_score"] == 0
 
 
+def test_normalized_lineup_payload_keeps_real_starters_and_bench() -> None:
+    payload = live.normalized_lineup_payload(
+        {
+            "event_id": 77,
+            "match_id": 700,
+            "home_team_id": 101,
+            "away_team_id": 202,
+        },
+        {
+            "lineups": {
+                "home": {
+                    "formation": "4-3-3",
+                    "lineups": [
+                        {"name": "Local Uno", "jersey": 9, "position": 11,
+                         "position_name": "Attacker"}
+                    ],
+                    "bench": [{"name": "Local Dos", "jersey": 18}],
+                },
+                "away": {
+                    "formation": "4-4-2",
+                    "lineups": [
+                        {"name": "Visita Uno", "jersey": 1, "position": 1,
+                         "position_name": "Goalkeeper"}
+                    ],
+                    "bench": [],
+                },
+            }
+        },
+    )
+
+    assert payload is not None
+    assert payload["home"]["formation"] == "4-3-3"
+    assert payload["home"]["starters"][0]["name"] == "Local Uno"
+    assert payload["home"]["substitutes"][0]["name"] == "Local Dos"
+    assert payload["away"]["team_id"] == 202
+    assert payload["away"]["starters"][0]["shirt_number"] == 1
+
+
 def test_select_candidates_prefers_due_and_keeps_overdue_fairness() -> None:
     con = sqlite3.connect(":memory:")
     con.row_factory = sqlite3.Row
