@@ -199,6 +199,7 @@ def test_normalized_final_actuals_payload_keeps_only_provider_actuals() -> None:
     payload = live.normalized_final_actuals_payload(
         {"event_id": 77, "match_id": 700},
         {
+            "state": "finished",
             "final_actuals": {
                 "real": {
                     "home_goals_1h": 1,
