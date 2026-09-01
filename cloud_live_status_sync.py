@@ -690,6 +690,41 @@ def publish_final_actuals(
         raise RuntimeError(f"Estadísticas finales Turso no verificadas: event_id={event_id}")
 
 
+def publish_exact_actuals_file(client: Any, path_value: str) -> int:
+    """Publish exact-ID statistics fetched by an allowed deployment runner."""
+    path = Path(str(path_value or "").strip())
+    if not str(path_value or "").strip() or not path.is_file():
+        return 0
+    document = json.loads(path.read_text(encoding="utf-8"))
+    items = document.get("events") if isinstance(document, dict) else None
+    if not isinstance(items, list):
+        return 0
+    published = 0
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        event_id = int(item.get("event_id") or 0)
+        competition_key = slugify(item.get("competition_key"))
+        payload = item.get("final_actuals")
+        if event_id <= 0 or not competition_key or not isinstance(payload, dict):
+            continue
+        if not final_actuals_core_complete(payload):
+            continue
+        payload = {
+            **payload,
+            "event_id": event_id,
+            "updated_at": str(item.get("updated_at") or iso_utc(utc_now())),
+        }
+        publish_final_actuals(
+            client,
+            {"event_id": event_id, "match_id": event_id},
+            {"key": competition_key},
+            payload,
+        )
+        published += 1
+    return published
+
+
 def update_local_final_actuals(row: dict[str, Any], payload: dict[str, Any]) -> None:
     real = payload.get("real") or {}
     con = connect_db(read_only=False)
@@ -777,6 +812,13 @@ def run(
     competitions = registry_by_league()
     priority_ids = tuple(event_ids)
     client = None if dry_run else turso_client()
+    exact_actuals_published = (
+        publish_exact_actuals_file(
+            client, os.environ.get("ODDSHUNTER_EXACT_ACTUALS_FILE", "")
+        )
+        if client is not None
+        else 0
+    )
     with connect_db(read_only=True) as con:
         candidates = select_candidates(
             con,
@@ -813,6 +855,7 @@ def run(
         "dry_run": dry_run,
         "candidate_count": len(candidates),
         "reconcile_count": len(local_finals),
+        "exact_actuals_published": exact_actuals_published,
         "events": [],
     }
     provider_messages: list[str] = []

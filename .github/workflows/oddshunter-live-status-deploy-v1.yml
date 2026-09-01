@@ -33,6 +33,41 @@ jobs:
           python -m py_compile cloud_live_status_sync.py sofascore_event_client.py
           python -m pytest -q tests/test_cloud_live_status_sync.py tests/test_futbol24_resolver.py tests/test_sofascore_event_client.py
 
+      - name: Obtener estadísticas finales por ID exacto
+        run: |
+          python - <<'PY'
+          import json
+          from datetime import datetime, timezone
+          from urllib.request import Request, urlopen
+          from sofascore_event_client import final_actuals_from_statistics_document
+
+          base="https://oddshunter-mobile.vercel.app/api/day?offset={offset}&limit=1000"
+          events={}
+          for offset in (0,-1,-2):
+              with urlopen(Request(base.format(offset=offset),headers={"User-Agent":"Mozilla/5.0"}),timeout=30) as response:
+                  for event in json.load(response):
+                      if str(event.get("status") or "").upper() == "FT":
+                          events[int(event["event_id"])]=event
+          repaired=[]
+          for event_id,event in events.items():
+              url=f"https://www.sofascore.com/api/v1/event/{event_id}/statistics"
+              try:
+                  with urlopen(Request(url,headers={"Accept":"application/json","User-Agent":"Mozilla/5.0"}),timeout=30) as response:
+                      actuals=final_actuals_from_statistics_document(event_id,json.load(response))
+                  if actuals:
+                      repaired.append({
+                          "event_id":event_id,
+                          "competition_key":event["competition_key"],
+                          "updated_at":datetime.now(timezone.utc).isoformat(),
+                          "final_actuals":actuals,
+                      })
+              except Exception as exc:
+                  print(f"EXACT_STATS_SKIP event_id={event_id} error={type(exc).__name__}")
+          with open("exact_final_actuals.json","w",encoding="utf-8") as handle:
+              json.dump({"events":repaired},handle,ensure_ascii=False,separators=(",",":"))
+          print(f"EXACT_STATS_READY={len(repaired)}")
+          PY
+
       - name: Preparar SSH
         env:
           VPS_HOST: ${{ secrets.VPS_HOST }}
@@ -72,6 +107,10 @@ jobs:
             deploy/oddshunter-live-sync.service \
             deploy/oddshunter-live-sync.timer \
             "$VPS_USER@$VPS_HOST:/tmp/"
+          scp -i ~/.ssh/oddshunter_live -P "$VPS_PORT" \
+            -o BatchMode=yes -o StrictHostKeyChecking=yes \
+            exact_final_actuals.json \
+            "$VPS_USER@$VPS_HOST:/tmp/exact_final_actuals.json"
 
       - name: Instalar, ejecutar y verificar
         env:
@@ -132,6 +171,8 @@ jobs:
             /tmp/oddshunter-live-sync.service /etc/systemd/system/oddshunter-live-sync.service
           $SUDO install -o root -g root -m 0644 \
             /tmp/oddshunter-live-sync.timer /etc/systemd/system/oddshunter-live-sync.timer
+          $SUDO install -o oddshunter -g oddshunter -m 0640 \
+            /tmp/exact_final_actuals.json /var/lib/oddshunter/data/exact_final_actuals.json
 
           $SUDO -u oddshunter "$PY" - "$CUR/cloud_live_status_sync.py" <<'PY'
           from pathlib import Path
@@ -161,6 +202,7 @@ jobs:
           Environment=ODDSHUNTER_LIVE_RECONCILE_HOURS=0
           Environment=ODDSHUNTER_LIVE_RECONCILE_LIMIT=0
           Environment=ODDSHUNTER_LIVE_PRIORITY_EVENT_IDS=16450844,16450879,15353111,15235461
+          Environment=ODDSHUNTER_EXACT_ACTUALS_FILE=/var/lib/oddshunter/data/exact_final_actuals.json
           UNIT
 
           $SUDO systemctl daemon-reload
