@@ -33,5 +33,19 @@ def test_deployment_requires_the_compact_secondary_marker():
     ).read_text(encoding="utf-8")
 
     assert 'COMPACT_SECONDARY_MARKER = "OH_COMPACT_SECONDARY_VIEWS_V20"' in recovery
-    assert "1.16.0-compact-secondary" in recovery
-    assert workflow.count("OH_COMPACT_SECONDARY_VIEWS_V20") >= 4
+    assert "1.17.0-match-summary-compact" in recovery
+    assert workflow.count("OH_COMPACT_SECONDARY_VIEWS_V20") >= 3
+
+
+def test_match_summary_uses_the_compact_centered_reference():
+    styles = (ROOT / "vercel_assets" / "match_summary_v2.css").read_text(
+        encoding="utf-8"
+    )
+    recovery = (ROOT / "vercel_source_recover.py").read_text(encoding="utf-8")
+
+    assert "OH_MATCH_SUMMARY_COMPACT_REFERENCE_V21" in styles
+    assert '.summary-metric-title{width:100%;justify-content:center' in styles
+    assert '.summary-lead{width:100%;margin:6px 0 2px;color:var(--muted)' in styles
+    assert '.summary-primary-value{width:100%;margin:0' in styles
+    assert 'MATCH_SUMMARY_COMPACT_MARKER = "OH_MATCH_SUMMARY_COMPACT_REFERENCE_V21"' in recovery
+    assert "1.17.0-match-summary-compact" in recovery

@@ -234,3 +234,64 @@
   .oh-home-mode [data-view="profile"] .section-head h2{font-size:15px}
   .oh-home-mode [data-view="profile"] .rank-grid div{padding:9px 7px;font-size:12px}
 }
+
+/* OH_MATCH_SUMMARY_COMPACT_REFERENCE_V21 */
+.match-reference-light .app-header.match-mode{height:calc(72px + env(safe-area-inset-top));padding-top:calc(17px + env(safe-area-inset-top));padding-bottom:7px}
+.match-reference-light .app-header.match-mode .header-title{font-size:18px;line-height:1.1;font-weight:850;letter-spacing:-.3px}
+.match-reference-light .app-header.match-mode #backBtn,.match-reference-light .app-header.match-mode #detailHeaderFav{width:38px;height:38px;font-size:24px}
+.match-reference-light .app-header.match-mode .header-favorite svg{width:27px;height:27px}
+.match-reference-light [data-view="match"] #matchHeader{padding-top:0}
+.match-reference-light [data-view="match"] .match-detail-meta{gap:6px;padding-top:2px;font-size:12px;line-height:1.2}
+.match-reference-light [data-view="match"] .match-detail-meta .competition-icon{width:18px;height:18px;flex-basis:18px}
+.match-reference-light [data-view="match"] .hero-versus{grid-template-columns:minmax(0,1fr) 40px minmax(0,1fr);gap:6px;padding:14px 2px 16px}
+.match-reference-light [data-view="match"] .hero-team{gap:6px}
+.match-reference-light [data-view="match"] .hero-team .crest{width:68px;height:68px;border-radius:18px}
+.match-reference-light [data-view="match"] .hero-team strong{font-size:15px;line-height:1.12;font-weight:850;letter-spacing:-.2px}
+.match-reference-light [data-view="match"] .hero-versus .vs{font-size:18px;line-height:1;font-weight:850}
+.match-reference-light [data-view="match"] .result-title{gap:6px;margin:0 0 9px;font-size:14px;font-weight:850}
+.match-reference-light [data-view="match"] .result-info svg{width:18px;height:18px}
+.match-reference-light [data-view="match"] .detail-probability{height:29px;margin-inline:7px;border-radius:16px}
+.match-reference-light [data-view="match"] .detail-probability div{min-width:36px;font-size:12px;font-weight:850}
+.match-reference-light [data-view="match"] .result-labels{margin:7px 7px 17px;font-size:11.5px}
+.match-reference-light [data-view="match"] .result-labels span{font-weight:650}
+.match-reference-light [data-view="match"] .lineup-strip{min-height:57px;margin:0 7px 12px;padding:7px 9px 7px 11px;border-radius:14px}
+.match-reference-light [data-view="match"] .lineup-strip-state{gap:8px}
+.match-reference-light [data-view="match"] .lineup-strip-state strong{font-size:11.5px;line-height:1.15;font-weight:850}
+.match-reference-light [data-view="match"] .lineup-strip-icon,.match-reference-light [data-view="match"] .lineup-strip-icon svg{width:23px;height:23px;flex-basis:23px}
+.match-reference-light [data-view="match"] .lineup-strip-button{min-height:36px;padding:0 10px;border-radius:9px;font-size:11.5px;font-weight:850}
+.match-reference-light [data-view="match"] .lineup-strip-button span{font-size:17px;margin-left:2px}
+.match-reference-light [data-view="match"] .analysis-tabs{margin:1px 0 13px}
+.match-reference-light [data-view="match"] .analysis-tabs button{padding:10px 3px 9px;font-size:11.5px;font-weight:650}
+.match-reference-light [data-view="match"] .analysis-tabs button.active{font-weight:850}
+.match-reference-light [data-view="match"] .summary-metric-grid{gap:7px;margin-top:1px}
+.match-reference-light [data-view="match"] .summary-metric{min-height:100px;padding:9px 5px;align-items:center;justify-content:center;text-align:center;border-radius:14px}
+.match-reference-light [data-view="match"] .summary-metric-title{width:100%;justify-content:center;gap:5px;font-size:10.5px;line-height:1.12;font-weight:850;text-align:center;white-space:nowrap}
+.match-reference-light [data-view="match"] .summary-metric-icon,.match-reference-light [data-view="match"] .summary-metric-icon svg{width:24px;height:24px;flex-basis:24px}
+.match-reference-light [data-view="match"] .summary-lead{width:100%;margin:6px 0 2px;color:var(--muted);font-size:11.5px;line-height:1.1;font-weight:650;text-align:center}
+.match-reference-light [data-view="match"] .summary-primary-value{width:100%;margin:0;color:var(--text);font-size:16px;line-height:1.05;font-weight:880;text-align:center}
+.match-reference-light [data-view="match"] .summary-caption{width:100%;margin:5px 0 0;color:var(--muted);font-size:10.5px;line-height:1.1;text-align:center}
+
+@media(max-width:430px){
+  .match-reference-light .app-header.match-mode{height:calc(68px + env(safe-area-inset-top));padding-top:calc(15px + env(safe-area-inset-top));padding-inline:10px;padding-bottom:6px}
+  .match-reference-light .app-header.match-mode .header-title{font-size:17px;font-weight:850}
+  .match-reference-light .app-header.match-mode #backBtn,.match-reference-light .app-header.match-mode #detailHeaderFav{width:36px;height:36px;font-size:22px}
+  .match-reference-light .app-header.match-mode .header-favorite svg{width:25px;height:25px}
+  .match-reference-light [data-view="match"] .match-detail-meta{font-size:11.5px}
+  .match-reference-light [data-view="match"] .hero-versus{grid-template-columns:minmax(0,1fr) 36px minmax(0,1fr);padding:12px 2px 14px}
+  .match-reference-light [data-view="match"] .hero-team .crest{width:62px;height:62px;border-radius:17px}
+  .match-reference-light [data-view="match"] .hero-team strong{font-size:14px}
+  .match-reference-light [data-view="match"] .hero-versus .vs{font-size:16px}
+  .match-reference-light [data-view="match"] .result-title{font-size:13.5px}
+  .match-reference-light [data-view="match"] .detail-probability{height:28px}
+  .match-reference-light [data-view="match"] .detail-probability div{font-size:11.5px}
+  .match-reference-light [data-view="match"] .result-labels{font-size:11px}
+  .match-reference-light [data-view="match"] .lineup-strip-state strong{font-size:11px}
+  .match-reference-light [data-view="match"] .lineup-strip-button{font-size:11px}
+  .match-reference-light [data-view="match"] .analysis-tabs button{font-size:11px}
+  .match-reference-light [data-view="match"] .summary-metric{min-height:96px;padding-inline:4px}
+  .match-reference-light [data-view="match"] .summary-metric-title{gap:4px;font-size:10px}
+  .match-reference-light [data-view="match"] .summary-metric-icon,.match-reference-light [data-view="match"] .summary-metric-icon svg{width:22px;height:22px;flex-basis:22px}
+  .match-reference-light [data-view="match"] .summary-lead{font-size:11px}
+  .match-reference-light [data-view="match"] .summary-primary-value{font-size:15px}
+  .match-reference-light [data-view="match"] .summary-caption{font-size:10px}
+}
