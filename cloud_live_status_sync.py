@@ -125,6 +125,37 @@ WHERE m.sofascore_id IS NOT NULL
 """
 
 
+FINAL_ACTUAL_CORE_FIELDS = (
+    "home_corners",
+    "away_corners",
+    "home_yellow_cards",
+    "away_yellow_cards",
+    "home_shots",
+    "away_shots",
+)
+
+
+def final_actuals_core_complete(payload: Any) -> bool:
+    """Return whether the real FT box score is complete enough for the app.
+
+    xG is deliberately not required: several competitions publish a complete
+    match box score without xG, and keeping those events in the retry queue
+    would not make that provider data appear. The remaining fields back every
+    non-xG card shown in the Expected/Real view.
+    """
+    if isinstance(payload, str):
+        try:
+            payload = json.loads(payload)
+        except (TypeError, ValueError):
+            return False
+    if not isinstance(payload, dict):
+        return False
+    real = payload.get("real")
+    if not isinstance(real, dict):
+        return False
+    return all(real.get(field) is not None for field in FINAL_ACTUAL_CORE_FIELDS)
+
+
 def _pending(row: sqlite3.Row) -> bool:
     status = str(row["status"] or "").upper()
     if status in SPECIAL_STATUSES:
@@ -217,7 +248,7 @@ def select_remote_candidates(
     near_limit: int,
     overdue_limit: int,
 ) -> list[dict[str, Any]]:
-    """Select app-visible pending fixtures even when the VPS SQLite lacks them."""
+    """Select app-visible fixtures with score or final-statistics debt."""
     by_key = {
         slugify(item.get("key")): item
         for item in competitions.values()
@@ -225,7 +256,11 @@ def select_remote_candidates(
     }
     rows = client.query(
         "SELECT competition_key,event_id,competition_name,season_name,kickoff,status,"
-        "home_team_id,home_team,away_team_id,away_team,home_score,away_score "
+        "home_team_id,home_team,away_team_id,away_team,home_score,away_score,"
+        "(SELECT json_text FROM mobile_analysis_docs AS d "
+        "WHERE d.competition_key=mobile_events.competition_key "
+        "AND d.event_id=mobile_events.event_id "
+        "AND d.doc_name='expected_real_actuals' LIMIT 1) AS final_actuals_json "
         "FROM mobile_events WHERE datetime(kickoff)>=datetime(?) "
         "AND datetime(kickoff)<=datetime(?)",
         [iso_utc(now - timedelta(hours=72)), iso_utc(now + timedelta(minutes=5))],
@@ -235,11 +270,18 @@ def select_remote_candidates(
         kickoff = parse_dt(raw.get("kickoff"))
         competition = by_key.get(slugify(raw.get("competition_key")))
         status = str(raw.get("status") or "").upper()
-        pending_state = status not in SPECIAL_STATUSES and (
+        score_debt = (
             status not in FINAL_STATUSES
             or raw.get("home_score") is None
             or raw.get("away_score") is None
         )
+        actuals_debt = (
+            status in FINAL_STATUSES
+            and raw.get("home_score") is not None
+            and raw.get("away_score") is not None
+            and not final_actuals_core_complete(raw.get("final_actuals_json"))
+        )
+        pending_state = status not in SPECIAL_STATUSES and (score_debt or actuals_debt)
         if kickoff is None or competition is None or not pending_state:
             continue
         event_id = int(raw.get("event_id") or 0)
@@ -261,6 +303,7 @@ def select_remote_candidates(
                 "away_team_id": raw.get("away_team_id"),
                 "away_team": raw.get("away_team"),
                 "remote_only": True,
+                "actuals_debt": actuals_debt,
             }
         )
 
@@ -813,7 +856,7 @@ def run(
                     update is not None
                     and update.get("state") == "finished"
                     and isinstance(snapshot, dict)
-                    and not isinstance(snapshot.get("final_actuals"), dict)
+                    and not final_actuals_core_complete(snapshot.get("final_actuals"))
                 ):
                     enrichment = f24.get_match_snapshot(match_ref(row, competition))
                     if (

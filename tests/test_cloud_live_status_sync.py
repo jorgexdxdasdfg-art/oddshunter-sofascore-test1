@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sqlite3
 import sys
 import types
@@ -218,6 +219,109 @@ def test_normalized_final_actuals_payload_keeps_only_provider_actuals() -> None:
     assert payload["event_id"] == 77
     assert payload["real"]["away_shots"] == 30
     assert payload["source"] == "futbol24"
+
+
+def _complete_final_actuals() -> dict[str, object]:
+    return {
+        "real": {
+            "home_corners": 5,
+            "away_corners": 4,
+            "home_yellow_cards": 2,
+            "away_yellow_cards": 3,
+            "home_shots": 11,
+            "away_shots": 9,
+            "home_xg": None,
+            "away_xg": None,
+        }
+    }
+
+
+def test_final_actuals_core_complete_does_not_require_xg() -> None:
+    payload = _complete_final_actuals()
+    assert live.final_actuals_core_complete(payload)
+    assert live.final_actuals_core_complete(json.dumps(payload))
+    payload["real"]["away_shots"] = None
+    assert not live.final_actuals_core_complete(payload)
+
+
+class RemoteCandidateTurso:
+    def __init__(self, rows: list[dict[str, object]]) -> None:
+        self.rows = rows
+
+    def query(self, sql: str, _params: list[object]) -> list[dict[str, object]]:
+        assert "expected_real_actuals" in sql
+        return [dict(row) for row in self.rows]
+
+
+def _remote_row(
+    event_id: int,
+    now: datetime,
+    *,
+    status: str = "FT",
+    actuals: dict[str, object] | None = None,
+) -> dict[str, object]:
+    return {
+        "competition_key": "test-league",
+        "event_id": event_id,
+        "competition_name": "Test League",
+        "season_name": "2026",
+        "kickoff": (now - timedelta(hours=2)).isoformat(),
+        "status": status,
+        "home_team_id": 101,
+        "home_team": "Home",
+        "away_team_id": 202,
+        "away_team": "Away",
+        "home_score": 1 if status == "FT" else None,
+        "away_score": 0 if status == "FT" else None,
+        "final_actuals_json": json.dumps(actuals) if actuals is not None else None,
+    }
+
+
+def test_select_remote_candidates_retries_finished_event_without_actuals() -> None:
+    now = datetime(2026, 9, 1, 16, 0, tzinfo=timezone.utc)
+    client = RemoteCandidateTurso([_remote_row(7001, now)])
+    chosen = live.select_remote_candidates(
+        client,
+        now,
+        {1: {"key": "test-league", "league_id": 1, "name": "Test League"}},
+        event_ids=(),
+        near_limit=5,
+        overdue_limit=5,
+    )
+    assert [row["event_id"] for row in chosen] == [7001]
+    assert chosen[0]["actuals_debt"] is True
+
+
+def test_select_remote_candidates_skips_finished_event_with_complete_actuals() -> None:
+    now = datetime(2026, 9, 1, 16, 0, tzinfo=timezone.utc)
+    client = RemoteCandidateTurso(
+        [_remote_row(7002, now, actuals=_complete_final_actuals())]
+    )
+    chosen = live.select_remote_candidates(
+        client,
+        now,
+        {1: {"key": "test-league", "league_id": 1, "name": "Test League"}},
+        event_ids=(),
+        near_limit=5,
+        overdue_limit=5,
+    )
+    assert chosen == []
+
+
+def test_select_remote_candidates_retries_incomplete_actuals() -> None:
+    now = datetime(2026, 9, 1, 16, 0, tzinfo=timezone.utc)
+    actuals = _complete_final_actuals()
+    actuals["real"]["home_corners"] = None
+    client = RemoteCandidateTurso([_remote_row(7003, now, actuals=actuals)])
+    chosen = live.select_remote_candidates(
+        client,
+        now,
+        {1: {"key": "test-league", "league_id": 1, "name": "Test League"}},
+        event_ids=(),
+        near_limit=5,
+        overdue_limit=5,
+    )
+    assert [row["event_id"] for row in chosen] == [7003]
 
 
 def test_select_candidates_prefers_due_and_keeps_overdue_fairness() -> None:
