@@ -72,8 +72,7 @@ drawSummaryExpectedChart=function(canvas,xgHistory,goalHistory){
 
 renderSummary = function(){
   const p=state.currentMatch,s=p.summary||{},pr=s.probabilities||{};
-  const homeHistory=p.comparison?.home?.summary||{};
-  const awayHistory=p.comparison?.away?.summary||{};
+  const expected=p.expected_real?.expected||{};
   const scorelines=(s.top_scorelines||[]).slice(0,5);
   const maxScore=Math.max(1,...scorelines.map(x=>Number(x.probability)||0));
   const oneXValues=[pr.home_win,pr.draw,pr.away_win].map(value=>Number(value));
@@ -99,10 +98,10 @@ renderSummary = function(){
     <div class="panel expected-values-panel">
       <h3>Valores esperados</h3>
       <div class="expected-values-grid">
-        ${ohExpectedMetric("xg","xG",s.xg_home,s.xg_away)}
-        ${ohExpectedMetric("corner","Córners",homeHistory.corners,awayHistory.corners)}
-        ${ohExpectedMetric("card","Amarillas",homeHistory.yellow_cards,awayHistory.yellow_cards)}
-        ${ohExpectedMetric("target","Remates",s.shots_home,s.shots_away)}
+        ${ohExpectedMetric("xg","xG",expected.goals_home??expected.xg_home??s.xg_home,expected.goals_away??expected.xg_away??s.xg_away)}
+        ${ohExpectedMetric("corner","Córners",expected.corners_home,expected.corners_away)}
+        ${ohExpectedMetric("card","Amarillas",expected.yellow_cards_home,expected.yellow_cards_away)}
+        ${ohExpectedMetric("target","Remates",expected.shots_home??s.shots_home,expected.shots_away??s.shots_away)}
       </div>
       <div class="one-x-two">
         <div class="one-x-title"><span>${summaryIcon("shield")}</span>Probabilidades 1X2</div>

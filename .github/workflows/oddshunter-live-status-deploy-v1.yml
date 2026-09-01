@@ -69,8 +69,10 @@ jobs:
                   print(f"EXACT_STATS_SKIP event_id={event_id} error={type(exc).__name__}")
           with open("deploy/exact_final_actuals_seed.json",encoding="utf-8") as handle:
               seeded=json.load(handle).get("events",[])
-          merged={int(item["event_id"]):item for item in seeded}
-          merged.update({int(item["event_id"]):item for item in repaired})
+          # The seed contains manually verified final values. Keep those
+          # authoritative if a provider later returns an incomplete revision.
+          merged={int(item["event_id"]):item for item in repaired}
+          merged.update({int(item["event_id"]):item for item in seeded})
           with open("exact_final_actuals.json","w",encoding="utf-8") as handle:
               json.dump({"events":list(merged.values())},handle,ensure_ascii=False,separators=(",",":"))
           print(f"EXACT_STATS_READY={len(merged)}")
