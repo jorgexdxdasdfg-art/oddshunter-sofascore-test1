@@ -142,18 +142,25 @@ jobs:
           PY
           echo "LIVE_SYNC_INSTALL=PASS"
 
-          # Sweep the whole recent pending window once on deployment. The
-          # permanent minute timer keeps bounded rotating batches afterwards.
+          # Run one provider-safe repair batch during deployment. The permanent
+          # minute timer rotates through the rest of the recent debt afterwards.
+          # Always restore the timer, even if the bootstrap process fails.
+          cleanup_bootstrap() {
+            $SUDO rm -f /run/systemd/system/oddshunter-live-sync.service.d/bootstrap.conf
+            $SUDO systemctl daemon-reload
+            $SUDO systemctl enable --now oddshunter-live-sync.timer || true
+          }
+          trap cleanup_bootstrap EXIT
           $SUDO systemctl stop oddshunter-live-sync.timer || true
           $SUDO systemctl stop oddshunter-live-sync.service || true
           $SUDO install -d -m 0755 /run/systemd/system/oddshunter-live-sync.service.d
           $SUDO tee /run/systemd/system/oddshunter-live-sync.service.d/bootstrap.conf >/dev/null <<'UNIT'
           [Service]
-          Environment=ODDSHUNTER_LIVE_NEAR_LIMIT=80
-          Environment=ODDSHUNTER_LIVE_OVERDUE_LIMIT=40
+          Environment=ODDSHUNTER_LIVE_NEAR_LIMIT=12
+          Environment=ODDSHUNTER_LIVE_OVERDUE_LIMIT=6
           Environment=ODDSHUNTER_LIVE_RECONCILE_HOURS=0
           Environment=ODDSHUNTER_LIVE_RECONCILE_LIMIT=0
-          Environment=ODDSHUNTER_LIVE_PRIORITY_EVENT_IDS=16483657,15426912,16316795,16361901,16629468,16559906,15426906,15426908,16559922,16559910,16560084,15502667,16629469,15353114,15426911,15502664,15353108,15502867,16690997,15502668,15285813,15353110
+          Environment=ODDSHUNTER_LIVE_PRIORITY_EVENT_IDS=16450844,16450879,15353111,15235461
           UNIT
 
           $SUDO systemctl daemon-reload
@@ -177,9 +184,8 @@ jobs:
               }
               print("TARGET_REPORT =",json.dumps(compact,ensure_ascii=False,separators=(",",":")))
           PY
-          $SUDO rm -f /run/systemd/system/oddshunter-live-sync.service.d/bootstrap.conf
-          $SUDO systemctl daemon-reload
-          $SUDO systemctl enable --now oddshunter-live-sync.timer
+          cleanup_bootstrap
+          trap - EXIT
 
           test "$($SUDO systemctl is-enabled oddshunter-live-sync.timer)" = "enabled"
           test "$($SUDO systemctl is-active oddshunter-live-sync.timer)" = "active"
