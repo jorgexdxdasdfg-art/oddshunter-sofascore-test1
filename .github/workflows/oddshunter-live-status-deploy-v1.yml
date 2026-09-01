@@ -213,6 +213,7 @@ jobs:
           Environment=ODDSHUNTER_LIVE_RECONCILE_LIMIT=0
           Environment=ODDSHUNTER_LIVE_PRIORITY_EVENT_IDS=16450844,16450879,15353111,15235461
           Environment=ODDSHUNTER_EXACT_ACTUALS_FILE=/var/lib/oddshunter/data/exact_final_actuals.json
+          Environment=ODDSHUNTER_FORCE_SCHEDULE_CATALOG=1
           UNIT
 
           $SUDO systemctl daemon-reload
@@ -226,6 +227,7 @@ jobs:
           with open(sys.argv[1],encoding="utf-8") as handle:
               report=json.load(handle)
           print("EXACT_ACTUALS_PUBLISHED =",report.get("exact_actuals_published",0))
+          print("SCHEDULE_CATALOG_REPORT =",json.dumps(report.get("schedule_catalog") or {},ensure_ascii=False,separators=(",",":")))
           for item in report.get("events",[]):
               if item.get("reconciliation"):
                   continue
@@ -283,7 +285,7 @@ jobs:
           path=Path("live_deploy_evidence.txt")
           if not path.is_file():
               raise SystemExit(0)
-          markers=("TARGET_REPORT =","EXACT_ACTUALS_PUBLISHED =")
+          markers=("TARGET_REPORT =","EXACT_ACTUALS_PUBLISHED =","SCHEDULE_CATALOG_REPORT =")
           selected=[line.strip() for line in path.read_text(encoding="utf-8",errors="replace").splitlines()
                     if any(marker in line for marker in markers)]
           payload="\n".join(selected[-160:]) or "No filtered live-sync diagnostics were emitted."
@@ -295,6 +297,34 @@ jobs:
           set -eEuo pipefail
           python - <<'PY'
           import json,time,urllib.request
+          from datetime import datetime,timedelta,timezone
+          from pathlib import Path
+          evidence=Path("live_deploy_evidence.txt").read_text(encoding="utf-8",errors="replace")
+          schedule_lines=[line for line in evidence.splitlines() if "SCHEDULE_CATALOG_REPORT =" in line]
+          if not schedule_lines:
+              raise SystemExit("SCHEDULE_CATALOG_REPORT_MISSING")
+          schedule=json.loads(schedule_lines[-1].split("SCHEDULE_CATALOG_REPORT =",1)[1].strip())
+          if schedule.get("result") != "PUBLISHED":
+              raise SystemExit(f"SCHEDULE_CATALOG_NOT_PUBLISHED={schedule}")
+          if schedule.get("missing_analysis"):
+              raise SystemExit(f"SCHEDULE_CATALOG_ANALYSIS_MISSING={schedule['missing_analysis']}")
+          ecuador=timezone(timedelta(hours=-5))
+          today=datetime.now(timezone.utc).astimezone(ecuador).date()
+          ids_by_day=schedule.get("event_ids_by_day") or {}
+          for offset in (0,1):
+              day=(today+timedelta(days=offset)).isoformat()
+              expected_day={int(value) for value in ids_by_day.get(day,[])}
+              if not expected_day:
+                  raise SystemExit(f"SCHEDULE_EXPECTED_DAY_EMPTY={day}")
+              url=f"https://oddshunter-mobile.vercel.app/api/day?offset={offset}&limit=1000&cb={time.time_ns()}"
+              req=urllib.request.Request(url,headers={"Cache-Control":"no-cache"})
+              with urllib.request.urlopen(req,timeout=45) as response:
+                  rows=json.load(response)
+              actual_day={int(row.get("event_id") or 0) for row in rows}
+              missing=sorted(expected_day-actual_day)
+              print(f"SCHEDULE_API_DAY={day} expected={len(expected_day)} actual={len(actual_day)} missing={missing}")
+              if missing:
+                  raise SystemExit(f"SCHEDULE_API_EVENTS_MISSING={day}:{missing}")
           expected={
               16629468:(1,1), 15353108:(5,1),
           }

@@ -491,3 +491,67 @@ def test_select_candidates_rotates_recent_simultaneous_fixtures() -> None:
     assert first_ids != second_ids
     assert len(first_ids | second_ids) == 4
     con.close()
+
+
+def test_schedule_catalog_contains_every_fixture_for_today_and_tomorrow(tmp_path) -> None:
+    con = sqlite3.connect(":memory:")
+    con.row_factory = sqlite3.Row
+    con.executescript(
+        """
+        CREATE TABLE leagues(league_id INTEGER PRIMARY KEY,name TEXT);
+        CREATE TABLE teams(team_id INTEGER PRIMARY KEY,sofascore_id INTEGER,name TEXT);
+        CREATE TABLE matches(
+          match_id INTEGER PRIMARY KEY,sofascore_id INTEGER,league_id INTEGER,
+          kickoff TEXT,status TEXT,home_goals INTEGER,away_goals INTEGER,
+          season TEXT,home_team_id INTEGER,away_team_id INTEGER
+        );
+        INSERT INTO leagues VALUES(1,'League');
+        INSERT INTO teams VALUES(1,101,'Home');
+        INSERT INTO teams VALUES(2,102,'Away');
+        INSERT INTO matches VALUES(1,9001,1,'2026-09-01T18:00:00+00:00','NS',NULL,NULL,'2026',1,2);
+        INSERT INTO matches VALUES(2,9002,1,'2026-09-02T18:00:00+00:00','NS',NULL,NULL,'2026',1,2);
+        INSERT INTO matches VALUES(3,9003,1,'2026-09-03T06:00:00+00:00','NS',NULL,NULL,'2026',1,2);
+        """
+    )
+    for event_id in (9001, 9002):
+        folder = tmp_path / "analisis" / "test-league" / str(event_id)
+        folder.mkdir(parents=True)
+        (folder / "goals.json").write_text(
+            json.dumps(
+                {
+                    "models": {
+                        "MODELO_APRENDIDO": {
+                            "model_name": "MODELO_APRENDIDO",
+                            "outcome_probabilities": {
+                                "home_win": 0.5,
+                                "draw": 0.3,
+                                "away_win": 0.2,
+                            },
+                        }
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
+        (folder / "status.json").write_text('{"status":"OK"}', encoding="utf-8")
+
+    catalog = live.build_schedule_catalog(
+        con,
+        datetime(2026, 9, 1, 16, 0, tzinfo=timezone.utc),
+        {1: {"key": "test-league", "league_id": 1}},
+        data_dir=tmp_path,
+    )
+
+    assert [row["event_id"] for row in catalog["events"]] == [9001, 9002]
+    assert catalog["counts_by_day"] == {"2026-09-01": 1, "2026-09-02": 1}
+    assert catalog["leagues_by_day"] == {
+        "2026-09-01": ["test-league"],
+        "2026-09-02": ["test-league"],
+    }
+    assert catalog["event_ids_by_day"] == {
+        "2026-09-01": [9001],
+        "2026-09-02": [9002],
+    }
+    assert all(json.loads(row["headline_json"])["home_win"] == 50.0 for row in catalog["events"])
+    assert catalog["missing_analysis"] == []
+    con.close()

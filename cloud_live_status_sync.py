@@ -25,6 +25,8 @@ DATA = ROOT / "data"
 DB = Path(os.environ.get("ODDSHUNTER_WORK_DB", str(DATA / "oddshunter.db")))
 REGISTRY = DATA / "competitions.json"
 REPORT = DATA / "automation" / "cloud_live_status" / "last.json"
+ECUADOR_TZ = timezone(timedelta(hours=-5))
+SCHEDULE_CATALOG_INTERVAL_MINUTES = 15
 
 FINAL_STATUSES = {"FT", "AET", "PEN", "FINISHED", "FINAL"}
 SPECIAL_STATUSES = {"CANCELED", "CANCELLED", "POSTPONED", "ABANDONED"}
@@ -483,6 +485,223 @@ def turso_client() -> Any:
     )
 
 
+def _schedule_pct(value: Any) -> float | None:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    if 0 <= number <= 1:
+        number *= 100
+    return round(number, 1)
+
+
+def _schedule_headline(goals: dict[str, Any]) -> dict[str, Any]:
+    models = goals.get("models") if isinstance(goals.get("models"), dict) else {}
+    learned = models.get("MODELO_APRENDIDO") if isinstance(models.get("MODELO_APRENDIDO"), dict) else {}
+    if not learned:
+        learned = models.get("MODELO_GOLES") if isinstance(models.get("MODELO_GOLES"), dict) else {}
+    if not learned:
+        learned = models.get("MODELO_XG") if isinstance(models.get("MODELO_XG"), dict) else {}
+    outcome = learned.get("outcome_probabilities") if isinstance(learned.get("outcome_probabilities"), dict) else {}
+    return {
+        "home_win": _schedule_pct(outcome.get("home_win")),
+        "draw": _schedule_pct(outcome.get("draw")),
+        "away_win": _schedule_pct(outcome.get("away_win")),
+        "model": learned.get("model_name"),
+    }
+
+
+def _schedule_status(value: Any) -> str:
+    normalized = str(value or "NS").strip().upper()
+    if normalized in {"NS", "SCHEDULED", "NOTSTARTED", "NOT_STARTED"}:
+        return "notstarted"
+    if normalized in {"INPROGRESS", "IN_PROGRESS", "LIVE"}:
+        return "inprogress"
+    return normalized.lower()
+
+
+def _read_analysis_documents(folder: Path) -> tuple[dict[str, dict[str, Any]], list[dict[str, Any]]]:
+    parsed: dict[str, dict[str, Any]] = {}
+    rows: list[dict[str, Any]] = []
+    if not folder.is_dir():
+        return parsed, rows
+    for path in sorted(folder.glob("*.json"), key=lambda item: item.name.casefold()):
+        try:
+            value = json.loads(path.read_text(encoding="utf-8-sig"))
+        except (OSError, UnicodeError, json.JSONDecodeError):
+            continue
+        if not isinstance(value, dict):
+            continue
+        parsed[path.stem] = value
+        rows.append(
+            {
+                "doc_name": path.stem,
+                "json_text": json.dumps(value, ensure_ascii=False, separators=(",", ":")),
+                "source_mtime": datetime.fromtimestamp(path.stat().st_mtime, timezone.utc).isoformat(),
+            }
+        )
+    return parsed, rows
+
+
+def build_schedule_catalog(
+    con: sqlite3.Connection,
+    now: datetime,
+    competitions: dict[int, dict[str, Any]],
+    *,
+    data_dir: Path = DATA,
+) -> dict[str, Any]:
+    """Build every PC fixture for today and tomorrow in Ecuador time.
+
+    Stage6 historically published only the analysis targets touched by its
+    latest micro-cycle.  That made complete PC schedules appear as one or two
+    leagues in Mobile.  This catalog is derived from the same working SQLite
+    and the same analysis JSONs as PC, so no fixture or probability is guessed.
+    """
+    local_today = now.astimezone(ECUADOR_TZ).date()
+    start = datetime.combine(local_today, datetime.min.time(), ECUADOR_TZ)
+    end = start + timedelta(days=2)
+    rows = con.execute(MATCH_SELECT, (iso_utc(start), iso_utc(end))).fetchall()
+    events: list[dict[str, Any]] = []
+    docs: list[dict[str, Any]] = []
+    missing_analysis: list[str] = []
+    counts_by_day: dict[str, int] = {}
+    leagues_by_day: dict[str, set[str]] = {}
+    event_ids_by_day: dict[str, list[int]] = {}
+
+    for raw in rows:
+        row = dict(raw)
+        competition = competitions.get(int(row["league_id"]))
+        if not competition:
+            continue
+        key = slugify(competition.get("key"))
+        event_id = int(row["event_id"])
+        folder = data_dir / "analisis" / key / str(event_id)
+        parsed, event_docs = _read_analysis_documents(folder)
+        if not event_docs:
+            missing_analysis.append(f"{key}/{event_id}")
+        for item in event_docs:
+            docs.append({"competition_key": key, "event_id": event_id, **item})
+
+        input_doc = parsed.get("input_match") or {}
+        analysis_doc = parsed.get("analysis") or {}
+        status_doc = parsed.get("status") or {}
+        source_event = input_doc.get("upcoming_match") or input_doc.get("evento") or analysis_doc.get("upcoming_match") or {}
+        goals = parsed.get("goals") or {}
+        headline = _schedule_headline(goals)
+        local_day = parse_dt(row.get("kickoff")).astimezone(ECUADOR_TZ).date().isoformat()
+        counts_by_day[local_day] = counts_by_day.get(local_day, 0) + 1
+        leagues_by_day.setdefault(local_day, set()).add(key)
+        event_ids_by_day.setdefault(local_day, []).append(event_id)
+        events.append(
+            {
+                "competition_key": key,
+                "event_id": event_id,
+                "competition_name": row.get("competition_name") or source_event.get("competition_name") or key,
+                "season_name": row.get("season_name") or source_event.get("season_name"),
+                "round_name": source_event.get("round_name"),
+                "stage": source_event.get("stage"),
+                "kickoff": iso_utc(parse_dt(row.get("kickoff"))),
+                "status": _schedule_status(row.get("status")),
+                "status_description": _schedule_status(row.get("status")),
+                "home_team_id": row.get("home_team_id"),
+                "home_team": row.get("home_team"),
+                "away_team_id": row.get("away_team_id"),
+                "away_team": row.get("away_team"),
+                "home_score": row.get("home_goals"),
+                "away_score": row.get("away_goals"),
+                "analysis_status": status_doc.get("status") or analysis_doc.get("status") or ("READY" if event_docs else "pending"),
+                "headline_json": json.dumps(headline, ensure_ascii=False, separators=(",", ":")),
+            }
+        )
+
+    return {
+        "events": events,
+        "docs": docs,
+        "missing_analysis": missing_analysis,
+        "counts_by_day": counts_by_day,
+        "leagues_by_day": {day: sorted(keys) for day, keys in leagues_by_day.items()},
+        "event_ids_by_day": {day: sorted(ids) for day, ids in event_ids_by_day.items()},
+    }
+
+
+def _schedule_catalog_due(client: Any, now: datetime) -> bool:
+    if os.environ.get("ODDSHUNTER_FORCE_SCHEDULE_CATALOG") == "1":
+        return True
+    rows = client.query("SELECT value FROM mobile_sync_meta WHERE key=? LIMIT 1", ["schedule_catalog_last_publish_at"])
+    previous = parse_dt(rows[0].get("value")) if rows else None
+    return previous is None or previous <= now - timedelta(minutes=SCHEDULE_CATALOG_INTERVAL_MINUTES)
+
+
+def publish_schedule_catalog(
+    client: Any,
+    now: datetime,
+    competitions: dict[int, dict[str, Any]],
+) -> dict[str, Any]:
+    """Publish the complete two-day PC catalog to Mobile/Turso."""
+    if not _schedule_catalog_due(client, now):
+        return {"result": "SKIPPED_INTERVAL"}
+    with connect_db(read_only=True) as con:
+        catalog = build_schedule_catalog(con, now, competitions)
+    events = catalog["events"]
+    docs = catalog["docs"]
+    if not events:
+        raise RuntimeError("El catálogo PC de hoy/mañana quedó vacío")
+
+    event_sql = (
+        "INSERT INTO mobile_events (competition_key,event_id,competition_name,season_name,round_name,stage,"
+        "kickoff,status,status_description,home_team_id,home_team,away_team_id,away_team,home_score,away_score,"
+        "analysis_status,headline_json) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) "
+        "ON CONFLICT (competition_key,event_id) DO UPDATE SET competition_name=excluded.competition_name,"
+        "season_name=excluded.season_name,round_name=excluded.round_name,stage=excluded.stage,kickoff=excluded.kickoff,"
+        "status=excluded.status,status_description=excluded.status_description,home_team_id=excluded.home_team_id,"
+        "home_team=excluded.home_team,away_team_id=excluded.away_team_id,away_team=excluded.away_team,"
+        "home_score=excluded.home_score,away_score=excluded.away_score,analysis_status=excluded.analysis_status,"
+        "headline_json=excluded.headline_json"
+    )
+    event_columns = (
+        "competition_key", "event_id", "competition_name", "season_name", "round_name", "stage", "kickoff",
+        "status", "status_description", "home_team_id", "home_team", "away_team_id", "away_team", "home_score",
+        "away_score", "analysis_status", "headline_json",
+    )
+    client.execute_many([(event_sql, [row.get(column) for column in event_columns]) for row in events], chunk=12)
+
+    doc_sql = (
+        "INSERT INTO mobile_analysis_docs (competition_key,event_id,doc_name,json_text,source_mtime) VALUES (?,?,?,?,?) "
+        "ON CONFLICT (competition_key,event_id,doc_name) DO UPDATE SET json_text=excluded.json_text,"
+        "source_mtime=excluded.source_mtime"
+    )
+    if docs:
+        client.execute_many(
+            [
+                (doc_sql, [row["competition_key"], row["event_id"], row["doc_name"], row["json_text"], row["source_mtime"]])
+                for row in docs
+            ],
+            chunk=12,
+        )
+    client.execute(
+        "INSERT INTO mobile_sync_meta (key,value) VALUES (?,?) ON CONFLICT (key) DO UPDATE SET value=excluded.value",
+        ["schedule_catalog_last_publish_at", iso_utc(now)],
+    )
+
+    expected_ids = sorted(int(row["event_id"]) for row in events)
+    placeholders = ",".join("?" for _ in expected_ids)
+    remote = client.query(f"SELECT event_id FROM mobile_events WHERE event_id IN ({placeholders})", expected_ids)
+    remote_ids = {int(row["event_id"]) for row in remote}
+    missing_remote = sorted(set(expected_ids) - remote_ids)
+    if missing_remote:
+        raise RuntimeError(f"Turso no publicó eventos del catálogo: {missing_remote}")
+    return {
+        "result": "PUBLISHED",
+        "event_count": len(events),
+        "doc_count": len(docs),
+        "event_ids": expected_ids,
+        "missing_analysis": catalog["missing_analysis"],
+        "counts_by_day": catalog["counts_by_day"],
+        "leagues_by_day": catalog["leagues_by_day"],
+        "event_ids_by_day": catalog["event_ids_by_day"],
+    }
+
+
 def publish_remote(
     client: Any,
     row: dict[str, Any],
@@ -887,6 +1106,11 @@ def run(
     competitions = registry_by_league()
     priority_ids = tuple(event_ids)
     client = None if dry_run else turso_client()
+    schedule_catalog = (
+        publish_schedule_catalog(client, now, competitions)
+        if client is not None
+        else {"result": "DRY_RUN"}
+    )
     exact_actuals_published = (
         publish_exact_actuals_file(
             client, os.environ.get("ODDSHUNTER_EXACT_ACTUALS_FILE", "")
@@ -928,6 +1152,7 @@ def run(
     report: dict[str, Any] = {
         "generated_at": iso_utc(now),
         "dry_run": dry_run,
+        "schedule_catalog": schedule_catalog,
         "candidate_count": len(candidates),
         "reconcile_count": len(local_finals),
         "exact_actuals_published": exact_actuals_published,
