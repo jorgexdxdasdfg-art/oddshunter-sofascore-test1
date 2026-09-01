@@ -32,6 +32,10 @@ function ohExpectedMetric(icon,label,home,away){
 
 drawSummaryExpectedChart=function(canvas,xgHistory,goalHistory){
   if(!canvas)return;
+  const rootStyle=getComputedStyle(document.documentElement);
+  const themeText=rootStyle.getPropertyValue("--text").trim()||"#17181b";
+  const themeMuted=rootStyle.getPropertyValue("--muted").trim()||"#77787e";
+  const themeLine=rootStyle.getPropertyValue("--line").trim()||"#e5e5e7";
   const dpr=window.devicePixelRatio||1,w=Math.max(300,canvas.clientWidth||320),h=210;
   canvas.width=Math.round(w*dpr);canvas.height=Math.round(h*dpr);
   const ctx=canvas.getContext("2d");ctx.setTransform(dpr,0,0,dpr,0,0);ctx.clearRect(0,0,w,h);
@@ -39,17 +43,17 @@ drawSummaryExpectedChart=function(canvas,xgHistory,goalHistory){
   const summary=state.currentMatch?.summary||{};
   const xgEnd=average(xgHistory)??(Number(summary.xg_total)||0);
   const goalEnd=average(goalHistory)??(Number(summary.expected_goals)||0);
-  if(!xgEnd&&!goalEnd){ctx.fillStyle="#777";ctx.font='13px system-ui';ctx.textAlign="center";ctx.fillText("Sin datos históricos suficientes",w/2,h/2);return}
+  if(!xgEnd&&!goalEnd){ctx.fillStyle=themeMuted;ctx.font='13px system-ui';ctx.textAlign="center";ctx.fillText("Sin datos históricos suficientes",w/2,h/2);return}
   const redWeights=[0,.05,.13,.29,.43,.55,.67,.78,.88,1];
   const blackWeights=[0,.03,.10,.19,.30,.41,.53,.66,.80,1];
   const red=redWeights.map(v=>v*xgEnd),black=blackWeights.map(v=>v*goalEnd);
   const left=34,right=48,top=14,bottom=31,innerW=w-left-right,innerH=h-top-bottom;
   const max=Math.max(3,Math.ceil(Math.max(...red,...black)*2)/2),xAt=i=>left+innerW*i/(red.length-1),yAt=v=>top+innerH-(v/max)*innerH;
   ctx.font='11px system-ui';ctx.textBaseline="middle";
-  for(let i=0;i<=3;i++){const y=top+innerH*i/3;ctx.strokeStyle="#e5e5e7";ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(left,y);ctx.lineTo(w-right,y);ctx.stroke();ctx.fillStyle="#777";ctx.textAlign="right";ctx.fillText(visibleNumber(max*(1-i/3)),left-7,y)}
+  for(let i=0;i<=3;i++){const y=top+innerH*i/3;ctx.strokeStyle=themeLine;ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(left,y);ctx.lineTo(w-right,y);ctx.stroke();ctx.fillStyle=themeMuted;ctx.textAlign="right";ctx.fillText(visibleNumber(max*(1-i/3)),left-7,y)}
   const draw=(arr,color,dashed)=>{ctx.strokeStyle=color;ctx.lineWidth=2.2;ctx.lineCap="round";ctx.lineJoin="round";ctx.setLineDash(dashed?[6,5]:[]);ctx.beginPath();arr.forEach((v,i)=>i?ctx.lineTo(xAt(i),yAt(v)):ctx.moveTo(xAt(i),yAt(v)));ctx.stroke();ctx.setLineDash([]);if(!dashed){ctx.fillStyle=color;arr.forEach((v,i)=>{ctx.beginPath();ctx.arc(xAt(i),yAt(v),2.2,0,Math.PI*2);ctx.fill()})}};
-  draw(red,"#ed1c2e",false);draw(black,"#111",true);
-  ctx.fillStyle="#777";ctx.textAlign="center";ctx.textBaseline="top";[0,15,30,45,60,75,90].forEach((m,i)=>ctx.fillText(`${m}'`,left+innerW*i/6,h-bottom+9));
+  draw(red,"#ed1c2e",false);draw(black,themeText,true);
+  ctx.fillStyle=themeMuted;ctx.textAlign="center";ctx.textBaseline="top";[0,15,30,45,60,75,90].forEach((m,i)=>ctx.fillText(`${m}'`,left+innerW*i/6,h-bottom+9));
   ctx.font='800 14px system-ui';ctx.textAlign="left";ctx.textBaseline="middle";
   const redNaturalY=yAt(xgEnd),blackNaturalY=yAt(goalEnd),labelGap=22;
   let redLabelY=redNaturalY,blackLabelY=blackNaturalY;
@@ -63,7 +67,7 @@ drawSummaryExpectedChart=function(canvas,xgHistory,goalHistory){
   }
   const clampLabel=y=>Math.max(minLabelY,Math.min(maxLabelY,y));
   ctx.fillStyle="#ed1c2e";ctx.fillText(visibleNumber(xgEnd),w-right+8,clampLabel(redLabelY));
-  ctx.fillStyle="#111";ctx.fillText(visibleNumber(goalEnd),w-right+8,clampLabel(blackLabelY));
+  ctx.fillStyle=themeText;ctx.fillText(visibleNumber(goalEnd),w-right+8,clampLabel(blackLabelY));
 };
 
 renderSummary = function(){
@@ -205,6 +209,10 @@ function ohTrendCard(title,canvasId,homeName,awayName){
 
 function ohDrawTrendLine(canvas,homeValues,awayValues,homeFinalAverage=null,awayFinalAverage=null){
   if(!canvas)return;
+  const rootStyle=getComputedStyle(document.documentElement);
+  const themeText=rootStyle.getPropertyValue("--text").trim()||"#17181b";
+  const themeMuted=rootStyle.getPropertyValue("--muted").trim()||"#77787e";
+  const themeLine=rootStyle.getPropertyValue("--line").trim()||"#e3e3e6";
   const dpr=window.devicePixelRatio||1;
   const width=Math.max(280,canvas.clientWidth||320),height=118;
   canvas.width=Math.round(width*dpr);canvas.height=Math.round(height*dpr);
@@ -213,7 +221,7 @@ function ohDrawTrendLine(canvas,homeValues,awayValues,homeFinalAverage=null,away
   const count=Math.max(homeValues.length,awayValues.length);
   const finite=[...homeValues,...awayValues].filter(Number.isFinite);
   if(!count||!finite.length){
-    ctx.fillStyle="#7a7a80";ctx.font="12px system-ui";ctx.textAlign="center";
+    ctx.fillStyle=themeMuted;ctx.font="12px system-ui";ctx.textAlign="center";
     ctx.fillText("Sin datos históricos suficientes",width/2,height/2);return;
   }
   const left=27,right=44,top=5,bottom=22;
@@ -224,9 +232,9 @@ function ohDrawTrendLine(canvas,homeValues,awayValues,homeFinalAverage=null,away
   ctx.font="9px system-ui";ctx.textBaseline="middle";
   for(let value=0;value<=maxValue;value++){
     const y=yAt(value);
-    ctx.strokeStyle="#e3e3e6";ctx.lineWidth=1;ctx.setLineDash(value? [3,3]:[]);
+    ctx.strokeStyle=themeLine;ctx.lineWidth=1;ctx.setLineDash(value? [3,3]:[]);
     ctx.beginPath();ctx.moveTo(left,y);ctx.lineTo(width-right,y);ctx.stroke();ctx.setLineDash([]);
-    ctx.fillStyle="#6f7076";ctx.textAlign="right";ctx.fillText(value.toFixed(1),left-7,y);
+    ctx.fillStyle=themeMuted;ctx.textAlign="right";ctx.fillText(value.toFixed(1),left-7,y);
   }
   const draw=(values,color)=>{
     ctx.strokeStyle=color;ctx.fillStyle=color;ctx.lineWidth=1.9;ctx.lineCap="round";ctx.lineJoin="round";
@@ -242,8 +250,8 @@ function ohDrawTrendLine(canvas,homeValues,awayValues,homeFinalAverage=null,away
       ctx.beginPath();ctx.arc(xAt(index),yAt(value),2,0,Math.PI*2);ctx.fill();
     });
   };
-  draw(homeValues,"#d62c31");draw(awayValues,"#242529");
-  ctx.fillStyle="#77787e";ctx.font="9px system-ui";ctx.textAlign="center";ctx.textBaseline="top";
+  draw(homeValues,"#d62c31");draw(awayValues,themeText);
+  ctx.fillStyle=themeMuted;ctx.font="9px system-ui";ctx.textAlign="center";ctx.textBaseline="top";
   for(let index=0;index<count;index++)ctx.fillText(String(index+1),xAt(index),height-bottom+6);
   const homeAverage=Number.isFinite(homeFinalAverage)?homeFinalAverage:ohTrendAverage(homeValues);
   const awayAverage=Number.isFinite(awayFinalAverage)?awayFinalAverage:ohTrendAverage(awayValues);
@@ -256,17 +264,21 @@ function ohDrawTrendLine(canvas,homeValues,awayValues,homeFinalAverage=null,away
   }
   ctx.font="800 13px system-ui";ctx.textAlign="right";ctx.textBaseline="middle";
   if(homeY!==null){ctx.fillStyle="#d62c31";ctx.fillText(homeAverage.toFixed(2),labelX,Math.max(minY,Math.min(maxY,homeY)))}
-  if(awayY!==null){ctx.fillStyle="#17181b";ctx.fillText(awayAverage.toFixed(2),labelX,Math.max(minY,Math.min(maxY,awayY)))}
+  if(awayY!==null){ctx.fillStyle=themeText;ctx.fillText(awayAverage.toFixed(2),labelX,Math.max(minY,Math.min(maxY,awayY)))}
 }
 
 function ohDrawTrendBtts(canvas,homeValues,awayValues){
   if(!canvas)return;
+  const rootStyle=getComputedStyle(document.documentElement);
+  const themeText=rootStyle.getPropertyValue("--text").trim()||"#17181b";
+  const themeMuted=rootStyle.getPropertyValue("--muted").trim()||"#77787e";
+  const themeLine=rootStyle.getPropertyValue("--line").trim()||"#e3e3e6";
   const dpr=window.devicePixelRatio||1;
   const width=Math.max(240,canvas.clientWidth||300),height=70;
   canvas.width=Math.round(width*dpr);canvas.height=Math.round(height*dpr);
   const ctx=canvas.getContext("2d");ctx.setTransform(dpr,0,0,dpr,0,0);ctx.clearRect(0,0,width,height);
   const count=Math.max(homeValues.length,awayValues.length);
-  if(!count){ctx.fillStyle="#777";ctx.font="12px system-ui";ctx.textAlign="center";ctx.fillText("Sin datos",width/2,height/2);return}
+  if(!count){ctx.fillStyle=themeMuted;ctx.font="12px system-ui";ctx.textAlign="center";ctx.fillText("Sin datos",width/2,height/2);return}
   const left=7,right=43,top=2,bottom=18,innerWidth=width-left-right,innerHeight=height-top-bottom;
   const slot=innerWidth/count,barWidth=Math.max(4,Math.min(9,slot*.27));
   const drawBar=(index,value,offset,color)=>{
@@ -277,10 +289,10 @@ function ohDrawTrendBtts(canvas,homeValues,awayValues){
   };
   for(let index=0;index<count;index++){
     drawBar(index,homeValues[index],-barWidth*.62,"#d62c31");
-    drawBar(index,awayValues[index],barWidth*.62,"#242529");
+    drawBar(index,awayValues[index],barWidth*.62,themeText);
   }
-  ctx.strokeStyle="#e3e3e6";ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(left,top+innerHeight+.5);ctx.lineTo(width-right,top+innerHeight+.5);ctx.stroke();
-  ctx.fillStyle="#77787e";ctx.font="9px system-ui";ctx.textAlign="center";ctx.textBaseline="top";
+  ctx.strokeStyle=themeLine;ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(left,top+innerHeight+.5);ctx.lineTo(width-right,top+innerHeight+.5);ctx.stroke();
+  ctx.fillStyle=themeMuted;ctx.font="9px system-ui";ctx.textAlign="center";ctx.textBaseline="top";
   for(let index=0;index<count;index++)ctx.fillText(String(index+1),left+slot*index+slot/2,height-bottom+5);
 }
 

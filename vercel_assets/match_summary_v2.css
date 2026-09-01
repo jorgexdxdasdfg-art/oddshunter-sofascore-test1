@@ -295,3 +295,68 @@
   .match-reference-light [data-view="match"] .summary-primary-value{font-size:15px}
   .match-reference-light [data-view="match"] .summary-caption{font-size:10px}
 }
+
+/* OH_MATCH_THEME_AND_TITLES_V22 */
+.match-reference-light [data-view="match"] .summary-card-head h3,
+.match-reference-light [data-view="match"] .expected-values-panel>h3,
+.match-reference-light [data-view="match"] .one-x-title{
+  font-size:14px;
+  line-height:1.15;
+  font-weight:850;
+  letter-spacing:-.15px;
+}
+
+:root[data-theme="dark"].match-reference-light{
+  --bg:#09090b;
+  --panel:#111114;
+  --panel-2:#17171b;
+  --panel-3:#1d1d22;
+  --text:#f7f7f8;
+  --muted:#9a9aa3;
+  --line:#2a2a30;
+  --green:#23b26d;
+  color-scheme:dark;
+}
+:root[data-theme="dark"].match-reference-light body,
+:root[data-theme="dark"].match-reference-light .app-header.match-mode,
+:root[data-theme="dark"].match-reference-light .bottom-nav{
+  background:var(--bg);
+  color:var(--text);
+}
+:root[data-theme="dark"].match-reference-light .header-favorite,
+:root[data-theme="dark"].match-reference-light #backBtn{
+  color:var(--text);
+}
+:root[data-theme="dark"].match-reference-light .summary-metric,
+:root[data-theme="dark"].match-reference-light .summary-chart-card,
+:root[data-theme="dark"].match-reference-light .expected-values-panel,
+:root[data-theme="dark"].match-reference-light .scorelines-panel{
+  background:var(--panel);
+}
+:root[data-theme="dark"].match-reference-light .lineup-strip{
+  background:linear-gradient(100deg,#10241d 0%,#10201b 68%,#11251e 100%);
+  border-color:#285a48;
+  box-shadow:0 6px 18px rgba(0,0,0,.2);
+}
+:root[data-theme="dark"].match-reference-light [data-view="match"] .analysis-tabs button{
+  color:var(--muted);
+}
+:root[data-theme="dark"].match-reference-light [data-view="match"] .analysis-tabs button.active{
+  color:var(--red-2);
+  border-color:var(--red-2);
+}
+:root[data-theme="dark"].match-reference-light .oh-er-v16-table td.exact,
+:root[data-theme="dark"].match-reference-light .oh-er-v16-table td.low,
+:root[data-theme="dark"].match-reference-light .oh-er-v16-table td.medium,
+:root[data-theme="dark"].match-reference-light .oh-er-v16-table td.high,
+:root[data-theme="dark"].match-reference-light .oh-er-v16-table td.miss{
+  color:#101014;
+}
+
+@media(max-width:430px){
+  .match-reference-light [data-view="match"] .summary-card-head h3,
+  .match-reference-light [data-view="match"] .expected-values-panel>h3,
+  .match-reference-light [data-view="match"] .one-x-title{
+    font-size:13px;
+  }
+}

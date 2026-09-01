@@ -18,6 +18,7 @@ NEW_LABEL = "Datos actualizados en línea"
 DETAIL_MARKER = "OH_MATCH_SUMMARY_FIXES_V11"
 COMPACT_SECONDARY_MARKER = "OH_COMPACT_SECONDARY_VIEWS_V20"
 MATCH_SUMMARY_COMPACT_MARKER = "OH_MATCH_SUMMARY_COMPACT_REFERENCE_V21"
+MATCH_THEME_MARKER = "OH_MATCH_THEME_AND_TITLES_V22"
 BALL_ASSET_NAME = "ball-3d-v10.png"
 BRAND_ASSET_NAME = "oddshunter-brand-logo.png"
 LEGACY_DETAIL_MARKERS = (
@@ -129,6 +130,8 @@ def patch_frontend(root: Path) -> dict[str, list[str]]:
         updated = text.rstrip() + "\n\n" + detail_css.rstrip() + "\n"
         if MATCH_SUMMARY_COMPACT_MARKER not in updated:
             raise RuntimeError(f"El CSS compacto del resumen quedó incompleto en {path}")
+        if MATCH_THEME_MARKER not in updated:
+            raise RuntimeError(f"El CSS de tema del análisis quedó incompleto en {path}")
         if updated != original:
             path.write_text(updated, encoding="utf-8", newline="\n")
         patched_styles.append(path.relative_to(root).as_posix())
@@ -158,9 +161,9 @@ def patch_frontend(root: Path) -> dict[str, list[str]]:
     patched_indexes: list[str] = []
     for path in sorted(root.glob("**/index.html")):
         text = path.read_text(encoding="utf-8")
-        updated = re.sub(r"app\.css\?v=[^\"']+", "app.css?v=1.17.0-match-summary-compact", text)
-        updated = re.sub(r"app\.js\?v=[^\"']+", "app.js?v=1.17.0-match-summary-compact", updated)
-        updated = re.sub(r"sw\.js\?v=[^\"']+", "sw.js?v=1.17.0-match-summary-compact", updated)
+        updated = re.sub(r"app\.css\?v=[^\"']+", "app.css?v=1.18.0-match-theme", text)
+        updated = re.sub(r"app\.js\?v=[^\"']+", "app.js?v=1.18.0-match-theme", updated)
+        updated = re.sub(r"sw\.js\?v=[^\"']+", "sw.js?v=1.18.0-match-theme", updated)
         updated = re.sub(r'(<div class="logo-box"><img\s+)src="[^"]+"', rf'\1src="/assets/icons/{BRAND_ASSET_NAME}"', updated)
         if updated != text:
             path.write_text(updated, encoding="utf-8", newline="\n")
@@ -169,7 +172,7 @@ def patch_frontend(root: Path) -> dict[str, list[str]]:
     patched_workers: list[str] = []
     for path in sorted(root.glob("**/sw.js")):
         text = path.read_text(encoding="utf-8")
-        updated = re.sub(r"oh-mobile-v[^\"']+", "oh-mobile-v1-17-0-match-summary-compact", text)
+        updated = re.sub(r"oh-mobile-v[^\"']+", "oh-mobile-v1-18-0-match-theme", text)
         if updated != text:
             path.write_text(updated, encoding="utf-8", newline="\n")
             patched_workers.append(path.relative_to(root).as_posix())
