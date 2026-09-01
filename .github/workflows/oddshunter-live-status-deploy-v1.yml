@@ -177,9 +177,11 @@ jobs:
               if item.get("reconciliation"):
                   continue
               compact={
-                  "event_id":item.get("event_id"), "match":item.get("match"),
-                  "result":item.get("result"), "error":item.get("error"),
-                  "provider_log":(item.get("provider_log") or [])[-3:],
+                   "event_id":item.get("event_id"), "match":item.get("match"),
+                   "result":item.get("result"), "error":item.get("error"),
+                   "source":item.get("source"),
+                   "final_actuals":item.get("final_actuals"),
+                   "provider_log":(item.get("provider_log") or [])[-10:],
                   "state":(item.get("snapshot") or {}).get("state"),
               }
               print("TARGET_REPORT =",json.dumps(compact,ensure_ascii=False,separators=(",",":")))

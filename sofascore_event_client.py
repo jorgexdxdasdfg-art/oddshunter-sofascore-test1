@@ -10,7 +10,10 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 BASE_URL = "https://api.sofascore.com/api/v1/event/{event_id}"
-STATISTICS_URL = "https://api.sofascore.com/api/v1/event/{event_id}/statistics"
+STATISTICS_URLS = (
+    "https://www.sofascore.com/api/v1/event/{event_id}/statistics",
+    "https://api.sofascore.com/api/v1/event/{event_id}/statistics",
+)
 RETRYABLE_STATUS = {429, 500, 502, 503, 504}
 
 def _integer(value: Any) -> int | None:
@@ -176,18 +179,27 @@ class SofaScoreEventClient:
         )
         snapshot = snapshot_from_document(event_id, document, row)
         if snapshot.get("state") == "finished":
-            try:
-                statistics = self._fetch_json(
-                    STATISTICS_URL.format(event_id=event_id),
-                    label=f"estadísticas event_id={event_id}",
-                )
-                actuals = final_actuals_from_statistics_document(event_id, statistics)
-                if actuals is not None:
-                    snapshot["final_actuals"] = actuals
-            except Exception as exc:
-                # The score remains useful while the statistics-debt scheduler
-                # retries the exact event on subsequent minute runs.
-                self.logger(
-                    f"SofaScore estadísticas pendientes event_id={event_id}: {exc}"
-                )
+            for template in STATISTICS_URLS:
+                try:
+                    statistics = self._fetch_json(
+                        template.format(event_id=event_id),
+                        label=f"estadísticas event_id={event_id}",
+                    )
+                    actuals = final_actuals_from_statistics_document(
+                        event_id, statistics
+                    )
+                    if actuals is not None:
+                        snapshot["final_actuals"] = actuals
+                        break
+                    self.logger(
+                        f"SofaScore estadísticas vacías event_id={event_id} "
+                        f"host={template.split('/')[2]}"
+                    )
+                except Exception as exc:
+                    # The score remains useful while the statistics-debt
+                    # scheduler retries the exact event on subsequent runs.
+                    self.logger(
+                        f"SofaScore estadísticas pendientes event_id={event_id} "
+                        f"host={template.split('/')[2]}: {exc}"
+                    )
         return snapshot
