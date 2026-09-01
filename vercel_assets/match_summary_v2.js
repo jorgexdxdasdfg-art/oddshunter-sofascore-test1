@@ -642,11 +642,11 @@ renderExpected=function(){
     $("matchContent").innerHTML=`<div class="panel expected-lock"><h3>Esperado / Real</h3><p>${esc(expectedReal.reason||"Disponible al finalizar.")}</p><p>La predicción ya está guardada y la comparación aparecerá automáticamente al terminar el partido.</p></div>`;
     return;
   }
-  const real=expectedReal.real||{},expected=expectedReal.expected||{},homeHistory=page.comparison?.home?.summary||{},awayHistory=page.comparison?.away?.summary||{};
+  const real=expectedReal.real||{},expected=expectedReal.expected||{};
   const predicted={
-    xgHome:ohERFinite(expected.xg_home??summary.xg_home??expected.goals_home),xgAway:ohERFinite(expected.xg_away??summary.xg_away??expected.goals_away),
-    cornersHome:ohERFinite(expected.corners_home??homeHistory.corners),cornersAway:ohERFinite(expected.corners_away??awayHistory.corners),
-    yellowsHome:ohERFinite(expected.yellow_cards_home??homeHistory.yellow_cards),yellowsAway:ohERFinite(expected.yellow_cards_away??awayHistory.yellow_cards),
+    xgHome:ohERFinite(expected.goals_home??expected.xg_home??summary.xg_home),xgAway:ohERFinite(expected.goals_away??expected.xg_away??summary.xg_away),
+    cornersHome:ohERFinite(expected.corners_home),cornersAway:ohERFinite(expected.corners_away),
+    yellowsHome:ohERFinite(expected.yellow_cards_home),yellowsAway:ohERFinite(expected.yellow_cards_away),
     shotsHome:ohERFinite(expected.shots_home??summary.shots_home),shotsAway:ohERFinite(expected.shots_away??summary.shots_away)
   };
   predicted.corners=ohERSum(predicted.cornersHome,predicted.cornersAway);predicted.yellows=ohERSum(predicted.yellowsHome,predicted.yellowsAway);predicted.shots=ohERSum(predicted.shotsHome,predicted.shotsAway);

@@ -244,6 +244,32 @@ def test_final_actuals_core_complete_does_not_require_xg() -> None:
     assert not live.final_actuals_core_complete(payload)
 
 
+def test_merge_final_actuals_updates_counts_but_preserves_valid_xg() -> None:
+    existing = {
+        "real": {
+            "home_xg": 1.67,
+            "away_xg": 2.38,
+            "home_shots": 15,
+            "away_shots": 15,
+        },
+        "source": "earlier-provider-snapshot",
+    }
+    incoming = {
+        "real": {
+            "home_xg": 0,
+            "away_xg": 0,
+            "home_shots": 15,
+            "away_shots": 16,
+        },
+        "source": "sofascore-event-id",
+    }
+    merged = live.merge_final_actuals_payload(existing, incoming)
+    assert merged["real"]["home_xg"] == 1.67
+    assert merged["real"]["away_xg"] == 2.38
+    assert merged["real"]["away_shots"] == 16
+    assert merged["source"] == "sofascore-event-id"
+
+
 class RemoteCandidateTurso:
     def __init__(self, rows: list[dict[str, object]]) -> None:
         self.rows = rows
@@ -274,6 +300,7 @@ def _remote_row(
         "home_score": 1 if status == "FT" else None,
         "away_score": 0 if status == "FT" else None,
         "final_actuals_json": json.dumps(actuals) if actuals is not None else None,
+        "final_actuals_mtime": (now - timedelta(hours=1)).timestamp(),
     }
 
 
@@ -292,11 +319,29 @@ def test_select_remote_candidates_retries_finished_event_without_actuals() -> No
     assert chosen[0]["actuals_debt"] is True
 
 
-def test_select_remote_candidates_skips_finished_event_with_complete_actuals() -> None:
+def test_select_remote_candidates_refreshes_recent_complete_actuals() -> None:
     now = datetime(2026, 9, 1, 16, 0, tzinfo=timezone.utc)
     client = RemoteCandidateTurso(
         [_remote_row(7002, now, actuals=_complete_final_actuals())]
     )
+    chosen = live.select_remote_candidates(
+        client,
+        now,
+        {1: {"key": "test-league", "league_id": 1, "name": "Test League"}},
+        event_ids=(),
+        near_limit=5,
+        overdue_limit=5,
+    )
+    assert [row["event_id"] for row in chosen] == [7002]
+    assert chosen[0]["actuals_debt"] is False
+    assert chosen[0]["actuals_refresh"] is True
+
+
+def test_select_remote_candidates_skips_old_finished_event_with_complete_actuals() -> None:
+    now = datetime(2026, 9, 1, 16, 0, tzinfo=timezone.utc)
+    row = _remote_row(7004, now, actuals=_complete_final_actuals())
+    row["kickoff"] = (now - timedelta(hours=25)).isoformat()
+    client = RemoteCandidateTurso([row])
     chosen = live.select_remote_candidates(
         client,
         now,

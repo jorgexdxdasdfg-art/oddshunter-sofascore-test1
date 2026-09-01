@@ -134,6 +134,13 @@ FINAL_ACTUAL_CORE_FIELDS = (
     "away_shots",
 )
 
+# Los proveedores suelen corregir xG, remates y tarjetas durante las horas
+# posteriores al pitido final. Aunque el primer box score ya esté completo,
+# se vuelve a consultar durante esta ventana para que Mobile converja al mismo
+# documento definitivo que usa OddsHunter PC.
+FINAL_ACTUALS_REFRESH_HOURS = 24
+FINAL_ACTUALS_REFRESH_INTERVAL_MINUTES = 15
+
 
 def final_actuals_core_complete(payload: Any) -> bool:
     """Return whether the real FT box score is complete enough for the app.
@@ -154,6 +161,37 @@ def final_actuals_core_complete(payload: Any) -> bool:
     if not isinstance(real, dict):
         return False
     return all(real.get(field) is not None for field in FINAL_ACTUAL_CORE_FIELDS)
+
+
+def merge_final_actuals_payload(
+    existing: dict[str, Any] | None,
+    incoming: dict[str, Any],
+) -> dict[str, Any]:
+    """Merge provider revisions without replacing useful values with blanks.
+
+    Some competitions temporarily return xG as 0-0 after previously exposing
+    a non-zero pair. That provider regression must not erase a verified value,
+    while corrected counts such as shots and cards should still replace the
+    earlier snapshot.
+    """
+    previous = existing if isinstance(existing, dict) else {}
+    old_real = previous.get("real") if isinstance(previous.get("real"), dict) else {}
+    new_real = incoming.get("real") if isinstance(incoming.get("real"), dict) else {}
+    merged_real = dict(old_real)
+    merged_real.update({key: value for key, value in new_real.items() if value is not None})
+
+    old_xg = (old_real.get("home_xg"), old_real.get("away_xg"))
+    new_xg = (new_real.get("home_xg"), new_real.get("away_xg"))
+    try:
+        old_has_signal = any(float(value or 0) > 0 for value in old_xg)
+        new_is_zero_pair = all(value is not None and float(value) == 0 for value in new_xg)
+    except (TypeError, ValueError):
+        old_has_signal = False
+        new_is_zero_pair = False
+    if old_has_signal and new_is_zero_pair:
+        merged_real["home_xg"], merged_real["away_xg"] = old_xg
+
+    return {**previous, **incoming, "real": merged_real}
 
 
 def _pending(row: sqlite3.Row) -> bool:
@@ -260,7 +298,11 @@ def select_remote_candidates(
         "(SELECT json_text FROM mobile_analysis_docs AS d "
         "WHERE d.competition_key=mobile_events.competition_key "
         "AND d.event_id=mobile_events.event_id "
-        "AND d.doc_name='expected_real_actuals' LIMIT 1) AS final_actuals_json "
+        "AND d.doc_name='expected_real_actuals' LIMIT 1) AS final_actuals_json, "
+        "(SELECT source_mtime FROM mobile_analysis_docs AS d "
+        "WHERE d.competition_key=mobile_events.competition_key "
+        "AND d.event_id=mobile_events.event_id "
+        "AND d.doc_name='expected_real_actuals' LIMIT 1) AS final_actuals_mtime "
         "FROM mobile_events WHERE datetime(kickoff)>=datetime(?) "
         "AND datetime(kickoff)<=datetime(?)",
         [iso_utc(now - timedelta(hours=72)), iso_utc(now + timedelta(minutes=5))],
@@ -281,7 +323,27 @@ def select_remote_candidates(
             and raw.get("away_score") is not None
             and not final_actuals_core_complete(raw.get("final_actuals_json"))
         )
-        pending_state = status not in SPECIAL_STATUSES and (score_debt or actuals_debt)
+        try:
+            actuals_updated_at = datetime.fromtimestamp(
+                float(raw.get("final_actuals_mtime")), tz=timezone.utc
+            )
+        except (TypeError, ValueError, OSError):
+            actuals_updated_at = None
+        actuals_refresh = (
+            status in FINAL_STATUSES
+            and raw.get("home_score") is not None
+            and raw.get("away_score") is not None
+            and kickoff is not None
+            and kickoff >= now - timedelta(hours=FINAL_ACTUALS_REFRESH_HOURS)
+            and (
+                actuals_updated_at is None
+                or actuals_updated_at
+                <= now - timedelta(minutes=FINAL_ACTUALS_REFRESH_INTERVAL_MINUTES)
+            )
+        )
+        pending_state = status not in SPECIAL_STATUSES and (
+            score_debt or actuals_debt or actuals_refresh
+        )
         if kickoff is None or competition is None or not pending_state:
             continue
         event_id = int(raw.get("event_id") or 0)
@@ -304,6 +366,7 @@ def select_remote_candidates(
                 "away_team": raw.get("away_team"),
                 "remote_only": True,
                 "actuals_debt": actuals_debt,
+                "actuals_refresh": actuals_refresh,
             }
         )
 
@@ -653,6 +716,19 @@ def publish_final_actuals(
     payload: dict[str, Any],
 ) -> None:
     event_id = int(row["event_id"])
+    competition_key = slugify(competition.get("key"))
+    existing_rows = client.query(
+        "SELECT json_text FROM mobile_analysis_docs WHERE competition_key=? "
+        "AND event_id=? AND doc_name='expected_real_actuals' LIMIT 1",
+        [competition_key, event_id],
+    )
+    existing: dict[str, Any] = {}
+    if existing_rows:
+        try:
+            existing = json.loads(str(existing_rows[0].get("json_text") or "{}"))
+        except (TypeError, ValueError, json.JSONDecodeError):
+            existing = {}
+    payload = merge_final_actuals_payload(existing, payload)
     real = payload.get("real") or {}
     client.execute(
         "UPDATE matches SET home_goals_1h=COALESCE(?,home_goals_1h),"
@@ -667,7 +743,6 @@ def publish_final_actuals(
             event_id,
         ],
     )
-    competition_key = slugify(competition.get("key"))
     client.execute(
         "INSERT INTO mobile_analysis_docs "
         "(competition_key,event_id,doc_name,json_text,source_mtime) VALUES (?,?,?,?,?) "

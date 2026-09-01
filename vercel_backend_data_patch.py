@@ -74,6 +74,40 @@ EXPECTED_REAL_RESULT_PATCHED = '''        if row:
     finally:
 '''
 
+EXPECTED_REAL_CALL = '        "expected_real": expected_real_payload(event, primary, model_xg),\n'
+EXPECTED_REAL_CALL_PATCHED = (
+    '        "expected_real": expected_real_payload(\n'
+    '            event, primary, model_xg, corners_analysis, cards_analysis, shots\n'
+    '        ),\n'
+)
+
+EXPECTED_REAL_SIGNATURE = (
+    'def expected_real_payload(event: dict[str, Any], primary: dict[str, Any], '
+    'model_xg: dict[str, Any]) -> dict[str, Any]:\n'
+)
+EXPECTED_REAL_SIGNATURE_PATCHED = '''def expected_real_payload(
+    event: dict[str, Any],
+    primary: dict[str, Any],
+    model_xg: dict[str, Any],
+    corners_analysis: dict[str, Any],
+    cards_analysis: dict[str, Any],
+    shots: dict[str, Any],
+) -> dict[str, Any]:
+'''
+
+EXPECTED_MARKET_FIELDS_ANCHOR = '''            "goals_home": primary.get("lambda_home"),
+            "goals_away": primary.get("lambda_away"),
+            "xg_home": model_xg.get("lambda_home"),
+            "xg_away": model_xg.get("lambda_away"),
+'''
+EXPECTED_MARKET_FIELDS_PATCHED = EXPECTED_MARKET_FIELDS_ANCHOR + '''            "corners_home": safe_dict(corners_analysis.get("home_team")).get("expected_corners"),
+            "corners_away": safe_dict(corners_analysis.get("away_team")).get("expected_corners"),
+            "yellow_cards_home": safe_dict(cards_analysis.get("home_team")).get("expected_yellow_cards"),
+            "yellow_cards_away": safe_dict(cards_analysis.get("away_team")).get("expected_yellow_cards"),
+            "shots_home": safe_dict(shots.get("home_team")).get("expected_count"),
+            "shots_away": safe_dict(shots.get("away_team")).get("expected_count"),
+'''
+
 LINEUP_FUNCTION = '''# OH_LINEUP_LATEST_TEAM_FALLBACK_V2
 def _database_lineup_payload(event_id: int) -> dict[str, Any] | None:
     try:
@@ -369,6 +403,27 @@ def patch_backend(root: Path) -> list[str]:
             EXPECTED_REAL_RESULT_ANCHOR,
             EXPECTED_REAL_RESULT_PATCHED,
             "estadísticas finales reales en esperado/real",
+        )
+    if EXPECTED_REAL_CALL_PATCHED not in text:
+        text = replace_once(
+            text,
+            EXPECTED_REAL_CALL,
+            EXPECTED_REAL_CALL_PATCHED,
+            "mercados previstos por equipo en esperado/real",
+        )
+    if EXPECTED_REAL_SIGNATURE_PATCHED not in text:
+        text = replace_once(
+            text,
+            EXPECTED_REAL_SIGNATURE,
+            EXPECTED_REAL_SIGNATURE_PATCHED,
+            "firma de mercados previstos en esperado/real",
+        )
+    if '"corners_home": safe_dict(corners_analysis.get("home_team"))' not in text:
+        text = replace_once(
+            text,
+            EXPECTED_MARKET_FIELDS_ANCHOR,
+            EXPECTED_MARKET_FIELDS_PATCHED,
+            "valores previstos de córners tarjetas y remates",
         )
     patched_signals = (
         TEAM_RECENT_SCORE_COLUMNS_PATCHED,
