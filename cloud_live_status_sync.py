@@ -8,6 +8,7 @@ only after a match is final.
 """
 
 import argparse
+import gzip
 import json
 import os
 import sqlite3
@@ -27,6 +28,9 @@ REGISTRY = DATA / "competitions.json"
 REPORT = DATA / "automation" / "cloud_live_status" / "last.json"
 ECUADOR_TZ = timezone(timedelta(hours=-5))
 SCHEDULE_CATALOG_INTERVAL_MINUTES = 15
+SCHEDULE_CATALOG_SEED = Path(
+    os.environ.get("ODDSHUNTER_SCHEDULE_CATALOG_SEED", str(DB.parent / "mobile_schedule_catalog_seed.json.gz"))
+)
 
 FINAL_STATUSES = {"FT", "AET", "PEN", "FINISHED", "FINAL"}
 SPECIAL_STATUSES = {"CANCELED", "CANCELLED", "POSTPONED", "ABANDONED"}
@@ -642,6 +646,38 @@ def publish_schedule_catalog(
         return {"result": "SKIPPED_INTERVAL"}
     with connect_db(read_only=True) as con:
         catalog = build_schedule_catalog(con, now, competitions)
+    if not catalog["events"] and SCHEDULE_CATALOG_SEED.is_file():
+        with gzip.open(SCHEDULE_CATALOG_SEED, "rt", encoding="utf-8") as handle:
+            seeded = json.load(handle)
+        local_today = now.astimezone(ECUADOR_TZ).date()
+        allowed_days = {local_today.isoformat(), (local_today + timedelta(days=1)).isoformat()}
+        seeded_events = [
+            row for row in seeded.get("events", [])
+            if parse_dt(row.get("kickoff"))
+            and parse_dt(row.get("kickoff")).astimezone(ECUADOR_TZ).date().isoformat() in allowed_days
+        ]
+        allowed_ids = {(str(row.get("competition_key")), int(row.get("event_id"))) for row in seeded_events}
+        seeded_docs = [
+            row for row in seeded.get("docs", [])
+            if (str(row.get("competition_key")), int(row.get("event_id"))) in allowed_ids
+        ]
+        counts_by_day: dict[str, int] = {}
+        leagues_by_day: dict[str, set[str]] = {}
+        event_ids_by_day: dict[str, list[int]] = {}
+        for row in seeded_events:
+            day = parse_dt(row.get("kickoff")).astimezone(ECUADOR_TZ).date().isoformat()
+            counts_by_day[day] = counts_by_day.get(day, 0) + 1
+            leagues_by_day.setdefault(day, set()).add(str(row["competition_key"]))
+            event_ids_by_day.setdefault(day, []).append(int(row["event_id"]))
+        catalog = {
+            "events": seeded_events,
+            "docs": seeded_docs,
+            "missing_analysis": [],
+            "counts_by_day": counts_by_day,
+            "leagues_by_day": {day: sorted(keys) for day, keys in leagues_by_day.items()},
+            "event_ids_by_day": {day: sorted(ids) for day, ids in event_ids_by_day.items()},
+            "source": "desktop_catalog_seed",
+        }
     events = catalog["events"]
     docs = catalog["docs"]
     if not events:

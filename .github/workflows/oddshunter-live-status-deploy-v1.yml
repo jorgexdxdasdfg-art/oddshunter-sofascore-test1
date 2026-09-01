@@ -10,6 +10,7 @@ on:
       - sofascore_event_client.py
       - deploy/oddshunter-live-sync.service
       - deploy/oddshunter-live-sync.timer
+      - deploy/mobile_schedule_catalog_seed.json.gz
       - tests/test_cloud_live_status_sync.py
       - tests/test_futbol24_resolver.py
       - .github/workflows/oddshunter-live-status-deploy-v1.yml
@@ -121,6 +122,10 @@ jobs:
             -o BatchMode=yes -o StrictHostKeyChecking=yes \
             exact_final_actuals.json \
             "$VPS_USER@$VPS_HOST:/tmp/exact_final_actuals.json"
+          scp -i ~/.ssh/oddshunter_live -P "$VPS_PORT" \
+            -o BatchMode=yes -o StrictHostKeyChecking=yes \
+            deploy/mobile_schedule_catalog_seed.json.gz \
+            "$VPS_USER@$VPS_HOST:/tmp/mobile_schedule_catalog_seed.json.gz"
 
       - name: Instalar, ejecutar y verificar
         env:
@@ -183,6 +188,8 @@ jobs:
             /tmp/oddshunter-live-sync.timer /etc/systemd/system/oddshunter-live-sync.timer
           $SUDO install -o oddshunter -g oddshunter -m 0640 \
             /tmp/exact_final_actuals.json /var/lib/oddshunter/data/exact_final_actuals.json
+          $SUDO install -o oddshunter -g oddshunter -m 0640 \
+            /tmp/mobile_schedule_catalog_seed.json.gz /var/lib/oddshunter/data/mobile_schedule_catalog_seed.json.gz
 
           $SUDO -u oddshunter "$PY" - "$CUR/cloud_live_status_sync.py" <<'PY'
           from pathlib import Path
