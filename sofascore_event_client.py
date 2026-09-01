@@ -9,7 +9,10 @@ from typing import Any, Callable, Mapping
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
-BASE_URL = "https://api.sofascore.com/api/v1/event/{event_id}"
+BASE_URLS = (
+    "https://www.sofascore.com/api/v1/event/{event_id}",
+    "https://api.sofascore.com/api/v1/event/{event_id}",
+)
 STATISTICS_URLS = (
     "https://www.sofascore.com/api/v1/event/{event_id}/statistics",
     "https://api.sofascore.com/api/v1/event/{event_id}/statistics",
@@ -173,11 +176,26 @@ class SofaScoreEventClient:
 
     def get_match_snapshot(self, row: Mapping[str, Any]) -> dict[str, Any]:
         event_id = int(row["event_id"])
-        document = self._fetch_json(
-            BASE_URL.format(event_id=event_id),
-            label=f"event_id={event_id}",
-        )
-        snapshot = snapshot_from_document(event_id, document, row)
+        snapshot: dict[str, Any] | None = None
+        last_error: Exception | None = None
+        for template in BASE_URLS:
+            try:
+                document = self._fetch_json(
+                    template.format(event_id=event_id),
+                    label=f"event_id={event_id}",
+                )
+                snapshot = snapshot_from_document(event_id, document, row)
+                break
+            except Exception as exc:
+                last_error = exc
+                self.logger(
+                    f"SofaScore evento pendiente event_id={event_id} "
+                    f"host={template.split('/')[2]}: {exc}"
+                )
+        if snapshot is None:
+            raise RuntimeError(
+                f"SofaScore event_id={event_id} no disponible: {last_error}"
+            )
         if snapshot.get("state") == "finished":
             for template in STATISTICS_URLS:
                 try:
