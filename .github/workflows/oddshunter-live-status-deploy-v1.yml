@@ -37,6 +37,7 @@ jobs:
         run: |
           python - <<'PY'
           import json
+          import subprocess
           from datetime import datetime, timezone
           from urllib.request import Request, urlopen
           from sofascore_event_client import final_actuals_from_statistics_document
@@ -52,8 +53,11 @@ jobs:
           for event_id,event in events.items():
               url=f"https://www.sofascore.com/api/v1/event/{event_id}/statistics"
               try:
-                  with urlopen(Request(url,headers={"Accept":"application/json","User-Agent":"Mozilla/5.0"}),timeout=30) as response:
-                      actuals=final_actuals_from_statistics_document(event_id,json.load(response))
+                  completed=subprocess.run(
+                      ["curl","-fsSL","--max-time","30","-H","Accept: application/json","-H","User-Agent: Mozilla/5.0",url],
+                      check=True,capture_output=True,text=True,timeout=35,
+                  )
+                  actuals=final_actuals_from_statistics_document(event_id,json.loads(completed.stdout))
                   if actuals:
                       repaired.append({
                           "event_id":event_id,
@@ -215,6 +219,7 @@ jobs:
           import json,sys
           with open(sys.argv[1],encoding="utf-8") as handle:
               report=json.load(handle)
+          print("EXACT_ACTUALS_PUBLISHED =",report.get("exact_actuals_published",0))
           for item in report.get("events",[]):
               if item.get("reconciliation"):
                   continue
@@ -272,7 +277,7 @@ jobs:
           path=Path("live_deploy_evidence.txt")
           if not path.is_file():
               raise SystemExit(0)
-          markers=("TARGET_REPORT =",)
+          markers=("TARGET_REPORT =","EXACT_ACTUALS_PUBLISHED =")
           selected=[line.strip() for line in path.read_text(encoding="utf-8",errors="replace").splitlines()
                     if any(marker in line for marker in markers)]
           payload="\n".join(selected[-160:]) or "No filtered live-sync diagnostics were emitted."
