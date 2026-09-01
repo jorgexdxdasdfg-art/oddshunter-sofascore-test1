@@ -127,6 +127,8 @@ def patch_frontend(root: Path) -> dict[str, list[str]]:
         if marker_positions:
             text = text[: min(marker_positions)].rstrip()
         updated = text.rstrip() + "\n\n" + detail_css.rstrip() + "\n"
+        if MATCH_SUMMARY_COMPACT_MARKER not in updated:
+            raise RuntimeError(f"El CSS compacto del resumen quedó incompleto en {path}")
         if updated != original:
             path.write_text(updated, encoding="utf-8", newline="\n")
         patched_styles.append(path.relative_to(root).as_posix())
@@ -174,7 +176,7 @@ def patch_frontend(root: Path) -> dict[str, list[str]]:
 
     for path in app_candidates:
         text = path.read_text(encoding="utf-8")
-        if any(old in text for old in OLD_LABELS) or NEW_LABEL not in text or DETAIL_MARKER not in text or COMPACT_SECONDARY_MARKER not in text or MATCH_SUMMARY_COMPACT_MARKER not in text or "OH_EXPECTED_REAL_COMPARISON_V16" not in text:
+        if any(old in text for old in OLD_LABELS) or NEW_LABEL not in text or DETAIL_MARKER not in text or COMPACT_SECONDARY_MARKER not in text or "OH_EXPECTED_REAL_COMPARISON_V16" not in text:
             raise RuntimeError(f"El parche de frontend quedó incompleto en {path}")
     return {"backend": patched_backend, "app_js": patched_apps, "app_css": patched_styles, "icon_assets": patched_icons, "index_html": patched_indexes, "service_worker": patched_workers}
 
