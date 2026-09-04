@@ -668,14 +668,21 @@ def publish_schedule_catalog(
         event_map = {
             (str(row.get("competition_key")), int(row.get("event_id"))): row
             for row in catalog.get("events", [])
+            if parse_dt(row.get("kickoff"))
+            and parse_dt(row.get("kickoff")).astimezone(ECUADOR_TZ).date().isoformat() not in allowed_days
         }
         event_map.update({
             (str(row.get("competition_key")), int(row.get("event_id"))): row
             for row in seeded_events
         })
+        allowed_local_ids = {
+            (str(row.get("competition_key")), int(row.get("event_id")))
+            for row in event_map.values()
+        }
         doc_map = {
             (str(row.get("competition_key")), int(row.get("event_id")), str(row.get("doc_name"))): row
             for row in catalog.get("docs", [])
+            if (str(row.get("competition_key")), int(row.get("event_id"))) in allowed_local_ids
         }
         doc_map.update({
             (str(row.get("competition_key")), int(row.get("event_id")), str(row.get("doc_name"))): row
