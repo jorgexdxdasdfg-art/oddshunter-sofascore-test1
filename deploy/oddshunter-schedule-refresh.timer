@@ -1,0 +1,12 @@
+[Unit]
+Description=Refresh every OddsHunter league schedule automatically
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=6h
+RandomizedDelaySec=5min
+Persistent=true
+Unit=oddshunter-schedule-refresh.service
+
+[Install]
+WantedBy=timers.target

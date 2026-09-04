@@ -6,10 +6,13 @@ on:
     branches: [main]
     paths:
       - cloud_live_status_sync.py
+      - cloud_schedule_refresh.py
       - futbol24_client.py
       - sofascore_event_client.py
       - deploy/oddshunter-live-sync.service
       - deploy/oddshunter-live-sync.timer
+      - deploy/oddshunter-schedule-refresh.service
+      - deploy/oddshunter-schedule-refresh.timer
       - deploy/mobile_schedule_catalog_seed.json.gz
       - tests/test_cloud_live_status_sync.py
       - tests/test_futbol24_resolver.py
@@ -107,6 +110,10 @@ jobs:
             "$VPS_USER@$VPS_HOST:/tmp/cloud_live_status_sync_V1.py"
           scp -i ~/.ssh/oddshunter_live -P "$VPS_PORT" \
             -o BatchMode=yes -o StrictHostKeyChecking=yes \
+            cloud_schedule_refresh.py \
+            "$VPS_USER@$VPS_HOST:/tmp/cloud_schedule_refresh.py"
+          scp -i ~/.ssh/oddshunter_live -P "$VPS_PORT" \
+            -o BatchMode=yes -o StrictHostKeyChecking=yes \
             futbol24_client.py \
             "$VPS_USER@$VPS_HOST:/tmp/futbol24_client_V1.py"
           scp -i ~/.ssh/oddshunter_live -P "$VPS_PORT" \
@@ -117,6 +124,8 @@ jobs:
             -o BatchMode=yes -o StrictHostKeyChecking=yes \
             deploy/oddshunter-live-sync.service \
             deploy/oddshunter-live-sync.timer \
+            deploy/oddshunter-schedule-refresh.service \
+            deploy/oddshunter-schedule-refresh.timer \
             "$VPS_USER@$VPS_HOST:/tmp/"
           scp -i ~/.ssh/oddshunter_live -P "$VPS_PORT" \
             -o BatchMode=yes -o StrictHostKeyChecking=yes \
@@ -179,6 +188,8 @@ jobs:
           $SUDO install -o root -g root -m 0644 \
             /tmp/cloud_live_status_sync_V1.py "$CUR/cloud_live_status_sync.py"
           $SUDO install -o root -g root -m 0644 \
+            /tmp/cloud_schedule_refresh.py "$CUR/cloud_schedule_refresh.py"
+          $SUDO install -o root -g root -m 0644 \
             /tmp/futbol24_client_V1.py "$CUR/futbol24_client.py"
           $SUDO install -o root -g root -m 0644 \
             /tmp/sofascore_event_client_V1.py "$CUR/sofascore_event_client.py"
@@ -186,6 +197,10 @@ jobs:
             /tmp/oddshunter-live-sync.service /etc/systemd/system/oddshunter-live-sync.service
           $SUDO install -o root -g root -m 0644 \
             /tmp/oddshunter-live-sync.timer /etc/systemd/system/oddshunter-live-sync.timer
+          $SUDO install -o root -g root -m 0644 \
+            /tmp/oddshunter-schedule-refresh.service /etc/systemd/system/oddshunter-schedule-refresh.service
+          $SUDO install -o root -g root -m 0644 \
+            /tmp/oddshunter-schedule-refresh.timer /etc/systemd/system/oddshunter-schedule-refresh.timer
           $SUDO install -o oddshunter -g oddshunter -m 0640 \
             /tmp/exact_final_actuals.json /var/lib/oddshunter/data/exact_final_actuals.json
           $SUDO install -o oddshunter -g oddshunter -m 0640 \
@@ -198,6 +213,11 @@ jobs:
           compile(path.read_text(encoding="utf-8"),str(path),"exec")
           print("LIVE_SYNC_SYNTAX=PASS")
           PY
+          $SUDO -u oddshunter "$PY" "$CUR/cloud_schedule_refresh.py" --self-test
+          $SUDO systemctl daemon-reload
+          $SUDO systemctl enable --now oddshunter-schedule-refresh.timer
+          test "$($SUDO systemctl is-enabled oddshunter-schedule-refresh.timer)" = "enabled"
+          test "$($SUDO systemctl is-active oddshunter-schedule-refresh.timer)" = "active"
           echo "LIVE_SYNC_INSTALL=PASS"
 
           # Run one provider-safe repair batch during deployment. The permanent
