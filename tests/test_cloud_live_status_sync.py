@@ -493,7 +493,7 @@ def test_select_candidates_rotates_recent_simultaneous_fixtures() -> None:
     con.close()
 
 
-def test_schedule_catalog_contains_every_fixture_for_today_and_tomorrow(tmp_path) -> None:
+def test_schedule_catalog_contains_every_fixture_for_yesterday_today_and_tomorrow(tmp_path) -> None:
     con = sqlite3.connect(":memory:")
     con.row_factory = sqlite3.Row
     con.executescript(
@@ -508,12 +508,13 @@ def test_schedule_catalog_contains_every_fixture_for_today_and_tomorrow(tmp_path
         INSERT INTO leagues VALUES(1,'League');
         INSERT INTO teams VALUES(1,101,'Home');
         INSERT INTO teams VALUES(2,102,'Away');
-        INSERT INTO matches VALUES(1,9001,1,'2026-09-01T18:00:00+00:00','NS',NULL,NULL,'2026',1,2);
-        INSERT INTO matches VALUES(2,9002,1,'2026-09-02T18:00:00+00:00','NS',NULL,NULL,'2026',1,2);
-        INSERT INTO matches VALUES(3,9003,1,'2026-09-03T06:00:00+00:00','NS',NULL,NULL,'2026',1,2);
+        INSERT INTO matches VALUES(1,9001,1,'2026-08-31T18:00:00+00:00','FT',1,0,'2026',1,2);
+        INSERT INTO matches VALUES(2,9002,1,'2026-09-01T18:00:00+00:00','NS',NULL,NULL,'2026',1,2);
+        INSERT INTO matches VALUES(3,9003,1,'2026-09-02T18:00:00+00:00','NS',NULL,NULL,'2026',1,2);
+        INSERT INTO matches VALUES(4,9004,1,'2026-09-03T06:00:00+00:00','NS',NULL,NULL,'2026',1,2);
         """
     )
-    for event_id in (9001, 9002):
+    for event_id in (9001, 9002, 9003):
         folder = tmp_path / "analisis" / "test-league" / str(event_id)
         folder.mkdir(parents=True)
         (folder / "goals.json").write_text(
@@ -542,15 +543,13 @@ def test_schedule_catalog_contains_every_fixture_for_today_and_tomorrow(tmp_path
         data_dir=tmp_path,
     )
 
-    assert [row["event_id"] for row in catalog["events"]] == [9001, 9002]
-    assert catalog["counts_by_day"] == {"2026-09-01": 1, "2026-09-02": 1}
+    assert [row["event_id"] for row in catalog["events"]] == [9001, 9002, 9003]
+    assert catalog["counts_by_day"] == {"2026-08-31": 1, "2026-09-01": 1, "2026-09-02": 1}
     assert catalog["leagues_by_day"] == {
-        "2026-09-01": ["test-league"],
-        "2026-09-02": ["test-league"],
+        "2026-08-31": ["test-league"], "2026-09-01": ["test-league"], "2026-09-02": ["test-league"],
     }
     assert catalog["event_ids_by_day"] == {
-        "2026-09-01": [9001],
-        "2026-09-02": [9002],
+        "2026-08-31": [9001], "2026-09-01": [9002], "2026-09-02": [9003],
     }
     assert all(json.loads(row["headline_json"])["home_win"] == 50.0 for row in catalog["events"])
     assert catalog["missing_analysis"] == []

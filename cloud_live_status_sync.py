@@ -554,7 +554,7 @@ def build_schedule_catalog(
     *,
     data_dir: Path = DATA,
 ) -> dict[str, Any]:
-    """Build every PC fixture for today and tomorrow in Ecuador time.
+    """Build every PC fixture for yesterday, today and tomorrow in Ecuador time.
 
     Stage6 historically published only the analysis targets touched by its
     latest micro-cycle.  That made complete PC schedules appear as one or two
@@ -562,8 +562,8 @@ def build_schedule_catalog(
     and the same analysis JSONs as PC, so no fixture or probability is guessed.
     """
     local_today = now.astimezone(ECUADOR_TZ).date()
-    start = datetime.combine(local_today, datetime.min.time(), ECUADOR_TZ)
-    end = start + timedelta(days=2)
+    start = datetime.combine(local_today - timedelta(days=1), datetime.min.time(), ECUADOR_TZ)
+    end = start + timedelta(days=3)
     rows = con.execute(MATCH_SELECT, (iso_utc(start), iso_utc(end))).fetchall()
     events: list[dict[str, Any]] = []
     docs: list[dict[str, Any]] = []
@@ -641,16 +641,20 @@ def publish_schedule_catalog(
     now: datetime,
     competitions: dict[int, dict[str, Any]],
 ) -> dict[str, Any]:
-    """Publish the complete two-day PC catalog to Mobile/Turso."""
+    """Publish the complete three-day PC catalog to Mobile/Turso."""
     if not _schedule_catalog_due(client, now):
         return {"result": "SKIPPED_INTERVAL"}
     with connect_db(read_only=True) as con:
         catalog = build_schedule_catalog(con, now, competitions)
-    if not catalog["events"] and SCHEDULE_CATALOG_SEED.is_file():
+    if SCHEDULE_CATALOG_SEED.is_file():
         with gzip.open(SCHEDULE_CATALOG_SEED, "rt", encoding="utf-8") as handle:
             seeded = json.load(handle)
         local_today = now.astimezone(ECUADOR_TZ).date()
-        allowed_days = {local_today.isoformat(), (local_today + timedelta(days=1)).isoformat()}
+        allowed_days = {
+            (local_today - timedelta(days=1)).isoformat(),
+            local_today.isoformat(),
+            (local_today + timedelta(days=1)).isoformat(),
+        }
         seeded_events = [
             row for row in seeded.get("events", [])
             if parse_dt(row.get("kickoff"))
@@ -661,27 +665,58 @@ def publish_schedule_catalog(
             row for row in seeded.get("docs", [])
             if (str(row.get("competition_key")), int(row.get("event_id"))) in allowed_ids
         ]
+        event_map = {
+            (str(row.get("competition_key")), int(row.get("event_id"))): row
+            for row in catalog.get("events", [])
+        }
+        event_map.update({
+            (str(row.get("competition_key")), int(row.get("event_id"))): row
+            for row in seeded_events
+        })
+        doc_map = {
+            (str(row.get("competition_key")), int(row.get("event_id")), str(row.get("doc_name"))): row
+            for row in catalog.get("docs", [])
+        }
+        doc_map.update({
+            (str(row.get("competition_key")), int(row.get("event_id")), str(row.get("doc_name"))): row
+            for row in seeded_docs
+        })
+        merged_events = sorted(event_map.values(), key=lambda row: (str(row.get("kickoff")), int(row.get("event_id"))))
+        merged_docs = list(doc_map.values())
         counts_by_day: dict[str, int] = {}
         leagues_by_day: dict[str, set[str]] = {}
         event_ids_by_day: dict[str, list[int]] = {}
-        for row in seeded_events:
+        for row in merged_events:
             day = parse_dt(row.get("kickoff")).astimezone(ECUADOR_TZ).date().isoformat()
             counts_by_day[day] = counts_by_day.get(day, 0) + 1
             leagues_by_day.setdefault(day, set()).add(str(row["competition_key"]))
             event_ids_by_day.setdefault(day, []).append(int(row["event_id"]))
         catalog = {
-            "events": seeded_events,
-            "docs": seeded_docs,
-            "missing_analysis": [],
+            "events": merged_events,
+            "docs": merged_docs,
+            "missing_analysis": sorted(set(catalog.get("missing_analysis", [])) - {
+                f"{key}/{event_id}" for key, event_id in allowed_ids
+            }),
             "counts_by_day": counts_by_day,
             "leagues_by_day": {day: sorted(keys) for day, keys in leagues_by_day.items()},
             "event_ids_by_day": {day: sorted(ids) for day, ids in event_ids_by_day.items()},
-            "source": "desktop_catalog_seed",
+            "source": "desktop_catalog_seed+cloud_db",
         }
     events = catalog["events"]
     docs = catalog["docs"]
     if not events:
-        raise RuntimeError("El catálogo PC de hoy/mañana quedó vacío")
+        raise RuntimeError("El catálogo PC de ayer/hoy/mañana quedó vacío")
+
+    local_today = now.astimezone(ECUADOR_TZ).date()
+    schedule_start = datetime.combine(local_today - timedelta(days=1), datetime.min.time(), ECUADOR_TZ)
+    schedule_end = schedule_start + timedelta(days=3)
+    expected_ids = sorted({int(row["event_id"]) for row in events})
+    placeholders = ",".join("?" for _ in expected_ids)
+    client.execute(
+        f"DELETE FROM mobile_events WHERE datetime(kickoff)>=datetime(?) AND datetime(kickoff)<datetime(?) "
+        f"AND event_id NOT IN ({placeholders})",
+        [iso_utc(schedule_start), iso_utc(schedule_end), *expected_ids],
+    )
 
     event_sql = (
         "INSERT INTO mobile_events (competition_key,event_id,competition_name,season_name,round_name,stage,"
@@ -719,8 +754,6 @@ def publish_schedule_catalog(
         ["schedule_catalog_last_publish_at", iso_utc(now)],
     )
 
-    expected_ids = sorted(int(row["event_id"]) for row in events)
-    placeholders = ",".join("?" for _ in expected_ids)
     remote = client.query(f"SELECT event_id FROM mobile_events WHERE event_id IN ({placeholders})", expected_ids)
     remote_ids = {int(row["event_id"]) for row in remote}
     missing_remote = sorted(set(expected_ids) - remote_ids)

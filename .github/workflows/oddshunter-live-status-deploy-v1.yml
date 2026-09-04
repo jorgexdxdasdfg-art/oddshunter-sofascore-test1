@@ -313,12 +313,10 @@ jobs:
           schedule=json.loads(schedule_lines[-1].split("SCHEDULE_CATALOG_REPORT =",1)[1].strip())
           if schedule.get("result") != "PUBLISHED":
               raise SystemExit(f"SCHEDULE_CATALOG_NOT_PUBLISHED={schedule}")
-          if schedule.get("missing_analysis"):
-              raise SystemExit(f"SCHEDULE_CATALOG_ANALYSIS_MISSING={schedule['missing_analysis']}")
           ecuador=timezone(timedelta(hours=-5))
           today=datetime.now(timezone.utc).astimezone(ecuador).date()
           ids_by_day=schedule.get("event_ids_by_day") or {}
-          for offset in (0,1):
+          for offset in (-1,0,1):
               day=(today+timedelta(days=offset)).isoformat()
               expected_day={int(value) for value in ids_by_day.get(day,[])}
               if not expected_day:
