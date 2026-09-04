@@ -771,6 +771,22 @@ def publish_schedule_catalog(
     }
 
 
+def seed_schedule_coverage() -> tuple[set[str], set[int]]:
+    if not SCHEDULE_CATALOG_SEED.is_file():
+        return set(), set()
+    with gzip.open(SCHEDULE_CATALOG_SEED, "rt", encoding="utf-8") as handle:
+        seeded = json.load(handle)
+    days: set[str] = set()
+    event_ids: set[int] = set()
+    for row in seeded.get("events", []):
+        kickoff = parse_dt(row.get("kickoff"))
+        if kickoff is None:
+            continue
+        days.add(kickoff.astimezone(ECUADOR_TZ).date().isoformat())
+        event_ids.add(int(row["event_id"]))
+    return days, event_ids
+
+
 def publish_remote(
     client: Any,
     row: dict[str, Any],
@@ -1217,6 +1233,15 @@ def run(
     for row in [*explicit, *candidates, *remote]:
         merged.setdefault(int(row["event_id"]), row)
     candidates = list(merged.values())
+    seed_days, seed_event_ids = seed_schedule_coverage()
+    candidates = [
+        row for row in candidates
+        if (
+            parse_dt(row.get("kickoff")) is None
+            or parse_dt(row.get("kickoff")).astimezone(ECUADOR_TZ).date().isoformat() not in seed_days
+            or int(row["event_id"]) in seed_event_ids
+        )
+    ]
 
     report: dict[str, Any] = {
         "generated_at": iso_utc(now),
@@ -1355,6 +1380,19 @@ def run(
                 item["result"] = "TECHNICAL_ERROR"
                 item["error"] = f"{type(exc).__name__}: {exc}"
         report["events"].append(item)
+
+    if client is not None and schedule_catalog.get("result") == "PUBLISHED":
+        expected_ids = [int(value) for value in schedule_catalog.get("event_ids", [])]
+        if expected_ids:
+            local_today = now.astimezone(ECUADOR_TZ).date()
+            schedule_start = datetime.combine(local_today - timedelta(days=1), datetime.min.time(), ECUADOR_TZ)
+            schedule_end = schedule_start + timedelta(days=3)
+            placeholders = ",".join("?" for _ in expected_ids)
+            client.execute(
+                f"DELETE FROM mobile_events WHERE datetime(kickoff)>=datetime(?) AND datetime(kickoff)<datetime(?) "
+                f"AND event_id NOT IN ({placeholders})",
+                [iso_utc(schedule_start), iso_utc(schedule_end), *expected_ids],
+            )
 
     counts: dict[str, int] = {}
     for item in report["events"]:
