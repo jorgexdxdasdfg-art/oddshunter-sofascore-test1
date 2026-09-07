@@ -88,13 +88,23 @@
 
 /* OH_VALUE_PICKS_V23 */
 .analysis-tabs:has([data-tab="picks"]) button{flex:1 1 20%;min-width:0;padding-inline:5px}
-.oh-picks-view{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;padding-bottom:20px}
+.oh-picks-shell{padding-bottom:20px}
+.oh-picks-subtabs{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:0 0 14px;padding:4px;border:1px solid var(--line);border-radius:16px;background:var(--panel-2)}
+.oh-picks-subtabs button{min-height:42px;padding:8px 10px;border:0;border-radius:12px;background:transparent;color:var(--muted);font:inherit;font-size:13px;font-weight:800}
+.oh-picks-subtabs button.active{background:var(--red);color:#fff;box-shadow:0 6px 16px color-mix(in srgb,var(--red) 24%,transparent)}
+.oh-picks-view{display:grid;grid-template-columns:1fr;gap:12px}
+.oh-picks-view>h2{margin:0 2px;font-size:17px;font-weight:900}
 .oh-picks-group{padding:14px;border-radius:18px;margin:0}
 .oh-picks-group h3{margin:0 0 11px;font-size:15px;font-weight:850}
-.oh-picks-group>div{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
-.oh-picks-market{min-height:65px;padding:10px 7px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;text-align:center;border:1px solid var(--line);border-radius:13px;background:var(--panel)}
-.oh-picks-market span{font-size:11px;line-height:1.15;color:var(--muted);font-weight:650}
-.oh-picks-market strong{font-size:17px;line-height:1;font-weight:900;color:var(--text)}
+.oh-picks-table{overflow:hidden;border:1px solid var(--line);border-radius:13px;background:var(--panel)}
+.oh-picks-table-head,.oh-picks-market-row{display:grid;grid-template-columns:minmax(0,1.65fr) .72fr .65fr .65fr;align-items:center;gap:5px;padding:9px 10px}
+.oh-picks-table-head{background:var(--panel-2);color:var(--muted);font-size:9.5px;font-weight:800;text-align:center}
+.oh-picks-table-head span:first-child{text-align:left}
+.oh-picks-market-row{min-height:43px;border-top:1px solid var(--line);font-size:11px;text-align:center}
+.oh-picks-market-row>span{text-align:left;color:var(--text);font-weight:750}
+.oh-picks-market-row>strong,.oh-picks-market-row>b{color:var(--text);font-size:11.5px;font-weight:850}
+.oh-picks-market-row>em{font-style:normal;font-size:11px;font-weight:900}.oh-picks-market-row>em.positive{color:#139b61}.oh-picks-market-row>em.negative{color:var(--red)}.oh-picks-market-row>em.na{color:var(--muted)}
+.oh-picks-note{display:block;padding:0 5px;color:var(--muted);font-size:10px;line-height:1.35;text-align:center}
 .oh-best-picks{grid-column:1/-1;margin:0;padding:15px;border-radius:18px}
 .oh-best-picks h2{margin:0;font-size:17px;font-weight:900}.oh-best-picks>p{margin:5px 0 12px;color:var(--muted);font-size:10.5px}
 .oh-best-pick{display:grid;grid-template-columns:28px minmax(0,1fr) auto;gap:9px;align-items:center;padding:11px 0;border-top:1px solid var(--line)}
@@ -104,8 +114,9 @@
 .oh-picks-wait{grid-column:1/-1}
 @media(max-width:430px){
   .analysis-tabs:has([data-tab="picks"]){gap:0}.analysis-tabs:has([data-tab="picks"]) button{padding-inline:2px;font-size:9.5px}
-  .oh-picks-view{gap:9px}.oh-picks-group{padding:11px;border-radius:15px}.oh-picks-group h3{font-size:12.5px;margin-bottom:8px}
-  .oh-picks-group>div{gap:6px}.oh-picks-market{min-height:56px;padding:8px 4px;border-radius:11px}.oh-picks-market span{font-size:9.5px}.oh-picks-market strong{font-size:15px}
+  .oh-picks-subtabs{gap:5px;margin-bottom:11px;padding:3px;border-radius:14px}.oh-picks-subtabs button{min-height:38px;padding:7px 5px;border-radius:11px;font-size:11px}
+  .oh-picks-view{gap:9px}.oh-picks-view>h2{font-size:15px}.oh-picks-group{padding:11px;border-radius:15px}.oh-picks-group h3{font-size:12.5px;margin-bottom:8px}
+  .oh-picks-table-head,.oh-picks-market-row{grid-template-columns:minmax(0,1.55fr) .75fr .65fr .65fr;gap:3px;padding:8px 7px}.oh-picks-table-head{font-size:8.5px}.oh-picks-market-row{min-height:39px;font-size:9.5px}.oh-picks-market-row>strong,.oh-picks-market-row>b{font-size:10px}.oh-picks-market-row>em{font-size:9.5px}
   .oh-best-picks{padding:12px;border-radius:15px}.oh-best-picks h2{font-size:15px}.oh-best-pick{grid-template-columns:25px minmax(0,1fr) auto;gap:7px;padding:9px 0}.oh-best-pick span{font-size:10.5px}.oh-best-pick small{font-size:9px}.oh-best-pick>div:last-child strong{font-size:11.5px}
 }
 @media(max-width:430px){
