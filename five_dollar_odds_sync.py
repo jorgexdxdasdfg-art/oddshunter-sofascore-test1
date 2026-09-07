@@ -663,7 +663,20 @@ def sync(
             preserved_history = existing.get("price_history") or []
             if preserved_prices:
                 bundle = _bundle(folder)
-                refreshed_probabilities = model_probabilities(bundle, {}) if bundle else {}
+                context: dict[str, Any] = {}
+                try:
+                    from global_match_context import build_global_context
+
+                    context = build_global_context(
+                        root,
+                        competition_key,
+                        int(event_id),
+                        bundle=bundle,
+                        match_hint=event,
+                    )
+                except (ImportError, OSError, RuntimeError, TypeError, ValueError):
+                    context = {}
+                refreshed_probabilities = model_probabilities(bundle, context) if bundle else {}
                 probabilities = {
                     **(existing.get("probabilities") or {}),
                     **refreshed_probabilities,
