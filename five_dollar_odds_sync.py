@@ -663,7 +663,11 @@ def sync(
             preserved_history = existing.get("price_history") or []
             if preserved_prices:
                 bundle = _bundle(folder)
-                probabilities = model_probabilities(bundle, {}) if bundle else {}
+                refreshed_probabilities = model_probabilities(bundle, {}) if bundle else {}
+                probabilities = {
+                    **(existing.get("probabilities") or {}),
+                    **refreshed_probabilities,
+                }
                 all_picks = [
                     {
                         "key": key_name,
