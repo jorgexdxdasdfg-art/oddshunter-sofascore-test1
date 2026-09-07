@@ -59,7 +59,18 @@ jobs:
             cat '$REMOTE_DIR/provider.env' >> \"\$TMP_ENV\"
             \$SUDO install -m 0600 -o root -g root \"\$TMP_ENV\" /etc/oddshunter/oddshunter.env
             rm -f \"\$TMP_ENV\"
-            \$SUDO systemctl restart oddshunter.service
+            \$SUDO systemctl stop oddshunter.service
+            set +e
+            \$SUDO systemd-run --quiet --wait --pipe --collect \
+              --unit=oddshunter-odds-seed-${GITHUB_RUN_ID} \
+              -p User=oddshunter -p Group=oddshunter \
+              -p WorkingDirectory=/opt/oddshunter/current \
+              -p EnvironmentFile=/etc/oddshunter/oddshunter.env \
+              /bin/bash -lc 'set -euo pipefail; ./\.venv-cloud/bin/python -u five_dollar_odds_sync.py --root /opt/oddshunter/current --days 3 --max-age-minutes 45; export ODDSHUNTER_RUNTIME_MODE=cloud ODDSHUNTER_ALLOW_WORK_DB_WRITE=1 ODDSHUNTER_STAGE6_ALLOW_TURSO_WRITE=1 ODDSHUNTER_DISABLE_TRAINING=1; ./\.venv-cloud/bin/python -u cloud_stage6_publish.py'
+            SEED_RC=\$?
+            set -e
+            \$SUDO systemctl start oddshunter.service
+            test \"\$SEED_RC\" -eq 0
             sleep 4
             \$SUDO systemctl is-active --quiet oddshunter.service
             \$SUDO grep -q 'ODDS_VALUE_SYNC_V1' /opt/oddshunter/current/stage8_daemon.py
