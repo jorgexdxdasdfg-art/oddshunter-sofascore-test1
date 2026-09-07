@@ -2,6 +2,15 @@ name: OddsHunter Odds Value Deploy V1
 
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - five_dollar_odds_sync.py
+      - odds_value_engine.py
+      - turso_odds_value_publish.py
+      - stage8_odds_patch.py
+      - deploy/provider.env
+      - .github/workflows/oddshunter-odds-value-deploy-v1.yml
 
 permissions:
   contents: read
