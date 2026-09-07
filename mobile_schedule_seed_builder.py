@@ -135,6 +135,30 @@ def provider_event(event_id: int) -> dict[str, Any] | None:
     return None
 
 
+def provider_competition_events(competition: dict[str, Any]) -> list[dict[str, Any]]:
+    """Read both sides of the current fixture cursor for one active league."""
+    tournament_id = int(competition["source_competition_id"])
+    season_id = int(competition["season_id"])
+    found: dict[int, dict[str, Any]] = {}
+    for direction in ("last", "next"):
+        url = (
+            f"https://api.sofascore.com/api/v1/unique-tournament/{tournament_id}/"
+            f"season/{season_id}/events/{direction}/0"
+        )
+        completed = subprocess.run(
+            ["curl", "-fsSL", "--max-time", "25", "-H", "User-Agent: Mozilla/5.0", url],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        payload = json.loads(completed.stdout)
+        for event in payload.get("events", []):
+            if isinstance(event, dict) and event.get("id") is not None:
+                found[int(event["id"])] = event
+    return list(found.values())
+
+
 def provider_status(event: dict[str, Any], fallback: str) -> tuple[str, str]:
     status = event.get("status") if isinstance(event.get("status"), dict) else {}
     kind = str(status.get("type") or "").strip().casefold()
@@ -184,8 +208,57 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
     exact: dict[int, dict[str, Any] | None] = {}
     errors: dict[int, str] = {}
     if not args.skip_provider:
+        # The database can lag behind a newly announced/reprogrammed fixture.
+        # Augment it with each active league's exact current provider cursor.
+        discovered: list[tuple[int, dict[str, Any]]] = []
+        with ThreadPoolExecutor(max_workers=max(1, min(6, args.workers))) as pool:
+            pending_competitions = {
+                pool.submit(provider_competition_events, competition): (league_id, competition)
+                for league_id, competition in competitions.items()
+                if competition.get("source_competition_id") and competition.get("season_id")
+            }
+            for future in as_completed(pending_competitions):
+                league_id, competition = pending_competitions[future]
+                try:
+                    discovered.extend((league_id, event) for event in future.result())
+                except Exception as exc:
+                    errors[-league_id] = f"{competition.get('key')}: {type(exc).__name__}: {exc}"
+
+        known_ids = {int(row["event_id"]) for row in db_rows}
+        for league_id, event in discovered:
+            timestamp = event.get("startTimestamp")
+            kickoff = datetime.fromtimestamp(int(timestamp), timezone.utc) if timestamp else None
+            if kickoff is None or kickoff.astimezone(ECUADOR_TZ).date() not in allowed_days:
+                continue
+            event_id = int(event["id"])
+            exact[event_id] = event
+            if event_id in known_ids:
+                continue
+            home = event.get("homeTeam") if isinstance(event.get("homeTeam"), dict) else {}
+            away = event.get("awayTeam") if isinstance(event.get("awayTeam"), dict) else {}
+            season = event.get("season") if isinstance(event.get("season"), dict) else {}
+            competition = competitions[league_id]
+            db_rows.append({
+                "event_id": event_id,
+                "league_id": league_id,
+                "kickoff": kickoff.isoformat(),
+                "status": "NS",
+                "home_goals": None,
+                "away_goals": None,
+                "season_name": season.get("name"),
+                "competition_name": competition.get("name") or competition.get("key"),
+                "home_team_id": home.get("id"),
+                "home_team": home.get("name"),
+                "away_team_id": away.get("id"),
+                "away_team": away.get("name"),
+            })
+            known_ids.add(event_id)
+
         with ThreadPoolExecutor(max_workers=max(1, min(8, args.workers))) as pool:
-            pending = {pool.submit(provider_event, int(row["event_id"])): int(row["event_id"]) for row in db_rows}
+            pending = {
+                pool.submit(provider_event, int(row["event_id"])): int(row["event_id"])
+                for row in db_rows if int(row["event_id"]) not in exact
+            }
             for future in as_completed(pending):
                 event_id = pending[future]
                 try:
