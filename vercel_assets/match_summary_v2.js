@@ -691,4 +691,44 @@ setHeader=function(view){
 };
 document.body.classList.toggle("oh-home-mode",!document.querySelector('[data-view="match"].active,[data-view="lineups"].active'));
 
+/* OH_VALUE_PICKS_V23 */
+const ohPickLabels={
+  result_home:"Gana local",result_draw:"Empate",result_away:"Gana visitante",
+  double_home_draw:"Local o empate",double_away_draw:"Empate o visitante",double_home_away:"Local o visitante",
+  goals_over_1_5:"Más de 1.5",goals_under_1_5:"Menos de 1.5",goals_over_2_5:"Más de 2.5",goals_under_2_5:"Menos de 2.5",goals_over_3_5:"Más de 3.5",goals_under_3_5:"Menos de 3.5",
+  cards_over_1_5:"Más de 1.5",cards_under_1_5:"Menos de 1.5",cards_over_2_5:"Más de 2.5",cards_under_2_5:"Menos de 2.5",cards_over_3_5:"Más de 3.5",cards_under_3_5:"Menos de 3.5",
+  btts_yes:"Sí",btts_no:"No",first_half_over_0_5:"Sí",first_half_under_0_5:"No"
+};
+
+function ohPickProbability(value){const n=Number(value);return Number.isFinite(n)?`${(n*100).toFixed(1).replace(".0","")}%`:"N/D"}
+function ohPickLabel(key){if(ohPickLabels[key])return ohPickLabels[key];const match=key.match(/^corners_(over|under)_(\d+)_(\d+)$/);return match?`${match[1]==="over"?"Más":"Menos"} de ${match[2]}.${match[3]}`:key.replaceAll("_"," ")}
+function ohPickMarketCard(key,value){return `<div class="oh-picks-market"><span>${esc(ohPickLabel(key))}</span><strong>${ohPickProbability(value)}</strong></div>`}
+function ohPickGroup(title,icon,keys,probabilities){const rows=keys.filter(key=>probabilities[key]!==undefined).map(key=>ohPickMarketCard(key,probabilities[key])).join("");return rows?`<section class="panel oh-picks-group"><h3>${icon} ${esc(title)}</h3><div>${rows}</div></section>`:""}
+
+function renderPicks(){
+  const value=state.currentMatch?.value_picks||{},probabilities=value.probabilities||{},top=Array.isArray(value.top_picks)?value.top_picks:[];
+  const cornerKeys=Object.keys(probabilities).filter(key=>key.startsWith("corners_")).sort();
+  const groups=[
+    ohPickGroup("Resultado 1X2","🛡️",["result_home","result_draw","result_away"],probabilities),
+    ohPickGroup("Doble oportunidad","🔁",["double_home_draw","double_away_draw","double_home_away"],probabilities),
+    ohPickGroup("Goles","⚽",["goals_over_1_5","goals_under_1_5","goals_over_2_5","goals_under_2_5","goals_over_3_5","goals_under_3_5"],probabilities),
+    ohPickGroup("Tarjetas","🟨",["cards_over_1_5","cards_under_1_5","cards_over_2_5","cards_under_2_5","cards_over_3_5","cards_under_3_5"],probabilities),
+    ohPickGroup("Ambos marcan","⚽",["btts_yes","btts_no"],probabilities),
+    ohPickGroup("Gol en primera mitad","⏱️",["first_half_over_0_5","first_half_under_0_5"],probabilities),
+    ohPickGroup("Córners","🚩",cornerKeys,probabilities)
+  ].join("");
+  const best=top.map((pick,index)=>`<article class="oh-best-pick"><b>${index+1}</b><div><span>${esc(pick.market||"")} · ${esc(pick.selection||"")}</span><small>Prob. ${esc(String(pick.probability))}% · Cuota ${esc(String(pick.odds))}</small></div><div><strong>EV/ROI +${esc(String(pick.ev))}%</strong><small>Apostar ${esc(String(pick.recommended_bankroll_pct))}% del bank</small></div></article>`).join("");
+  const waiting=`<div class="panel oh-picks-wait"><h3>Picks en preparación</h3><p>Las probabilidades ya están calculadas. Los picks aparecerán cuando Bet365 publique cuotas compatibles para este partido.</p></div>`;
+  $("matchContent").innerHTML=`<div class="oh-picks-view">${groups||waiting}<section class="panel oh-best-picks"><h2>4 mejores picks</h2><p>Solo valor esperado positivo · Kelly ¼ limitado al 5% del bank</p>${best||"<small>Todavía no hay una cuota con EV positivo; OddsHunter no inventará una recomendación.</small>"}</section></div>`;
+}
+
+const ohOriginalRenderMatchTabPicksV23=renderMatchTab;
+renderMatchTab=function(){
+  ohOriginalRenderMatchTabPicksV23();
+  if(state.currentMatchTab==="picks")renderPicks();
+  const picksMode=state.currentMatchTab==="picks";
+  document.querySelector('[data-view="match"]')?.classList.toggle("oh-picks-mode",picksMode);
+  if(picksMode)$("matchHeader")?.classList.add("hidden");
+};
+
 /* OH_COMPACT_SECONDARY_VIEWS_V20 */

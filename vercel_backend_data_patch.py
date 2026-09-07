@@ -4,6 +4,12 @@ import re
 from pathlib import Path
 
 
+VALUE_DOC_NAMES_ANCHOR = '    names = ("input_match", "status", "analysis", "ratings", "goals", "corners", "cards", "shots")\n'
+VALUE_DOC_NAMES_PATCHED = '    names = ("input_match", "status", "analysis", "ratings", "goals", "corners", "cards", "shots", "odds_value")\n'
+VALUE_PAYLOAD_ANCHOR = '        "lineups": lineup_payload(competition_key, event_id),\n'
+VALUE_PAYLOAD_PATCHED = VALUE_PAYLOAD_ANCHOR + '        "value_picks": safe_dict(docs.get("odds_value")),\n'
+
+
 TEAM_RECENT_SCORE_COLUMNS = """                m.home_goals, m.away_goals,
                 s.venue, s.goals_for, s.goals_against,"""
 
@@ -383,6 +389,20 @@ def patch_backend(root: Path) -> list[str]:
     path = primary[0]
     text = path.read_text(encoding="utf-8")
     original_text = text
+    if VALUE_DOC_NAMES_PATCHED not in text:
+        text = replace_once(
+            text,
+            VALUE_DOC_NAMES_ANCHOR,
+            VALUE_DOC_NAMES_PATCHED,
+            "documento de cuotas y picks",
+        )
+    if VALUE_PAYLOAD_PATCHED not in text:
+        text = replace_once(
+            text,
+            VALUE_PAYLOAD_ANCHOR,
+            VALUE_PAYLOAD_PATCHED,
+            "payload de cuotas y picks",
+        )
     if EVENT_TABLES_PATCHED not in text:
         text = replace_once(
             text,

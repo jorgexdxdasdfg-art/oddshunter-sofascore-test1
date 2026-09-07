@@ -112,6 +112,7 @@ jobs:
           VPS_SSH_PRIVATE_KEY: ${{ secrets.VPS_SSH_PRIVATE_KEY }}
           TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
           TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+          FIVE_DOLLAR_FOOTBALL_API_KEY: ${{ secrets.FIVE_DOLLAR_FOOTBALL_API_KEY }}
         run: |
           set -euo pipefail
           test -n "${VPS_HOST:-}"
@@ -119,6 +120,7 @@ jobs:
           test -n "${VPS_SSH_PRIVATE_KEY:-}"
           test -n "${TURSO_DATABASE_URL:-}"
           test -n "${TURSO_AUTH_TOKEN:-}"
+          test -n "${FIVE_DOLLAR_FOOTBALL_API_KEY:-}"
           echo "STAGE8_SECRETS_PRESENT=YES"
           echo "STAGE8_SECRETS_PRINTED=NO"
 
@@ -227,6 +229,7 @@ jobs:
         env:
           TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
           TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+          FIVE_DOLLAR_FOOTBALL_API_KEY: ${{ secrets.FIVE_DOLLAR_FOOTBALL_API_KEY }}
         run: |
           set -euo pipefail
           rm -rf stage8-deploy
@@ -239,11 +242,13 @@ jobs:
           cp stage8-browser-build/PLAYWRIGHT_BROWSERS_STAGE8.tar.gz stage8-deploy/
           cp stage8-browser-build/PLAYWRIGHT_VERSION_STAGE8.txt stage8-deploy/
           cp stage8-browser-build/PLAYWRIGHT_BROWSERS_STAGE8.sha256 stage8-deploy/
+          cp odds_value_engine.py five_dollar_odds_sync.py stage8_odds_patch.py stage8-deploy/
 
           umask 077
           {
             printf 'TURSO_DATABASE_URL=%q\n' "$TURSO_DATABASE_URL"
             printf 'TURSO_AUTH_TOKEN=%q\n' "$TURSO_AUTH_TOKEN"
+            printf 'FIVE_DOLLAR_FOOTBALL_API_KEY=%q\n' "$FIVE_DOLLAR_FOOTBALL_API_KEY"
             printf 'ODDSHUNTER_MOBILE_BASE_URL=%q\n' "https://oddshunter-mobile.vercel.app"
             printf 'ODDSHUNTER_RUNTIME_MODE=%q\n' "cloud"
             printf 'ODDSHUNTER_ALLOW_WORK_DB_WRITE=%q\n' "1"
@@ -297,6 +302,7 @@ jobs:
             rm -rf stage8-package
             mkdir -p stage8-package
             python3 -m zipfile -e ODDSHUNTER_CLOUD_STAGE8_VPS_24X7_V1_3.zip stage8-package
+            python3 stage8_odds_patch.py stage8-package
             test -f stage8-package/stage8_install.sh
             echo STAGE8_BOOTSTRAP_EXTRACT=PASS
             if [ \"\$(id -u)\" -eq 0 ]; then

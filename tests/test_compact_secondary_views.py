@@ -33,7 +33,7 @@ def test_deployment_requires_the_compact_secondary_marker():
     ).read_text(encoding="utf-8")
 
     assert 'COMPACT_SECONDARY_MARKER = "OH_COMPACT_SECONDARY_VIEWS_V20"' in recovery
-    assert "1.18.0-match-theme" in recovery
+    assert "1.23.0-value-picks" in recovery
     assert workflow.count("OH_COMPACT_SECONDARY_VIEWS_V20") >= 3
 
 
@@ -48,7 +48,7 @@ def test_match_summary_uses_the_compact_centered_reference():
     assert '.summary-lead{width:100%;margin:6px 0 2px;color:var(--muted)' in styles
     assert '.summary-primary-value{width:100%;margin:0' in styles
     assert 'MATCH_SUMMARY_COMPACT_MARKER = "OH_MATCH_SUMMARY_COMPACT_REFERENCE_V21"' in recovery
-    assert "1.18.0-match-theme" in recovery
+    assert "1.23.0-value-picks" in recovery
 
 
 def test_match_view_honors_dark_theme_and_compacts_section_titles():
@@ -69,4 +69,16 @@ def test_match_view_honors_dark_theme_and_compacts_section_titles():
     assert 'getPropertyValue("--text")' in script
     assert 'getPropertyValue("--muted")' in script
     assert 'MATCH_THEME_MARKER = "OH_MATCH_THEME_AND_TITLES_V22"' in recovery
-    assert "1.18.0-match-theme" in recovery
+    assert "1.23.0-value-picks" in recovery
+
+
+def test_picks_tab_is_inserted_and_verified_in_deployment():
+    script = (ROOT / "vercel_assets" / "match_summary_v2.js").read_text(encoding="utf-8")
+    styles = (ROOT / "vercel_assets" / "match_summary_v2.css").read_text(encoding="utf-8")
+    recovery = (ROOT / "vercel_source_recover.py").read_text(encoding="utf-8")
+    workflow = (ROOT / ".github" / "workflows" / "oddshunter-vercel-frontend-v1.yml").read_text(encoding="utf-8")
+
+    assert "OH_VALUE_PICKS_V23" in script
+    assert "OH_VALUE_PICKS_V23" in styles
+    assert 'data-tab="picks"' in recovery
+    assert workflow.count("OH_VALUE_PICKS_V23") >= 4
