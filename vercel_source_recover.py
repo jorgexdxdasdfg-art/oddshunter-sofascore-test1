@@ -114,7 +114,7 @@ def patch_frontend(root: Path) -> dict[str, list[str]]:
         if marker_positions:
             text = text[: min(marker_positions)].rstrip()
         text = text.rstrip() + "\n\n" + detail_js.rstrip() + "\n"
-        text = re.sub(r"sw\.js\?v=[^\"']+", "sw.js?v=1.24.0-mobile-odds", text)
+        text = re.sub(r"sw\.js\?v=[^\"']+", "sw.js?v=1.25.0-picks-calendar", text)
         if text != original:
             path.write_text(text, encoding="utf-8", newline="\n")
         patched_apps.append(path.relative_to(root).as_posix())
@@ -162,11 +162,11 @@ def patch_frontend(root: Path) -> dict[str, list[str]]:
     patched_indexes: list[str] = []
     for path in sorted(root.glob("**/index.html")):
         text = path.read_text(encoding="utf-8")
-        updated = re.sub(r"app\.css\?v=[^\"']+", "app.css?v=1.24.0-mobile-odds", text)
-        updated = re.sub(r"app\.js\?v=[^\"']+", "app.js?v=1.24.0-mobile-odds", updated)
-        updated = re.sub(r"sw\.js\?v=[^\"']+", "sw.js?v=1.24.0-mobile-odds", updated)
+        updated = re.sub(r"app\.css\?v=[^\"']+", "app.css?v=1.25.0-picks-calendar", text)
+        updated = re.sub(r"app\.js\?v=[^\"']+", "app.js?v=1.25.0-picks-calendar", updated)
+        updated = re.sub(r"sw\.js\?v=[^\"']+", "sw.js?v=1.25.0-picks-calendar", updated)
         updated = re.sub(r'\s*<meta\s+name=["\']oddshunter-build["\'][^>]*>', "", updated)
-        updated = updated.replace("</head>", '  <meta name="oddshunter-build" content="1.24.0-mobile-odds">\n</head>', 1)
+        updated = updated.replace("</head>", '  <meta name="oddshunter-build" content="1.25.0-picks-calendar">\n</head>', 1)
         updated = re.sub(r'(<div class="logo-box"><img\s+)src="[^"]+"', rf'\1src="/assets/icons/{BRAND_ASSET_NAME}"', updated)
         if 'data-tab="picks"' not in updated:
             updated, count = re.subn(
@@ -184,9 +184,9 @@ def patch_frontend(root: Path) -> dict[str, list[str]]:
     patched_workers: list[str] = []
     for path in sorted(root.glob("**/sw.js")):
         text = path.read_text(encoding="utf-8")
-        updated = re.sub(r"oh-mobile-v[^\"']+", "oh-mobile-v1-24-0-mobile-odds", text)
-        updated = re.sub(r"app\.css\?v=[^\"']+", "app.css?v=1.24.0-mobile-odds", updated)
-        updated = re.sub(r"app\.js\?v=[^\"']+", "app.js?v=1.24.0-mobile-odds", updated)
+        updated = re.sub(r"oh-mobile-v[^\"']+", "oh-mobile-v1-25-0-picks-calendar", text)
+        updated = re.sub(r"app\.css\?v=[^\"']+", "app.css?v=1.25.0-picks-calendar", updated)
+        updated = re.sub(r"app\.js\?v=[^\"']+", "app.js?v=1.25.0-picks-calendar", updated)
         if updated != text:
             path.write_text(updated, encoding="utf-8", newline="\n")
             patched_workers.append(path.relative_to(root).as_posix())
