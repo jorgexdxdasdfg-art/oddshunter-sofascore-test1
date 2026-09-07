@@ -115,26 +115,39 @@ def model_probabilities(
     return {key: round(value, 8) for key, value in result.items()}
 
 
-def _snapshot(market: Any) -> dict[str, Any] | None:
+def _snapshot(
+    market: Any,
+    snapshot_order: tuple[str, ...] = ("closing", "opening"),
+) -> dict[str, Any] | None:
     if not isinstance(market, dict):
         return None
-    for key in ("closing", "current", "opening"):
+    for key in snapshot_order:
         if isinstance(market.get(key), dict):
             return market[key]
     return None
 
 
-def provider_prices(markets: dict[str, Any]) -> list[dict[str, Any]]:
+def provider_prices(
+    markets: dict[str, Any],
+    *,
+    snapshot_order: tuple[str, ...] = ("closing", "opening"),
+) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
-    result = _snapshot(markets.get("1x2"))
+    result = _snapshot(markets.get("1x2"), snapshot_order)
     if result:
-        for selection, key in (("Local", "result_home"), ("Empate", "result_draw"), ("Visitante", "result_away")):
-            price = number(result.get(selection.casefold()))
+        # 5DollarFootballAPI uses the canonical English keys in both the
+        # batch ``include=odds`` expansion and the detailed endpoint.
+        for source, selection, key in (
+            ("home", "Local", "result_home"),
+            ("draw", "Empate", "result_draw"),
+            ("away", "Visitante", "result_away"),
+        ):
+            price = number(result.get(source))
             if price and price > 1:
                 rows.append({"key": key, "market": "Resultado 1X2", "selection": selection, "odds": price})
 
     for source, prefix, label in (("goal_line", "goals", "Goles"), ("corner_line", "corners", "Córners"), ("card_line", "cards", "Tarjetas")):
-        snapshot = _snapshot(markets.get(source))
+        snapshot = _snapshot(markets.get(source), snapshot_order)
         line = number((snapshot or {}).get("line"))
         # Las lineas asiaticas enteras/cuarto tienen push o medio-push. No se
         # equiparan silenciosamente con las probabilidades X.5 del bot.
@@ -146,13 +159,13 @@ def provider_prices(markets: dict[str, Any]) -> list[dict[str, Any]]:
             if price and price > 1:
                 rows.append({"key": f"{prefix}_{side}_{token}", "market": label, "selection": f"{selection} de {line:g}", "line": line, "odds": price})
 
-    btts = _snapshot(markets.get("btts"))
+    btts = _snapshot(markets.get("btts"), snapshot_order)
     for side, selection in (("yes", "Sí"), ("no", "No")):
         price = number((btts or {}).get(side))
         if price and price > 1:
             rows.append({"key": f"btts_{side}", "market": "Ambos marcan", "selection": selection, "odds": price})
 
-    first_half = _snapshot(markets.get("goal_line_half"))
+    first_half = _snapshot(markets.get("goal_line_half"), snapshot_order)
     if first_half and number(first_half.get("line")) == 0.5:
         for side, selection in (("over", "Sí"), ("under", "No")):
             price = number(first_half.get(side))

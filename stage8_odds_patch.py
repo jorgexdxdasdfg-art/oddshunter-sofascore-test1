@@ -14,8 +14,17 @@ def patch(root: Path) -> None:
     daemon = root / "stage8_daemon.py"
     installer = root / "stage8_install.sh"
     daemon_text = daemon.read_text(encoding="utf-8")
-    if "ODDS_VALUE_SYNC_V1" in daemon_text and "ODDS_VALUE_SYNC_V2" not in daemon_text:
-        daemon_text = daemon_text.replace("ODDS_VALUE_SYNC_V1", "ODDS_VALUE_SYNC_V2", 1)
+    # Upgrade an already-patched runtime without duplicating the odds block.
+    daemon_text = daemon_text.replace(
+        "ODDS_VALUE_SYNC_V2",
+        "ODDS_VALUE_TODAY_TOMORROW_V3",
+    )
+    daemon_text = daemon_text.replace(
+        '[py, "-u", str(ROOT / "five_dollar_odds_sync.py"), "--root", str(ROOT), "--days", "3", "--max-age-minutes", "45"]',
+        '[py, "-u", str(ROOT / "five_dollar_odds_sync.py"), "--root", str(ROOT)]',
+    )
+    if "ODDS_VALUE_SYNC_V1" in daemon_text and "ODDS_VALUE_TODAY_TOMORROW_V3" not in daemon_text:
+        daemon_text = daemon_text.replace("ODDS_VALUE_SYNC_V1", "ODDS_VALUE_TODAY_TOMORROW_V3", 1)
         anchor = '''    if odds["returncode"] != 0:
         raise RuntimeError(f"Odds value rc={odds['returncode']}")
 
@@ -41,7 +50,7 @@ def patch(root: Path) -> None:
             '        "odds_value_process": odds,\n        "odds_value_publish_process": odds_publish,\n',
             "estado de publicación enfocada",
         )
-    elif "ODDS_VALUE_SYNC_V2" not in daemon_text:
+    elif "ODDS_VALUE_TODAY_TOMORROW_V3" not in daemon_text:
         daemon_text = replace_once(
             daemon_text,
             '    required_env = ["TURSO_DATABASE_URL", "TURSO_AUTH_TOKEN"]\n',
@@ -49,10 +58,10 @@ def patch(root: Path) -> None:
             "variables del proveedor",
         )
         anchor = '    env["ODDSHUNTER_STAGE6_ALLOW_TURSO_WRITE"] = "1"\n'
-        block = '''    # ODDS_VALUE_SYNC_V2: calcula una vez y publica el mismo documento para PC/Mobile.
+        block = '''    # ODDS_VALUE_TODAY_TOMORROW_V3: backfill de HOY+MAÑANA en cada ciclo.
     odds = run_streamed(
         "ODDS_VALUE",
-        [py, "-u", str(ROOT / "five_dollar_odds_sync.py"), "--root", str(ROOT), "--days", "3", "--max-age-minutes", "45"],
+        [py, "-u", str(ROOT / "five_dollar_odds_sync.py"), "--root", str(ROOT)],
         env,
         int(os.environ.get("ODDSHUNTER_ODDS_TIMEOUT_SECONDS", "900")),
     )
@@ -75,6 +84,36 @@ def patch(root: Path) -> None:
             '        "stage6_process": s6,\n',
             '        "stage6_process": s6,\n        "odds_value_process": odds,\n        "odds_value_publish_process": odds_publish,\n',
             "estado del ciclo",
+        )
+    if "ODDS_VALUE_STARTUP_BACKFILL_V3" not in daemon_text:
+        startup_anchor = "    while not STOP:\n"
+        startup_block = '''    # ODDS_VALUE_STARTUP_BACKFILL_V3: no esperar al primer ciclo pesado.
+    startup_env = os.environ.copy()
+    startup_env["PYTHONUTF8"] = "1"
+    startup_env["PYTHONIOENCODING"] = "utf-8"
+    startup_env["ODDSHUNTER_STAGE6_ALLOW_TURSO_WRITE"] = "1"
+    startup_odds = run_streamed(
+        "ODDS_VALUE_STARTUP_BACKFILL",
+        [sys.executable, "-u", str(ROOT / "five_dollar_odds_sync.py"), "--root", str(ROOT)],
+        startup_env,
+        int(os.environ.get("ODDSHUNTER_ODDS_TIMEOUT_SECONDS", "900")),
+    )
+    if startup_odds["returncode"] == 0:
+        run_streamed(
+            "ODDS_VALUE_STARTUP_PUBLISH",
+            [sys.executable, "-u", str(ROOT / "turso_odds_value_publish.py")],
+            startup_env,
+            300,
+        )
+    else:
+        print(f"[{utc_now()}] ODDS_VALUE_STARTUP_BACKFILL=RETRY_NEXT_CYCLE", flush=True)
+
+'''
+        daemon_text = replace_once(
+            daemon_text,
+            startup_anchor,
+            startup_block + startup_anchor,
+            "backfill inmediato al iniciar",
         )
     compile(daemon_text, str(daemon), "exec")
     daemon.write_text(daemon_text, encoding="utf-8", newline="\n")

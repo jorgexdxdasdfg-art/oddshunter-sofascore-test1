@@ -67,13 +67,14 @@ jobs:
               -p User=oddshunter -p Group=oddshunter \
               -p WorkingDirectory=/opt/oddshunter/current \
               -p EnvironmentFile=/etc/oddshunter/oddshunter.env \
-              /bin/bash -lc 'set -euo pipefail; ./\.venv-cloud/bin/python -u five_dollar_odds_sync.py --root /opt/oddshunter/current --days 3 --max-age-minutes 45; ./\.venv-cloud/bin/python -u turso_odds_value_publish.py'
+              /bin/bash -lc 'set -euo pipefail; ./\.venv-cloud/bin/python -u five_dollar_odds_sync.py --root /opt/oddshunter/current | tee /tmp/oddshunter_odds_backfill.json; ./\.venv-cloud/bin/python -u turso_odds_value_publish.py'
             SEED_RC=\$?
             set -e
             \$SUDO systemctl start oddshunter.service
             test \"\$SEED_RC\" -eq 0
             sleep 4
             \$SUDO systemctl is-active --quiet oddshunter.service
-            \$SUDO grep -q 'ODDS_VALUE_SYNC_V2' /opt/oddshunter/current/stage8_daemon.py
+            \$SUDO grep -q 'ODDS_VALUE_TODAY_TOMORROW_V3' /opt/oddshunter/current/stage8_daemon.py
+            \$SUDO grep -q 'ODDS_VALUE_STARTUP_BACKFILL_V3' /opt/oddshunter/current/stage8_daemon.py
             rm -rf '$REMOTE_DIR'
             echo ODDS_VALUE_RUNTIME_DEPLOY=PASS"

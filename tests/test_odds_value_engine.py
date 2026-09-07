@@ -57,3 +57,17 @@ def test_only_exact_positive_ev_lines_reach_top_four():
 def test_quarter_line_is_not_mislabeled_as_half_line():
     prices = provider_prices({"goal_line": {"closing": {"line": 2.25, "over": 2.0, "under": 1.8}}})
     assert prices == []
+
+
+def test_batch_1x2_uses_documented_home_draw_away_keys():
+    markets = {
+        "1x2": {
+            "opening": {"home": 2.15, "draw": 3.4, "away": 3.0},
+            "closing": {"home": 2.1, "draw": 3.5, "away": 3.1},
+            "inplay": None,
+        }
+    }
+    opening = {row["key"]: row["odds"] for row in provider_prices(markets, snapshot_order=("opening",))}
+    current = {row["key"]: row["odds"] for row in provider_prices(markets, snapshot_order=("closing",))}
+    assert opening == {"result_home": 2.15, "result_draw": 3.4, "result_away": 3.0}
+    assert current == {"result_home": 2.1, "result_draw": 3.5, "result_away": 3.1}
