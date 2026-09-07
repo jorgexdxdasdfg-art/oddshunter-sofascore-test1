@@ -1,0 +1,67 @@
+name: OddsHunter Odds Value Deploy V1
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      VPS_HOST: ${{ secrets.VPS_HOST }}
+      VPS_USER: ${{ secrets.VPS_USER }}
+      VPS_PORT_SECRET: ${{ secrets.VPS_PORT }}
+      VPS_SSH_PRIVATE_KEY: ${{ secrets.VPS_SSH_PRIVATE_KEY }}
+      FIVE_DOLLAR_FOOTBALL_API_KEY: ${{ secrets.FIVE_DOLLAR_FOOTBALL_API_KEY }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Validar y preparar SSH
+        run: |
+          set -euo pipefail
+          test -n "${VPS_HOST:-}"
+          test -n "${VPS_USER:-}"
+          test -n "${VPS_SSH_PRIVATE_KEY:-}"
+          test -n "${FIVE_DOLLAR_FOOTBALL_API_KEY:-}"
+          VPS_PORT="${VPS_PORT_SECRET:-22}"
+          echo "VPS_PORT=$VPS_PORT" >> "$GITHUB_ENV"
+          mkdir -p ~/.ssh deploy
+          chmod 700 ~/.ssh
+          printf '%s\n' "$VPS_SSH_PRIVATE_KEY" > ~/.ssh/oddshunter
+          chmod 600 ~/.ssh/oddshunter
+          ssh-keyscan -p "$VPS_PORT" -H "$VPS_HOST" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+          umask 077
+          printf 'FIVE_DOLLAR_FOOTBALL_API_KEY=%q\n' "$FIVE_DOLLAR_FOOTBALL_API_KEY" > deploy/provider.env
+          echo "ODDS_SECRET_GATE=PASS"
+
+      - name: Instalar motor en runtime 24x7
+        run: |
+          set -euo pipefail
+          REMOTE_DIR="/tmp/oddshunter-odds-${GITHUB_RUN_ID}"
+          SSH=(ssh -i ~/.ssh/oddshunter -p "$VPS_PORT" -o BatchMode=yes -o StrictHostKeyChecking=yes "$VPS_USER@$VPS_HOST")
+          SCP=(scp -i ~/.ssh/oddshunter -P "$VPS_PORT" -o BatchMode=yes -o StrictHostKeyChecking=yes)
+          "${SSH[@]}" "rm -rf '$REMOTE_DIR' && mkdir -p '$REMOTE_DIR'"
+          "${SCP[@]}" odds_value_engine.py five_dollar_odds_sync.py stage8_odds_patch.py deploy/provider.env "$VPS_USER@$VPS_HOST:$REMOTE_DIR/"
+          "${SSH[@]}" "set -euo pipefail
+            SUDO=''
+            if [ \"\$(id -u)\" -ne 0 ]; then SUDO='sudo -n'; fi
+            test -d /opt/oddshunter/current
+            \$SUDO install -m 0644 '$REMOTE_DIR/odds_value_engine.py' /opt/oddshunter/current/odds_value_engine.py
+            \$SUDO install -m 0644 '$REMOTE_DIR/five_dollar_odds_sync.py' /opt/oddshunter/current/five_dollar_odds_sync.py
+            \$SUDO install -m 0644 '$REMOTE_DIR/stage8_odds_patch.py' /opt/oddshunter/current/stage8_odds_patch.py
+            \$SUDO /opt/oddshunter/current/.venv-cloud/bin/python /opt/oddshunter/current/stage8_odds_patch.py /opt/oddshunter/current
+            TMP_ENV=\$(mktemp)
+            \$SUDO grep -v '^FIVE_DOLLAR_FOOTBALL_API_KEY=' /etc/oddshunter/oddshunter.env > \"\$TMP_ENV\"
+            cat '$REMOTE_DIR/provider.env' >> \"\$TMP_ENV\"
+            \$SUDO install -m 0600 -o root -g root \"\$TMP_ENV\" /etc/oddshunter/oddshunter.env
+            rm -f \"\$TMP_ENV\"
+            \$SUDO systemctl restart oddshunter.service
+            sleep 4
+            \$SUDO systemctl is-active --quiet oddshunter.service
+            \$SUDO grep -q 'ODDS_VALUE_SYNC_V1' /opt/oddshunter/current/stage8_daemon.py
+            rm -rf '$REMOTE_DIR'
+            echo ODDS_VALUE_RUNTIME_DEPLOY=PASS"

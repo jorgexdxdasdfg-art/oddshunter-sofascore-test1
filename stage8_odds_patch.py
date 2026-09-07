@@ -43,6 +43,8 @@ def patch(root: Path) -> None:
     compile(daemon_text, str(daemon), "exec")
     daemon.write_text(daemon_text, encoding="utf-8", newline="\n")
 
+    if not installer.is_file():
+        return
     install_text = installer.read_text(encoding="utf-8")
     if "ODDS_VALUE_INSTALL_V1" not in install_text:
         install_text = replace_once(
