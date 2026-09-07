@@ -1,6 +1,10 @@
 from __future__ import annotations
 
-from five_dollar_odds_sync import _merge_prices, match_fixture
+import gzip
+import json
+from datetime import datetime, timezone
+
+from five_dollar_odds_sync import _merge_prices, _target_events, match_fixture
 
 
 def test_exact_kickoff_accepts_provider_team_suffixes():
@@ -50,3 +54,34 @@ def test_captured_opening_is_immutable_and_current_moves():
     assert row["current"] == {"odds": 2.3, "updated_at": "2026-09-07T13:00:00+00:00"}
     assert first_stats == {"opening_created": 1, "opening_preserved": 0, "current_updated": 0}
     assert second_stats == {"opening_created": 0, "opening_preserved": 1, "current_updated": 1}
+
+
+def test_target_events_reads_service_owned_schedule_catalog(tmp_path, monkeypatch):
+    root = tmp_path / "release"
+    (root / "data").mkdir(parents=True)
+    service_seed = tmp_path / "var" / "mobile_schedule_catalog_seed.json.gz"
+    service_seed.parent.mkdir(parents=True)
+    with gzip.open(service_seed, "wt", encoding="utf-8") as handle:
+        json.dump(
+            {
+                "events": [
+                    {
+                        "competition_key": "serie-a",
+                        "event_id": 9001,
+                        "kickoff": "2026-09-08T18:00:00+00:00",
+                        "home_team": "Home",
+                        "away_team": "Away",
+                    }
+                ]
+            },
+            handle,
+        )
+    monkeypatch.setenv("ODDSHUNTER_SCHEDULE_CATALOG_SEED", str(service_seed))
+
+    rows = _target_events(
+        root,
+        datetime(2026, 9, 8, tzinfo=timezone.utc),
+        datetime(2026, 9, 9, tzinfo=timezone.utc),
+    )
+
+    assert [(row["competition_key"], row["event_id"]) for row in rows] == [("serie-a", 9001)]

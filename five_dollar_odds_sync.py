@@ -277,10 +277,32 @@ def _target_events(root: Path, start: datetime, end: datetime) -> list[dict[str,
         finally:
             connection.close()
 
-    seed = root / "data" / "mobile_schedule_catalog_seed.json.gz"
-    if seed.is_file():
-        with gzip.open(seed, "rt", encoding="utf-8") as handle:
-            document = json.load(handle)
+    # The schedule service owns the live rolling catalog in /var/lib.  Older
+    # releases only read the packaged /opt/.../data copy, so newly restored
+    # fixtures appeared in Mobile but never entered the Bet365 backfill.  Read
+    # every compatible location and let the service-owned catalog win.
+    seed_paths = [
+        root / "deploy" / "mobile_schedule_catalog_seed.json.gz",
+        root / "data" / "mobile_schedule_catalog_seed.json.gz",
+        Path(os.environ.get(
+            "ODDSHUNTER_SCHEDULE_CATALOG_SEED",
+            "/var/lib/oddshunter/data/mobile_schedule_catalog_seed.json.gz",
+        )),
+    ]
+    seen_seed_paths: set[Path] = set()
+    for seed in seed_paths:
+        try:
+            resolved_seed = seed.resolve()
+        except OSError:
+            resolved_seed = seed
+        if resolved_seed in seen_seed_paths or not seed.is_file():
+            continue
+        seen_seed_paths.add(resolved_seed)
+        try:
+            with gzip.open(seed, "rt", encoding="utf-8") as handle:
+                document = json.load(handle)
+        except (OSError, UnicodeError, json.JSONDecodeError):
+            continue
         for row in document.get("events", []):
             if not isinstance(row, dict):
                 continue
