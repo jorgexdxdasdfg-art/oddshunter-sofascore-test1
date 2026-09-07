@@ -245,6 +245,56 @@ def _registry_by_league(root: Path) -> dict[int, str]:
     }
 
 
+def _schedule_seed_paths(root: Path) -> list[Path]:
+    return [
+        root / "deploy" / "mobile_schedule_catalog_seed.json.gz",
+        root / "data" / "mobile_schedule_catalog_seed.json.gz",
+        Path(os.environ.get(
+            "ODDSHUNTER_SCHEDULE_CATALOG_SEED",
+            "/var/lib/oddshunter/data/mobile_schedule_catalog_seed.json.gz",
+        )),
+    ]
+
+
+def _schedule_documents(root: Path) -> dict[tuple[str, int], dict[str, Any]]:
+    """Load analysis documents carried by the rolling Mobile catalog."""
+
+    documents: dict[tuple[str, int], dict[str, Any]] = {}
+    seen_paths: set[Path] = set()
+    for seed in _schedule_seed_paths(root):
+        try:
+            resolved_seed = seed.resolve()
+        except OSError:
+            resolved_seed = seed
+        if resolved_seed in seen_paths or not seed.is_file():
+            continue
+        seen_paths.add(resolved_seed)
+        try:
+            with gzip.open(seed, "rt", encoding="utf-8") as handle:
+                catalog = json.load(handle)
+        except (OSError, UnicodeError, json.JSONDecodeError):
+            continue
+        for row in catalog.get("docs", []):
+            if not isinstance(row, dict) or row.get("doc_name") not in {"analysis", "goals", "corners", "cards"}:
+                continue
+            try:
+                identity = (str(row.get("competition_key") or ""), int(row["event_id"]))
+                value = json.loads(str(row.get("json_text") or "{}"))
+            except (KeyError, TypeError, ValueError, json.JSONDecodeError):
+                continue
+            if isinstance(value, dict):
+                documents.setdefault(identity, {})[str(row["doc_name"])] = value
+
+    bundles: dict[tuple[str, int], dict[str, Any]] = {}
+    for identity, docs in documents.items():
+        bundle = dict(docs.get("analysis") or {})
+        for name in ("goals", "corners", "cards"):
+            if isinstance(docs.get(name), dict):
+                bundle[name] = docs[name]
+        bundles[identity] = bundle
+    return bundles
+
+
 def _target_events(root: Path, start: datetime, end: datetime) -> list[dict[str, Any]]:
     """Union of the fixtures that feed the PC/Mobile today and tomorrow views."""
 
@@ -281,14 +331,7 @@ def _target_events(root: Path, start: datetime, end: datetime) -> list[dict[str,
     # releases only read the packaged /opt/.../data copy, so newly restored
     # fixtures appeared in Mobile but never entered the Bet365 backfill.  Read
     # every compatible location and let the service-owned catalog win.
-    seed_paths = [
-        root / "deploy" / "mobile_schedule_catalog_seed.json.gz",
-        root / "data" / "mobile_schedule_catalog_seed.json.gz",
-        Path(os.environ.get(
-            "ODDSHUNTER_SCHEDULE_CATALOG_SEED",
-            "/var/lib/oddshunter/data/mobile_schedule_catalog_seed.json.gz",
-        )),
-    ]
+    seed_paths = _schedule_seed_paths(root)
     seen_seed_paths: set[Path] = set()
     for seed in seed_paths:
         try:
@@ -578,6 +621,7 @@ def sync(
     now = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
     today_start, tomorrow_start, end = _day_bounds(now)
     targets = [row for row in _target_events(root, today_start, end) if not event_ids or int(row.get("event_id") or 0) in event_ids]
+    catalog_bundles = _schedule_documents(root)
     today_targets = [row for row in targets if (_datetime(row.get("kickoff")) or end) < tomorrow_start]
     tomorrow_targets = [row for row in targets if (_datetime(row.get("kickoff")) or end) >= tomorrow_start]
     counts = {
@@ -663,6 +707,10 @@ def sync(
         counts["consulted"] += 1
         competition_key, event_id = str(event["competition_key"]), int(event["event_id"])
         folder = root / "data" / "analisis" / competition_key / str(event_id)
+        bundle = {
+            **catalog_bundles.get((competition_key, event_id), {}),
+            **_bundle(folder),
+        }
         target = folder / "odds_value.json"
         existing = _read_existing(target)
         checked_at = datetime.now(timezone.utc).isoformat()
@@ -684,7 +732,6 @@ def sync(
             preserved_prices = existing.get("available_prices") or []
             preserved_history = existing.get("price_history") or []
             if preserved_prices:
-                bundle = _bundle(folder)
                 context: dict[str, Any] = {}
                 try:
                     from global_match_context import build_global_context
@@ -825,7 +872,6 @@ def sync(
         if not bookmaker or not current_prices:
             counts["pending"] += 1
             preserved = existing if existing.get("available_prices") else {}
-            bundle = _bundle(folder)
             probabilities = model_probabilities(bundle, {}) if bundle else {}
             document = {
                 **preserved,
@@ -855,7 +901,6 @@ def sync(
         for key_name, value in merge_stats.items():
             counts[key_name] += value
         context: dict[str, Any] = {}
-        bundle = _bundle(folder)
         try:
             from global_match_context import build_global_context
 

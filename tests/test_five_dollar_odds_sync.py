@@ -4,7 +4,7 @@ import gzip
 import json
 from datetime import datetime, timezone
 
-from five_dollar_odds_sync import _merge_prices, _target_events, match_fixture
+from five_dollar_odds_sync import _merge_prices, _schedule_documents, _target_events, match_fixture
 
 
 def test_exact_kickoff_accepts_provider_team_suffixes():
@@ -72,7 +72,21 @@ def test_target_events_reads_service_owned_schedule_catalog(tmp_path, monkeypatc
                         "home_team": "Home",
                         "away_team": "Away",
                     }
-                ]
+                ],
+                "docs": [
+                    {
+                        "competition_key": "serie-a",
+                        "event_id": 9001,
+                        "doc_name": "analysis",
+                        "json_text": json.dumps({"status": "READY"}),
+                    },
+                    {
+                        "competition_key": "serie-a",
+                        "event_id": 9001,
+                        "doc_name": "goals",
+                        "json_text": json.dumps({"models": {"MODELO_APRENDIDO": {"lambda_home": 1.2}}}),
+                    },
+                ],
             },
             handle,
         )
@@ -85,3 +99,6 @@ def test_target_events_reads_service_owned_schedule_catalog(tmp_path, monkeypatc
     )
 
     assert [(row["competition_key"], row["event_id"]) for row in rows] == [("serie-a", 9001)]
+    bundles = _schedule_documents(root)
+    assert bundles[("serie-a", 9001)]["status"] == "READY"
+    assert bundles[("serie-a", 9001)]["goals"]["models"]["MODELO_APRENDIDO"]["lambda_home"] == 1.2
