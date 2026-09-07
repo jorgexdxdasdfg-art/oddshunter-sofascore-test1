@@ -40,6 +40,7 @@ def main() -> int:
         rows = client.query("SELECT 1 AS ok FROM mobile_analysis_docs WHERE competition_key=? AND event_id=? AND doc_name='odds_value' LIMIT 1", [key, event_id])
         if not rows:
             raise RuntimeError(f"Falta documento remoto {key}/{event_id}")
+    print("ODDS_VALUE_EVENTS=" + ",".join(f"{key}/{event_id}" for key, event_id in expected))
     print(f"ODDS_VALUE_DOCS={written}")
     print("ODDS_VALUE_TURSO_PUBLISH=PASS")
     return 0
