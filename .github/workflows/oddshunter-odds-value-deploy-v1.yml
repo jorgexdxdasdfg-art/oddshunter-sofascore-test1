@@ -45,13 +45,14 @@ jobs:
           SSH=(ssh -i ~/.ssh/oddshunter -p "$VPS_PORT" -o BatchMode=yes -o StrictHostKeyChecking=yes "$VPS_USER@$VPS_HOST")
           SCP=(scp -i ~/.ssh/oddshunter -P "$VPS_PORT" -o BatchMode=yes -o StrictHostKeyChecking=yes)
           "${SSH[@]}" "rm -rf '$REMOTE_DIR' && mkdir -p '$REMOTE_DIR'"
-          "${SCP[@]}" odds_value_engine.py five_dollar_odds_sync.py stage8_odds_patch.py deploy/provider.env "$VPS_USER@$VPS_HOST:$REMOTE_DIR/"
+          "${SCP[@]}" odds_value_engine.py five_dollar_odds_sync.py turso_odds_value_publish.py stage8_odds_patch.py deploy/provider.env "$VPS_USER@$VPS_HOST:$REMOTE_DIR/"
           "${SSH[@]}" "set -euo pipefail
             SUDO=''
             if [ \"\$(id -u)\" -ne 0 ]; then SUDO='sudo -n'; fi
             test -d /opt/oddshunter/current
             \$SUDO install -m 0644 '$REMOTE_DIR/odds_value_engine.py' /opt/oddshunter/current/odds_value_engine.py
             \$SUDO install -m 0644 '$REMOTE_DIR/five_dollar_odds_sync.py' /opt/oddshunter/current/five_dollar_odds_sync.py
+            \$SUDO install -m 0644 '$REMOTE_DIR/turso_odds_value_publish.py' /opt/oddshunter/current/turso_odds_value_publish.py
             \$SUDO install -m 0644 '$REMOTE_DIR/stage8_odds_patch.py' /opt/oddshunter/current/stage8_odds_patch.py
             \$SUDO /opt/oddshunter/current/.venv-cloud/bin/python /opt/oddshunter/current/stage8_odds_patch.py /opt/oddshunter/current
             TMP_ENV=\$(mktemp)
@@ -66,13 +67,13 @@ jobs:
               -p User=oddshunter -p Group=oddshunter \
               -p WorkingDirectory=/opt/oddshunter/current \
               -p EnvironmentFile=/etc/oddshunter/oddshunter.env \
-              /bin/bash -lc 'set -euo pipefail; ./\.venv-cloud/bin/python -u five_dollar_odds_sync.py --root /opt/oddshunter/current --days 3 --max-age-minutes 45; export ODDSHUNTER_RUNTIME_MODE=cloud ODDSHUNTER_ALLOW_WORK_DB_WRITE=1 ODDSHUNTER_STAGE6_ALLOW_TURSO_WRITE=1 ODDSHUNTER_DISABLE_TRAINING=1; ./\.venv-cloud/bin/python -u cloud_stage6_publish.py'
+              /bin/bash -lc 'set -euo pipefail; ./\.venv-cloud/bin/python -u five_dollar_odds_sync.py --root /opt/oddshunter/current --days 3 --max-age-minutes 45; ./\.venv-cloud/bin/python -u turso_odds_value_publish.py'
             SEED_RC=\$?
             set -e
             \$SUDO systemctl start oddshunter.service
             test \"\$SEED_RC\" -eq 0
             sleep 4
             \$SUDO systemctl is-active --quiet oddshunter.service
-            \$SUDO grep -q 'ODDS_VALUE_SYNC_V1' /opt/oddshunter/current/stage8_daemon.py
+            \$SUDO grep -q 'ODDS_VALUE_SYNC_V2' /opt/oddshunter/current/stage8_daemon.py
             rm -rf '$REMOTE_DIR'
             echo ODDS_VALUE_RUNTIME_DEPLOY=PASS"
