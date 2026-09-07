@@ -39,6 +39,22 @@ def test_all_requested_probabilities_are_exposed():
     assert expected <= probabilities.keys()
 
 
+def test_poisson_thresholds_survive_null_negative_binomial_field():
+    value = bundle()
+    value["cards"]["analysis"]["yellow_thresholds"] = [
+        {
+            "line_equivalent": 3.5,
+            "poisson_probability": 0.49663969,
+            "negative_binomial_probability": None,
+        }
+    ]
+
+    probabilities = model_probabilities(value)
+
+    assert probabilities["cards_over_3_5"] == 0.49663969
+    assert probabilities["cards_under_3_5"] == 0.50336031
+
+
 def test_only_exact_positive_ev_lines_reach_top_four():
     probabilities = model_probabilities(bundle())
     markets = {

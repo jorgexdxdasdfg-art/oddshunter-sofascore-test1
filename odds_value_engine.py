@@ -59,7 +59,13 @@ def _put_thresholds(
         if not isinstance(row, dict):
             continue
         raw_line = number(row.get(line_field))
-        over = probability(row.get("negative_binomial_probability", row.get("poisson_probability")))
+        # The analysis documents keep both fields and explicitly store ``null``
+        # for the family that was not selected. ``dict.get(default)`` does not
+        # fall back when the key exists with a null value, so Poisson leagues
+        # were silently losing every cards/corners probability here.
+        over = probability(row.get("negative_binomial_probability"))
+        if over is None:
+            over = probability(row.get("poisson_probability"))
         if raw_line is None or over is None:
             continue
         line = raw_line - 0.5 if line_field.startswith("minimum_") else raw_line
