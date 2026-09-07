@@ -97,22 +97,29 @@ jobs:
         run: |
           set -euo pipefail
           python - <<'PY'
-          import json,time
+          import gzip,json,time
           from datetime import datetime,timedelta,timezone
           from urllib.request import Request,urlopen
           tz=timezone(timedelta(hours=-5))
           today=datetime.now(timezone.utc).astimezone(tz).date()
+          with gzip.open('deploy/mobile_schedule_catalog_seed.json.gz','rt',encoding='utf-8') as handle:
+              seed=json.load(handle)
+          expected_counts=seed.get('counts_by_day') or {}
           for offset in (-1,0,1):
               url=f'https://oddshunter-mobile.vercel.app/api/day?offset={offset}&limit=1000&cb={time.time_ns()}'
               with urlopen(Request(url,headers={'Cache-Control':'no-cache'}),timeout=45) as response:
                   rows=json.load(response)
               expected=today+timedelta(days=offset)
+              expected_count=int(expected_counts.get(expected.isoformat()) or 0)
               wrong=[]
               for row in rows:
                   kickoff=datetime.fromisoformat(str(row['kickoff']).replace('Z','+00:00'))
                   if kickoff.astimezone(tz).date()!=expected:
                       wrong.append(row.get('event_id'))
-              if not rows or wrong:
-                  raise SystemExit(f'DAY_VERIFY_FAIL offset={offset} count={len(rows)} wrong={wrong}')
-              print(f'MOBILE_DAY offset={offset} count={len(rows)}')
+              if expected_count <= 0 or len(rows) != expected_count or wrong:
+                  raise SystemExit(
+                      f'DAY_VERIFY_FAIL offset={offset} expected={expected_count} '
+                      f'actual={len(rows)} wrong={wrong}'
+                  )
+              print(f'MOBILE_DAY offset={offset} expected={expected_count} actual={len(rows)}')
           PY

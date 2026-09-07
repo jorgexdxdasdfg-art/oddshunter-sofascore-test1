@@ -174,6 +174,79 @@ def provider_status(event: dict[str, Any], fallback: str) -> tuple[str, str]:
     return fallback or "NS", description
 
 
+def _event_day(row: dict[str, Any]) -> str | None:
+    kickoff = parse_dt(row.get("kickoff"))
+    return kickoff.astimezone(ECUADOR_TZ).date().isoformat() if kickoff else None
+
+
+def preserve_previous_coverage(
+    fresh: dict[str, Any],
+    previous: dict[str, Any],
+    allowed_days: set[str],
+) -> dict[str, Any]:
+    """Never shrink a valid Mobile day because one refresh discovered less.
+
+    The VPS working database is intentionally incremental and may temporarily
+    contain fewer fixtures than the desktop catalog.  Provider requests can
+    also fail for one league.  A refresh therefore merges the last published
+    three-day snapshot with the newly discovered rows.  Fresh rows win so
+    scores, statuses and reschedules continue to update; previous rows only
+    fill genuine discovery gaps.  Dates outside the rolling Ecuador window are
+    discarded, so this does not retain the rest of the week.
+    """
+
+    event_map: dict[tuple[str, int], dict[str, Any]] = {}
+    for source in (previous.get("events", []), fresh.get("events", [])):
+        for row in source if isinstance(source, list) else []:
+            if not isinstance(row, dict) or _event_day(row) not in allowed_days:
+                continue
+            try:
+                identity = (str(row.get("competition_key") or ""), int(row["event_id"]))
+            except (KeyError, TypeError, ValueError):
+                continue
+            event_map[identity] = row
+
+    allowed_ids = set(event_map)
+    doc_map: dict[tuple[str, int, str], dict[str, Any]] = {}
+    for source in (previous.get("docs", []), fresh.get("docs", [])):
+        for row in source if isinstance(source, list) else []:
+            if not isinstance(row, dict):
+                continue
+            try:
+                event_identity = (str(row.get("competition_key") or ""), int(row["event_id"]))
+                identity = (*event_identity, str(row["doc_name"]))
+            except (KeyError, TypeError, ValueError):
+                continue
+            if event_identity in allowed_ids:
+                doc_map[identity] = row
+
+    events = sorted(event_map.values(), key=lambda row: (str(row.get("kickoff")), int(row["event_id"])))
+    counts_by_day: dict[str, int] = {}
+    leagues_by_day: dict[str, set[str]] = {}
+    event_ids_by_day: dict[str, list[int]] = {}
+    for row in events:
+        day = _event_day(row)
+        if day is None:
+            continue
+        counts_by_day[day] = counts_by_day.get(day, 0) + 1
+        leagues_by_day.setdefault(day, set()).add(str(row.get("competition_key") or ""))
+        event_ids_by_day.setdefault(day, []).append(int(row["event_id"]))
+
+    result = dict(fresh)
+    result.update({
+        "events": events,
+        "docs": list(doc_map.values()),
+        "counts_by_day": counts_by_day,
+        "leagues_by_day": {day: sorted(keys) for day, keys in leagues_by_day.items()},
+        "event_ids_by_day": {day: sorted(ids) for day, ids in event_ids_by_day.items()},
+        "coverage_policy": "rolling_three_day_union_fresh_wins",
+    })
+    result.setdefault("validation", {})["preserved_previous_events"] = max(
+        0, len(events) - len(fresh.get("events", []))
+    )
+    return result
+
+
 def build(args: argparse.Namespace) -> dict[str, Any]:
     now = parse_dt(args.now) if args.now else datetime.now(timezone.utc)
     assert now is not None
@@ -369,7 +442,25 @@ def main() -> int:
     parser.add_argument("--workers", type=int, default=6)
     parser.add_argument("--skip-provider", action="store_true")
     args = parser.parse_args()
+    previous: dict[str, Any] = {}
+    if args.output.is_file():
+        try:
+            with gzip.open(args.output, "rt", encoding="utf-8") as handle:
+                loaded = json.load(handle)
+            previous = loaded if isinstance(loaded, dict) else {}
+        except (OSError, UnicodeError, json.JSONDecodeError):
+            previous = {}
+
     document = build(args)
+    now = parse_dt(args.now) if args.now else datetime.now(timezone.utc)
+    assert now is not None
+    today = now.astimezone(ECUADOR_TZ).date()
+    allowed_days = {
+        (today + timedelta(days=offset)).isoformat()
+        for offset in (-1, 0, 1)
+    }
+    if previous:
+        document = preserve_previous_coverage(document, previous, allowed_days)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     with gzip.open(args.output, "wt", encoding="utf-8", compresslevel=9) as handle:
         json.dump(document, handle, ensure_ascii=False, separators=(",", ":"))
