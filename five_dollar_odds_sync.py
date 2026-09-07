@@ -654,7 +654,56 @@ def sync(
             counts["pending"] += 1
             counts["ambiguous" if resolution == "AMBIGUOUS" else "provider_not_found"] += 1
             status = "AMBIGUOUS" if resolution == "AMBIGUOUS" else "PROVIDER_NOT_FOUND"
-            _persist_database(connection,event,None,status,checked_at,[])
+            # A fixture can disappear from a later provider batch while its
+            # previously captured Bet365 prices remain valid as last-known
+            # data. Refresh model probabilities/EV from the local analysis in
+            # that case without inventing or changing any quote and without an
+            # extra provider request.
+            preserved_prices = existing.get("available_prices") or []
+            preserved_history = existing.get("price_history") or []
+            if preserved_prices:
+                bundle = _bundle(folder)
+                probabilities = model_probabilities(bundle, {}) if bundle else {}
+                all_picks = [
+                    {
+                        "key": key_name,
+                        "probability": round(probability_value * 100, 2),
+                        "odds": next(
+                            (
+                                row.get("current_odds") or row.get("odds")
+                                for row in preserved_prices
+                                if row.get("key") == key_name
+                            ),
+                            None,
+                        ),
+                    }
+                    for key_name, probability_value in probabilities.items()
+                ]
+                top_picks = rank_value_picks(probabilities, preserved_prices, 4)
+                document = {
+                    **existing,
+                    "generated_at": checked_at,
+                    "last_checked_at": checked_at,
+                    "odds_status": "AVAILABLE_LAST_KNOWN",
+                    "probabilities": probabilities,
+                    "all_picks": all_picks,
+                    "top_picks": top_picks,
+                }
+                _atomic_json(target, document)
+                _persist_database(
+                    connection,
+                    event,
+                    existing.get("provider_fixture_id"),
+                    "AVAILABLE_LAST_KNOWN",
+                    checked_at,
+                    preserved_history,
+                )
+                counts["updated"] += 1
+                counts["persisted_found"] += 1
+                counts["all_picks_created"] += len(all_picks)
+                counts["top4_created"] += len(top_picks)
+            else:
+                _persist_database(connection,event,None,status,checked_at,[])
             match_audit.append({
                 "app_fixture_id": event_id,
                 "app_home": event.get("home_team"),
