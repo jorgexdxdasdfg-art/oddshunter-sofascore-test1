@@ -12,6 +12,7 @@ from datetime import datetime, timedelta, timezone
 from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Any
+from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
@@ -20,6 +21,10 @@ from odds_value_engine import model_probabilities, provider_prices, rank_value_p
 ROOT = Path(__file__).resolve().parent
 API_BASE = "https://api.5dollarfootballapi.com/v1"
 EXCLUDED_COMPETITIONS = {"copa-colombia", "leagues-cup"}
+
+
+class ProviderDeferred(RuntimeError):
+    """Temporary provider saturation; existing cached picks stay valid."""
 
 
 def _load_env(root: Path) -> None:
@@ -38,15 +43,37 @@ class Client:
         self.key, self.min_interval, self.last_request = key, min_interval, 0.0
 
     def get(self, path: str, **params: Any) -> dict[str, Any]:
-        wait = self.min_interval - (time.monotonic() - self.last_request)
-        if wait > 0:
-            time.sleep(wait)
         url = f"{API_BASE}{path}"
         query = urlencode({key: value for key, value in params.items() if value is not None})
         request = Request(url + (f"?{query}" if query else ""), headers={"Authorization": f"Bearer {self.key}", "User-Agent": "OddsHunter/1.0"})
-        with urlopen(request, timeout=30) as response:
-            payload = json.load(response)
-        self.last_request = time.monotonic()
+        payload: dict[str, Any] | None = None
+        for attempt in range(3):
+            wait = self.min_interval - (time.monotonic() - self.last_request)
+            if wait > 0:
+                time.sleep(wait)
+            self.last_request = time.monotonic()
+            try:
+                with urlopen(request, timeout=30) as response:
+                    payload = json.load(response)
+                break
+            except HTTPError as exc:
+                if exc.code == 429:
+                    retry_after = float(exc.headers.get("Retry-After") or 15)
+                    if attempt == 2:
+                        raise ProviderDeferred(
+                            "Proveedor de cuotas temporalmente saturado; se conserva el caché anterior"
+                        ) from exc
+                    time.sleep(max(retry_after, 15 * (attempt + 1)))
+                    continue
+                if exc.code not in {500, 502, 503, 504} or attempt == 2:
+                    raise
+                time.sleep(5 * (attempt + 1))
+            except (TimeoutError, URLError):
+                if attempt == 2:
+                    raise
+                time.sleep(5 * (attempt + 1))
+        if payload is None:
+            raise ProviderDeferred("Proveedor de cuotas no disponible; se conserva el caché anterior")
         if not payload.get("success"):
             raise RuntimeError(json.dumps(payload.get("error", payload), ensure_ascii=False))
         return payload
@@ -131,9 +158,9 @@ def sync(
     if not key:
         raise RuntimeError("Falta FIVE_DOLLAR_FOOTBALL_API_KEY")
     client = Client(key)
-    fixtures = fetch_fixtures(client, start, start + timedelta(days=days))
     cutoff = datetime.now(timezone.utc) - timedelta(minutes=max_age_minutes)
     counts = {"events": 0, "matched": 0, "updated": 0, "cached": 0, "unmatched": 0}
+    pending: list[tuple[Path, str, int, dict[str, Any], dict[str, Any]]] = []
     for path in sorted((root / "data" / "analisis").glob("*/*/analysis.json")):
         competition_key, event_id = path.parent.parent.name, path.parent.name
         if competition_key in EXCLUDED_COMPETITIONS:
@@ -150,12 +177,40 @@ def sync(
         if target.is_file() and datetime.fromtimestamp(target.stat().st_mtime, timezone.utc) >= cutoff:
             counts["cached"] += 1
             continue
+        pending.append((path, competition_key, int(event_id), bundle, event))
+
+    # Do not spend even one provider request when every eligible event already
+    # has a fresh cache. The 24x7 runtime is the single owner of these calls.
+    if not pending:
+        return {"ok": True, "counts": counts, "provider_fixtures": 0, "provider_request": "SKIPPED_FRESH_CACHE"}
+    try:
+        fixtures = fetch_fixtures(client, start, start + timedelta(days=days))
+    except ProviderDeferred as exc:
+        return {
+            "ok": True,
+            "counts": counts,
+            "provider_fixtures": 0,
+            "provider_request": "DEFERRED_RATE_LIMIT",
+            "message": str(exc),
+        }
+
+    for path, competition_key, event_id, bundle, event in pending:
         fixture = match_fixture(event, fixtures)
         if not fixture:
             counts["unmatched"] += 1
             continue
         counts["matched"] += 1
-        odds_payload = client.get(f"/fixtures/{int(fixture['id'])}/odds")
+        try:
+            odds_payload = client.get(f"/fixtures/{int(fixture['id'])}/odds")
+        except ProviderDeferred as exc:
+            # Keep the last good document. A later cloud cycle will retry.
+            return {
+                "ok": True,
+                "counts": counts,
+                "provider_fixtures": len(fixtures),
+                "provider_request": "DEFERRED_RATE_LIMIT",
+                "message": str(exc),
+            }
         bookmakers = (odds_payload.get("data") or {}).get("bookmakers") or []
         bookmaker = next((row for row in bookmakers if str(row.get("slug", "")).casefold() == "bet365"), bookmakers[0] if bookmakers else {})
         context: dict[str, Any] = {}

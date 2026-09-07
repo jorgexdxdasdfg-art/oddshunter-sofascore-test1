@@ -2,21 +2,6 @@ name: OddsHunter LIVE STATUS DEPLOY V1
 
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
-    paths:
-      - cloud_live_status_sync.py
-      - cloud_schedule_refresh.py
-      - futbol24_client.py
-      - sofascore_event_client.py
-      - deploy/oddshunter-live-sync.service
-      - deploy/oddshunter-live-sync.timer
-      - deploy/oddshunter-schedule-refresh.service
-      - deploy/oddshunter-schedule-refresh.timer
-      - deploy/mobile_schedule_catalog_seed.json.gz
-      - tests/test_cloud_live_status_sync.py
-      - tests/test_futbol24_resolver.py
-      - .github/workflows/oddshunter-live-status-deploy-v1.yml
 
 permissions:
   contents: read

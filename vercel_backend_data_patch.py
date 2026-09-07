@@ -9,6 +9,25 @@ VALUE_DOC_NAMES_PATCHED = '    names = ("input_match", "status", "analysis", "ra
 VALUE_PAYLOAD_ANCHOR = '        "lineups": lineup_payload(competition_key, event_id),\n'
 VALUE_PAYLOAD_PATCHED = VALUE_PAYLOAD_ANCHOR + '        "value_picks": safe_dict(docs.get("odds_value")),\n'
 
+UPCOMING_ROUTE_ANCHOR = '    items = reader.scan_analysis_events(include_finished=False)\n'
+UPCOMING_ROUTE_PATCHED = '    items = reader.upcoming_events_for_mobile()\n'
+UPCOMING_READER_ANCHOR = 'def events_for_day(offset: int = 0) -> list[dict[str, Any]]:\n'
+UPCOMING_READER_FUNCTION = '''# OH_MOBILE_THREE_DAY_WINDOW_V1
+def upcoming_events_for_mobile() -> list[dict[str, Any]]:
+    """Only today and tomorrow in Ecuador; never the rest of the week."""
+    today = datetime.now(ECUADOR_TZ).date()
+    allowed = {today, today + timedelta(days=1)}
+    items = []
+    for item in scan_analysis_events(include_finished=False):
+        kickoff = _aware_utc(item.get("kickoff"))
+        if kickoff is not None and kickoff.astimezone(ECUADOR_TZ).date() in allowed:
+            items.append(item)
+    items.sort(key=lambda row: str(row.get("kickoff") or "9999"))
+    return items
+
+
+'''
+
 
 TEAM_RECENT_SCORE_COLUMNS = """                m.home_goals, m.away_goals,
                 s.venue, s.goals_for, s.goals_against,"""
@@ -389,6 +408,13 @@ def patch_backend(root: Path) -> list[str]:
     path = primary[0]
     text = path.read_text(encoding="utf-8")
     original_text = text
+    if "OH_MOBILE_THREE_DAY_WINDOW_V1" not in text:
+        text = replace_once(
+            text,
+            UPCOMING_READER_ANCHOR,
+            UPCOMING_READER_FUNCTION + UPCOMING_READER_ANCHOR,
+            "ventana estricta de próximos",
+        )
     if VALUE_DOC_NAMES_PATCHED not in text:
         text = replace_once(
             text,
@@ -466,7 +492,17 @@ def patch_backend(root: Path) -> list[str]:
         compile(text, str(path), "exec")
         if text != original_text:
             path.write_text(text, encoding="utf-8", newline="\n")
-        return [path.relative_to(root).as_posix()]
+        app_candidates = sorted(root.glob("**/app.py"))
+        app_primary = [item for item in app_candidates if "/backups/" not in item.as_posix()]
+        if len(app_primary) != 1:
+            raise RuntimeError(f"Se esperaba un app.py activo; encontrados={app_primary}")
+        app_path = app_primary[0]
+        app_text = app_path.read_text(encoding="utf-8")
+        if UPCOMING_ROUTE_PATCHED not in app_text:
+            app_text = replace_once(app_text, UPCOMING_ROUTE_ANCHOR, UPCOMING_ROUTE_PATCHED, "ruta de próximos")
+            compile(app_text, str(app_path), "exec")
+            app_path.write_text(app_text, encoding="utf-8", newline="\n")
+        return [path.relative_to(root).as_posix(), app_path.relative_to(root).as_posix()]
     if any(present):
         raise RuntimeError(f"El backend contiene un parche de datos incompleto: {path}")
 
@@ -494,4 +530,14 @@ def patch_backend(root: Path) -> list[str]:
 
     compile(text, str(path), "exec")
     path.write_text(text, encoding="utf-8", newline="\n")
-    return [path.relative_to(root).as_posix()]
+    app_candidates = sorted(root.glob("**/app.py"))
+    app_primary = [item for item in app_candidates if "/backups/" not in item.as_posix()]
+    if len(app_primary) != 1:
+        raise RuntimeError(f"Se esperaba un app.py activo; encontrados={app_primary}")
+    app_path = app_primary[0]
+    app_text = app_path.read_text(encoding="utf-8")
+    if UPCOMING_ROUTE_PATCHED not in app_text:
+        app_text = replace_once(app_text, UPCOMING_ROUTE_ANCHOR, UPCOMING_ROUTE_PATCHED, "ruta de próximos")
+        compile(app_text, str(app_path), "exec")
+        app_path.write_text(app_text, encoding="utf-8", newline="\n")
+    return [path.relative_to(root).as_posix(), app_path.relative_to(root).as_posix()]

@@ -127,7 +127,7 @@ JOIN leagues AS l ON l.league_id=m.league_id
 JOIN teams AS h ON h.team_id=m.home_team_id
 JOIN teams AS a ON a.team_id=m.away_team_id
 WHERE m.sofascore_id IS NOT NULL
-  AND datetime(m.kickoff)>=datetime(?) AND datetime(m.kickoff)<=datetime(?)
+  AND datetime(m.kickoff)>=datetime(?) AND datetime(m.kickoff)<datetime(?)
 """
 
 
@@ -660,21 +660,37 @@ def publish_schedule_catalog(
             if parse_dt(row.get("kickoff"))
             and parse_dt(row.get("kickoff")).astimezone(ECUADOR_TZ).date().isoformat() in allowed_days
         ]
-        allowed_ids = {(str(row.get("competition_key")), int(row.get("event_id"))) for row in seeded_events}
+        seeded_by_day: dict[str, list[dict[str, Any]]] = {}
+        cloud_by_day: dict[str, list[dict[str, Any]]] = {}
+        for row in seeded_events:
+            day = parse_dt(row.get("kickoff")).astimezone(ECUADOR_TZ).date().isoformat()
+            seeded_by_day.setdefault(day, []).append(row)
+        for row in catalog.get("events", []):
+            kickoff = parse_dt(row.get("kickoff"))
+            if kickoff is None:
+                continue
+            day = kickoff.astimezone(ECUADOR_TZ).date().isoformat()
+            if day in allowed_days:
+                cloud_by_day.setdefault(day, []).append(row)
+
+        # A seed is an exact desktop snapshot for the days it contains.  For a
+        # newly entered day that the snapshot does not cover, use the refreshed
+        # cloud database instead of accidentally making the whole catalog empty.
+        selected_events: list[dict[str, Any]] = []
+        for day in sorted(allowed_days):
+            selected_events.extend(seeded_by_day.get(day) or cloud_by_day.get(day) or [])
+        allowed_ids = {
+            (str(row.get("competition_key")), int(row.get("event_id")))
+            for row in selected_events
+        }
         seeded_docs = [
             row for row in seeded.get("docs", [])
             if (str(row.get("competition_key")), int(row.get("event_id"))) in allowed_ids
         ]
         event_map = {
             (str(row.get("competition_key")), int(row.get("event_id"))): row
-            for row in catalog.get("events", [])
-            if parse_dt(row.get("kickoff"))
-            and parse_dt(row.get("kickoff")).astimezone(ECUADOR_TZ).date().isoformat() not in allowed_days
+            for row in selected_events
         }
-        event_map.update({
-            (str(row.get("competition_key")), int(row.get("event_id"))): row
-            for row in seeded_events
-        })
         allowed_local_ids = {
             (str(row.get("competition_key")), int(row.get("event_id")))
             for row in event_map.values()
@@ -707,7 +723,7 @@ def publish_schedule_catalog(
             "counts_by_day": counts_by_day,
             "leagues_by_day": {day: sorted(keys) for day, keys in leagues_by_day.items()},
             "event_ids_by_day": {day: sorted(ids) for day, ids in event_ids_by_day.items()},
-            "source": "desktop_catalog_seed+cloud_db",
+            "source": "desktop_seed_per_day_with_cloud_fallback",
         }
     events = catalog["events"]
     docs = catalog["docs"]
@@ -719,6 +735,13 @@ def publish_schedule_catalog(
     schedule_end = schedule_start + timedelta(days=3)
     expected_ids = sorted({int(row["event_id"]) for row in events})
     placeholders = ",".join("?" for _ in expected_ids)
+    # Mobile intentionally retains exactly three Ecuador calendar days. Clear
+    # older and later rows as well as stale rows inside the window so /upcoming
+    # can never leak the rest of the week.
+    client.execute(
+        "DELETE FROM mobile_events WHERE datetime(kickoff)<datetime(?) OR datetime(kickoff)>=datetime(?)",
+        [iso_utc(schedule_start), iso_utc(schedule_end)],
+    )
     client.execute(
         f"DELETE FROM mobile_events WHERE datetime(kickoff)>=datetime(?) AND datetime(kickoff)<datetime(?) "
         f"AND event_id NOT IN ({placeholders})",
@@ -776,6 +799,11 @@ def publish_schedule_catalog(
         "leagues_by_day": catalog["leagues_by_day"],
         "event_ids_by_day": catalog["event_ids_by_day"],
     }
+
+
+def publish_catalog_only(now: datetime) -> dict[str, Any]:
+    """Publish only the bounded schedule, without running provider repair."""
+    return publish_schedule_catalog(turso_client(), now, registry_by_league())
 
 
 def seed_schedule_coverage() -> tuple[set[str], set[int]]:
@@ -1396,6 +1424,10 @@ def run(
             schedule_end = schedule_start + timedelta(days=3)
             placeholders = ",".join("?" for _ in expected_ids)
             client.execute(
+                "DELETE FROM mobile_events WHERE datetime(kickoff)<datetime(?) OR datetime(kickoff)>=datetime(?)",
+                [iso_utc(schedule_start), iso_utc(schedule_end)],
+            )
+            client.execute(
                 f"DELETE FROM mobile_events WHERE datetime(kickoff)>=datetime(?) AND datetime(kickoff)<datetime(?) "
                 f"AND event_id NOT IN ({placeholders})",
                 [iso_utc(schedule_start), iso_utc(schedule_end), *expected_ids],
@@ -1412,6 +1444,7 @@ def run(
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="OddsHunter live/final score publisher")
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--catalog-only", action="store_true")
     parser.add_argument(
         "--near-limit",
         type=int,
@@ -1445,6 +1478,14 @@ def main() -> int:
     args = build_parser().parse_args()
     if not args.dry_run:
         require_write_gates()
+    if args.catalog_only:
+        if args.dry_run:
+            raise SystemExit("--catalog-only requiere publicación real")
+        report = {"generated_at": iso_utc(utc_now()), "schedule_catalog": publish_catalog_only(utc_now())}
+        REPORT.parent.mkdir(parents=True, exist_ok=True)
+        REPORT.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+        print(json.dumps(report, ensure_ascii=False, indent=2))
+        return 0
     report = run(
         now=utc_now(),
         dry_run=bool(args.dry_run),

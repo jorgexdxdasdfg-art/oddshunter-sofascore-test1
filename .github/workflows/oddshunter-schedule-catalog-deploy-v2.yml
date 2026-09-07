@@ -1,0 +1,105 @@
+name: OddsHunter Schedule Catalog Deploy V2
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - cloud_live_status_sync.py
+      - deploy/mobile_schedule_catalog_seed.json.gz
+      - .github/workflows/oddshunter-schedule-catalog-deploy-v2.yml
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      VPS_HOST: ${{ secrets.VPS_HOST }}
+      VPS_USER: ${{ secrets.VPS_USER }}
+      VPS_PORT_SECRET: ${{ secrets.VPS_PORT }}
+      VPS_SSH_PRIVATE_KEY: ${{ secrets.VPS_SSH_PRIVATE_KEY }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Validar catálogo y preparar SSH
+        run: |
+          set -euo pipefail
+          python -m py_compile cloud_live_status_sync.py mobile_schedule_seed_builder.py
+          python - <<'PY'
+          import gzip,json
+          from datetime import datetime,timedelta,timezone
+          with gzip.open('deploy/mobile_schedule_catalog_seed.json.gz','rt',encoding='utf-8') as f:
+              doc=json.load(f)
+          tz=timezone(timedelta(hours=-5))
+          today=datetime.now(timezone.utc).astimezone(tz).date()
+          expected={(today+timedelta(days=n)).isoformat() for n in (-1,0,1)}
+          actual=set((doc.get('counts_by_day') or {}).keys())
+          if expected != actual:
+              raise SystemExit(f'CATALOG_DAYS_MISMATCH expected={sorted(expected)} actual={sorted(actual)}')
+          if any(int((doc.get('counts_by_day') or {}).get(day) or 0) == 0 for day in expected):
+              raise SystemExit('CATALOG_EMPTY_DAY')
+          print('CATALOG_INPUT_COUNTS='+json.dumps(doc['counts_by_day'],sort_keys=True))
+          PY
+          test -n "${VPS_HOST:-}" && test -n "${VPS_USER:-}" && test -n "${VPS_SSH_PRIVATE_KEY:-}"
+          VPS_PORT="${VPS_PORT_SECRET:-22}"
+          echo "VPS_PORT=$VPS_PORT" >> "$GITHUB_ENV"
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$VPS_SSH_PRIVATE_KEY" > ~/.ssh/oddshunter
+          chmod 600 ~/.ssh/oddshunter
+          ssh-keyscan -p "$VPS_PORT" -H "$VPS_HOST" > ~/.ssh/known_hosts
+
+      - name: Publicar únicamente ayer hoy y mañana
+        run: |
+          set -euo pipefail
+          REMOTE_DIR="/tmp/oddshunter-schedule-${GITHUB_RUN_ID}"
+          SSH=(ssh -i ~/.ssh/oddshunter -p "$VPS_PORT" -o BatchMode=yes -o StrictHostKeyChecking=yes "$VPS_USER@$VPS_HOST")
+          SCP=(scp -i ~/.ssh/oddshunter -P "$VPS_PORT" -o BatchMode=yes -o StrictHostKeyChecking=yes)
+          "${SSH[@]}" "mkdir -p '$REMOTE_DIR'"
+          "${SCP[@]}" cloud_live_status_sync.py deploy/mobile_schedule_catalog_seed.json.gz "$VPS_USER@$VPS_HOST:$REMOTE_DIR/"
+          "${SSH[@]}" "set -euo pipefail
+            SUDO=''; if [ \"\$(id -u)\" -ne 0 ]; then SUDO='sudo -n'; fi
+            CUR=\$(readlink -f /opt/oddshunter/current)
+            test -x \"\$CUR/.venv-cloud/bin/python\"
+            \$SUDO systemctl stop oddshunter-live-sync.timer || true
+            \$SUDO systemctl stop oddshunter-live-sync.service || true
+            \$SUDO install -m 0644 '$REMOTE_DIR/cloud_live_status_sync.py' \"\$CUR/cloud_live_status_sync.py\"
+            \$SUDO install -m 0640 -o oddshunter -g oddshunter '$REMOTE_DIR/mobile_schedule_catalog_seed.json.gz' /var/lib/oddshunter/data/mobile_schedule_catalog_seed.json.gz
+            \$SUDO systemd-run --quiet --wait --pipe --collect --unit=oddshunter-schedule-v2-${GITHUB_RUN_ID} \
+              -p User=oddshunter -p Group=oddshunter -p WorkingDirectory=\"\$CUR\" \
+              -p EnvironmentFile=/etc/oddshunter/oddshunter.env \
+              -p Environment=ODDSHUNTER_RUNTIME_MODE=cloud \
+              -p Environment=ODDSHUNTER_WORK_DB=/var/lib/oddshunter/data/oddshunter.db \
+              -p Environment=ODDSHUNTER_ALLOW_WORK_DB_WRITE=1 \
+              -p Environment=ODDSHUNTER_STAGE6_ALLOW_TURSO_WRITE=1 \
+              -p Environment=ODDSHUNTER_FORCE_SCHEDULE_CATALOG=1 \
+              \"\$CUR/.venv-cloud/bin/python\" -u \"\$CUR/cloud_live_status_sync.py\" --catalog-only
+            \$SUDO systemctl enable --now oddshunter-live-sync.timer
+            rm -rf '$REMOTE_DIR'
+            echo SCHEDULE_CATALOG_DEPLOY=PASS"
+
+      - name: Verificar Mobile y el corte de tres días
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json,time
+          from datetime import datetime,timedelta,timezone
+          from urllib.request import Request,urlopen
+          tz=timezone(timedelta(hours=-5))
+          today=datetime.now(timezone.utc).astimezone(tz).date()
+          for offset in (-1,0,1):
+              url=f'https://oddshunter-mobile.vercel.app/api/day?offset={offset}&limit=1000&cb={time.time_ns()}'
+              with urlopen(Request(url,headers={'Cache-Control':'no-cache'}),timeout=45) as response:
+                  rows=json.load(response)
+              expected=today+timedelta(days=offset)
+              wrong=[]
+              for row in rows:
+                  kickoff=datetime.fromisoformat(str(row['kickoff']).replace('Z','+00:00'))
+                  if kickoff.astimezone(tz).date()!=expected:
+                      wrong.append(row.get('event_id'))
+              if not rows or wrong:
+                  raise SystemExit(f'DAY_VERIFY_FAIL offset={offset} count={len(rows)} wrong={wrong}')
+              print(f'MOBILE_DAY offset={offset} count={len(rows)}')
+          PY
