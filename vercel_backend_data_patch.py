@@ -9,15 +9,23 @@ VALUE_DOC_NAMES_PATCHED = '    names = ("input_match", "status", "analysis", "ra
 VALUE_PAYLOAD_ANCHOR = '        "lineups": lineup_payload(competition_key, event_id),\n'
 VALUE_PAYLOAD_OLD = VALUE_PAYLOAD_ANCHOR + '        "value_picks": safe_dict(docs.get("odds_value")),\n'
 VALUE_PAYLOAD_V1 = VALUE_PAYLOAD_ANCHOR + '        "value_picks": mobile_model_picks(docs),\n'
-VALUE_PAYLOAD_PATCHED = VALUE_PAYLOAD_ANCHOR + '        "value_picks": mobile_model_picks(docs, comparison),\n'
-VALUE_MODEL_FUNCTION = '''# OH_MODEL_PICKS_INDEPENDENT_OF_ODDS_V2
-def mobile_model_picks(docs: dict[str, Any], comparison: dict[str, Any]) -> dict[str, Any]:
-    from backend.odds_value_engine import refresh_model_picks, number
+VALUE_PAYLOAD_V2 = VALUE_PAYLOAD_ANCHOR + '        "value_picks": mobile_model_picks(docs, comparison),\n'
+VALUE_PAYLOAD_PATCHED = VALUE_PAYLOAD_ANCHOR + '        "value_picks": mobile_model_picks(docs, comparison, event, expected_real),\n'
+VALUE_MODEL_FUNCTION = '''# OH_MODEL_PICKS_INDEPENDENT_OF_ODDS_V3
+def mobile_model_picks(
+    docs: dict[str, Any], comparison: dict[str, Any],
+    event: dict[str, Any] | None = None, expected_real: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    from backend.odds_value_engine import (
+        final_pick_results, freeze_top_picks, number, refresh_model_picks,
+    )
     bundle = {**safe_dict(docs.get("analysis"))}
     for name in ("goals", "corners", "cards"):
         bundle[name] = safe_dict(docs.get(name))
     stored = safe_dict(docs.get("odds_value"))
-    context = {}
+    event = event or {}
+    expected_real = expected_real or {}
+    context = {"comparison": comparison, "event": event}
     if "first_half_over_0_5" not in safe_dict(stored.get("probabilities")):
         derived = {}
         for side in ("home", "away"):
@@ -26,8 +34,24 @@ def mobile_model_picks(docs: dict[str, Any], comparison: dict[str, Any]) -> dict
             value = number(safe_dict(safe_dict(comparison.get(side)).get("summary")).get("over_0_5_ht"))
             if value is not None:
                 derived[side + "_general"] = {"first_half_over_0_5": value / 100}
-        context = {"derived": derived}
-    return refresh_model_picks(bundle, stored, context)
+        context["derived"] = derived
+    value = refresh_model_picks(bundle, stored, context)
+    raw_snapshot = stored.get("top_picks_snapshot")
+    snapshot = raw_snapshot if isinstance(raw_snapshot, list) else []
+    raw_legacy = stored.get("top_picks")
+    legacy = raw_legacy if isinstance(raw_legacy, list) else []
+    if not snapshot and legacy:
+        snapshot = freeze_top_picks(
+            legacy,
+            str(stored.get("generated_at") or stored.get("last_checked_at") or ""),
+        )
+    if snapshot:
+        value["top_picks_snapshot"] = snapshot
+        value["top_picks"] = snapshot
+    value["final_pick_results"] = final_pick_results(
+        snapshot, event, safe_dict(expected_real.get("real")),
+    )
+    return value
 
 
 '''
@@ -83,10 +107,23 @@ EVENT_TABLES_PATCHED = '        preferred = ["mobile_events", "matches", "partid
 EXPECTED_REAL_SELECT = """            SELECT m.match_id, m.home_goals, m.away_goals,
                    hs.xg_for AS home_xg, as_.xg_for AS away_xg,"""
 
-EXPECTED_REAL_SELECT_PATCHED = """            SELECT m.match_id, m.home_goals, m.away_goals,
+EXPECTED_REAL_SELECT_V2 = """            SELECT m.match_id, m.home_goals, m.away_goals,
                    m.home_goals_1h, m.away_goals_1h,
                    m.home_goals_2h, m.away_goals_2h,
                    hs.xg_for AS home_xg, as_.xg_for AS away_xg,"""
+
+EXPECTED_REAL_SELECT_PATCHED = """            SELECT m.match_id, m.home_goals, m.away_goals,
+                   m.home_goals_1h, m.away_goals_1h,
+                   m.home_goals_2h, m.away_goals_2h,
+                   hs.corners_for AS home_corners, as_.corners_for AS away_corners,
+                   hs.yellow_cards AS home_yellow_cards, as_.yellow_cards AS away_yellow_cards,
+                   hs.xg_for AS home_xg, as_.xg_for AS away_xg,"""
+
+EXPECTED_REAL_INLINE = '''        "expected_real": expected_real_payload(
+            event, primary, model_xg, corners_analysis, cards_analysis, shots
+        ),
+'''
+EXPECTED_REAL_VALUE = '        "expected_real": expected_real,\n'
 
 EXPECTED_REAL_RESULT_ANCHOR = '''        if row:
             result["real"] = dict(row)
@@ -439,19 +476,33 @@ def patch_backend(root: Path) -> list[str]:
     (path.parent / "asian_lines.py").write_text(lines_source.read_text(encoding="utf-8"), encoding="utf-8")
     text = path.read_text(encoding="utf-8")
     original_text = text
-    if "OH_MODEL_PICKS_INDEPENDENT_OF_ODDS_V1" in text:
-        text, count = re.subn(r"# OH_MODEL_PICKS_INDEPENDENT_OF_ODDS_V1\n.*?(?=def match_payload\()", VALUE_MODEL_FUNCTION, text, count=1, flags=re.DOTALL)
+    if "OH_MODEL_PICKS_INDEPENDENT_OF_ODDS_V3" not in text and re.search(r"OH_MODEL_PICKS_INDEPENDENT_OF_ODDS_V[12]", text):
+        text, count = re.subn(r"# OH_MODEL_PICKS_INDEPENDENT_OF_ODDS_V[12]\n.*?(?=def match_payload\()", VALUE_MODEL_FUNCTION, text, count=1, flags=re.DOTALL)
         if count != 1:
             raise RuntimeError("No se pudo actualizar el fallback de picks")
-    if "OH_MODEL_PICKS_INDEPENDENT_OF_ODDS_V2" not in text:
+    if "OH_MODEL_PICKS_INDEPENDENT_OF_ODDS_V3" not in text:
         text = replace_once(text, "def match_payload(", VALUE_MODEL_FUNCTION + "def match_payload(", "probabilidades independientes de cuotas")
     if VALUE_PAYLOAD_V1 in text:
         text = text.replace(VALUE_PAYLOAD_V1, VALUE_PAYLOAD_PATCHED, 1)
+    if VALUE_PAYLOAD_V2 in text:
+        text = text.replace(VALUE_PAYLOAD_V2, VALUE_PAYLOAD_PATCHED, 1)
     if VALUE_PAYLOAD_OLD in text:
         text = text.replace(VALUE_PAYLOAD_OLD, VALUE_PAYLOAD_PATCHED, 1)
     if '        "comparison": comparison_payload(event),\n' in text:
         text = replace_once(text, '    top_scorelines = safe_list(primary.get("top_scorelines"))\n', '    top_scorelines = safe_list(primary.get("top_scorelines"))\n    comparison = comparison_payload(event)\n', "reutilizar comparativa para picks")
         text = text.replace('        "comparison": comparison_payload(event),\n', '        "comparison": comparison,\n', 1)
+    if "expected_real = expected_real_payload(" not in text:
+        text = replace_once(
+            text,
+            "    comparison = comparison_payload(event)\n",
+            "    comparison = comparison_payload(event)\n"
+            "    expected_real = expected_real_payload(\n"
+            "        event, primary, model_xg, corners_analysis, cards_analysis, shots\n"
+            "    )\n",
+            "reutilizar estadísticas finales para liquidar picks",
+        )
+    if EXPECTED_REAL_INLINE in text:
+        text = text.replace(EXPECTED_REAL_INLINE, EXPECTED_REAL_VALUE, 1)
     if "OH_MOBILE_THREE_DAY_WINDOW_V1" not in text:
         text = replace_once(
             text,
@@ -481,12 +532,20 @@ def patch_backend(root: Path) -> list[str]:
             "estado móvil en detalle",
         )
     if EXPECTED_REAL_SELECT_PATCHED not in text:
-        text = replace_once(
-            text,
-            EXPECTED_REAL_SELECT,
-            EXPECTED_REAL_SELECT_PATCHED,
-            "parciales reales en esperado/real",
-        )
+        if EXPECTED_REAL_SELECT_V2 in text:
+            text = replace_once(
+                text,
+                EXPECTED_REAL_SELECT_V2,
+                EXPECTED_REAL_SELECT_PATCHED,
+                "córners y tarjetas reales para liquidar picks",
+            )
+        else:
+            text = replace_once(
+                text,
+                EXPECTED_REAL_SELECT,
+                EXPECTED_REAL_SELECT_PATCHED,
+                "parciales y estadísticas reales en esperado/real",
+            )
     if "doc_name='expected_real_actuals'" not in text:
         text = replace_once(
             text,
@@ -494,7 +553,7 @@ def patch_backend(root: Path) -> list[str]:
             EXPECTED_REAL_RESULT_PATCHED,
             "estadísticas finales reales en esperado/real",
         )
-    if EXPECTED_REAL_CALL_PATCHED not in text:
+    if EXPECTED_REAL_CALL_PATCHED not in text and EXPECTED_REAL_VALUE not in text:
         text = replace_once(
             text,
             EXPECTED_REAL_CALL,

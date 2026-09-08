@@ -27,6 +27,7 @@ from odds_value_engine import (
     provider_prices,
     rank_value_picks,
     refresh_model_picks,
+    immutable_top_picks,
 )
 
 ROOT = Path(__file__).resolve().parent
@@ -778,6 +779,7 @@ def sync(
                     )
                 except (ImportError, OSError, RuntimeError, TypeError, ValueError):
                     context = {}
+                context = {**context, "event": event}
                 refreshed_probabilities = model_probabilities(bundle, context) if bundle else {}
                 probabilities = {
                     **(existing.get("probabilities") or {}),
@@ -786,7 +788,8 @@ def sync(
                 preserved_prices = attach_asian_source_values(bundle, preserved_prices)
                 display_prices = market_anchored_prices(bundle, probabilities, preserved_prices)
                 all_picks = build_all_picks(probabilities, display_prices)
-                top_picks = rank_value_picks(probabilities, display_prices, 4)
+                ranked = rank_value_picks(probabilities, display_prices, 4, bundle, context)
+                top_picks = immutable_top_picks(existing, ranked, checked_at, event)
                 document = {
                     **existing,
                     "generated_at": checked_at,
@@ -795,6 +798,7 @@ def sync(
                     "probabilities": probabilities,
                     "all_picks": all_picks,
                     "top_picks": top_picks,
+                    "top_picks_snapshot": top_picks,
                 }
                 _atomic_json(target, document)
                 _persist_database(
@@ -929,6 +933,7 @@ def sync(
                 "price_history": preserved.get("price_history") or [],
                 "extended_last_checked_at": preserved.get("extended_last_checked_at"),
                 "top_picks": preserved.get("top_picks") or [],
+                "top_picks_snapshot": preserved.get("top_picks_snapshot") or [],
                 "policy": "Bet365 real; OPENING inmutable; CURRENT=última closing prematch; Kelly 1/4 limitado a 5%.",
             }
             _atomic_json(target, document)
@@ -955,10 +960,12 @@ def sync(
             # El resto de mercados sigue siendo válido aunque el historial de
             # primera mitad todavía no exista para un evento nuevo.
             context = {}
+        context = {**context, "event": event}
         probabilities = model_probabilities(bundle, context)
         display_prices = market_anchored_prices(bundle, probabilities, available)
         all_picks = build_all_picks(probabilities, display_prices)
-        top_picks = rank_value_picks(probabilities, display_prices, 4)
+        ranked = rank_value_picks(probabilities, display_prices, 4, bundle, context)
+        top_picks = immutable_top_picks(existing, ranked, checked_at, event)
         counts["all_picks_created"] += len(all_picks)
         counts["top4_created"] += len(top_picks)
         document = {
@@ -979,6 +986,7 @@ def sync(
             "price_history": history,
             "all_picks": all_picks,
             "top_picks": top_picks,
+            "top_picks_snapshot": top_picks,
             "policy": "Bet365 real; OPENING inmutable; CURRENT=última closing prematch; Kelly 1/4 limitado a 5%.",
         }
         _atomic_json(target, document)

@@ -33,7 +33,7 @@ def test_deployment_requires_the_compact_secondary_marker():
     ).read_text(encoding="utf-8")
 
     assert 'COMPACT_SECONDARY_MARKER = "OH_COMPACT_SECONDARY_VIEWS_V20"' in recovery
-    assert "1.27.0-bet365-anchored-ladders" in recovery
+    assert "1.28.0-scored-final-picks" in recovery
     assert workflow.count("OH_COMPACT_SECONDARY_VIEWS_V20") >= 3
 
 
@@ -48,7 +48,7 @@ def test_match_summary_uses_the_compact_centered_reference():
     assert '.summary-lead{width:100%;margin:6px 0 2px;color:var(--muted)' in styles
     assert '.summary-primary-value{width:100%;margin:0' in styles
     assert 'MATCH_SUMMARY_COMPACT_MARKER = "OH_MATCH_SUMMARY_COMPACT_REFERENCE_V21"' in recovery
-    assert "1.27.0-bet365-anchored-ladders" in recovery
+    assert "1.28.0-scored-final-picks" in recovery
 
 
 def test_match_view_honors_dark_theme_and_compacts_section_titles():
@@ -69,7 +69,7 @@ def test_match_view_honors_dark_theme_and_compacts_section_titles():
     assert 'getPropertyValue("--text")' in script
     assert 'getPropertyValue("--muted")' in script
     assert 'MATCH_THEME_MARKER = "OH_MATCH_THEME_AND_TITLES_V22"' in recovery
-    assert "1.27.0-bet365-anchored-ladders" in recovery
+    assert "1.28.0-scored-final-picks" in recovery
 
 
 def test_picks_read_persisted_current_odds_and_all_picks_schema():
@@ -79,12 +79,12 @@ def test_picks_read_persisted_current_odds_and_all_picks_schema():
     assert "price?.current_odds??price?.source_odds??price?.estimated_odds??price?.odds" in script
     assert "Array.isArray(value.all_picks)?value.all_picks:[]" in script
     assert "pick?.current_odds??pick?.source_odds??pick?.estimated_odds??pick?.odds" in script
-    assert "app.js?v=1.27.0-bet365-anchored-ladders" in recovery
-    assert "app.css?v=1.27.0-bet365-anchored-ladders" in recovery
-    assert "oh-mobile-v1-27-0-bet365-anchored-ladders" in recovery
-    assert 'sw.js?v=1.27.0-bet365-anchored-ladders' in recovery
-    assert 'name="oddshunter-build" content="1.27.0-bet365-anchored-ladders"' in recovery
-    assert 'dataset.oddshunterBuild="1.27.0-bet365-anchored-ladders"' in script
+    assert "app.js?v=1.28.0-scored-final-picks" in recovery
+    assert "app.css?v=1.28.0-scored-final-picks" in recovery
+    assert "oh-mobile-v1-28-0-scored-final-picks" in recovery
+    assert 'sw.js?v=1.28.0-scored-final-picks' in recovery
+    assert 'name="oddshunter-build" content="1.28.0-scored-final-picks"' in recovery
+    assert 'dataset.oddshunterBuild="1.28.0-scored-final-picks"' in script
     assert 'ohPickGroup("Ambos marcan"' in script
     assert 'ohPickGroup("Gol en primera mitad"' in script
     assert 'const exact=n.toFixed(3);return exact.endsWith("0")?n.toFixed(2):exact' in script
@@ -107,6 +107,25 @@ def test_picks_read_persisted_current_odds_and_all_picks_schema():
     assert 'goalsKeys=halfLineKeys("goals"),cardsKeys=halfLineKeys("cards").filter(key=>!/_0_5$/.test(key)),cornerKeys=halfLineKeys("corners")' in script
     assert '.filter(p=>p.odds)' not in script
     assert '.filter(p=>p.ev!==null)' not in script
+
+
+def test_v28_mobile_orders_corners_and_renders_original_final_pick_values():
+    script = (ROOT / "vercel_assets" / "match_summary_v2.js").read_text(encoding="utf-8")
+    styles = (ROOT / "vercel_assets" / "match_summary_v2.css").read_text(encoding="utf-8")
+    workflow = (ROOT / ".github" / "workflows" / "oddshunter-vercel-frontend-v1.yml").read_text(encoding="utf-8")
+
+    assert "OH_CORNERS_VISUAL_ORDER_V28" in script
+    assert 'leftGroup-rightGroup||(left.side==="over"?left.line-right.line:right.line-left.line)' in script
+    assert "OH_TOP_PICK_SCORE_V28" in script
+    assert "OH_FINAL_PICK_RESULTS_V28" in script
+    assert "probability_at_recommendation" in script
+    assert "odds_at_recommendation" in script
+    assert "ev_at_recommendation" in script
+    assert "Resultado de los picks recomendados" in script
+    assert ".oh-final-pick-results" in styles
+    assert workflow.count("OH_TOP_PICK_SCORE_V28") >= 2
+    assert workflow.count("OH_FINAL_PICK_RESULTS_V28") >= 2
+    assert workflow.count("OH_CORNERS_VISUAL_ORDER_V28") >= 2
 
 
 def test_vercel_backend_ships_asian_engine_inside_backend_package():

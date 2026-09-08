@@ -18,6 +18,7 @@ except ImportError:  # Vercel imports this file as backend.odds_value_engine.
 try:
     from asian_total_ev import (
         asian_total_ev,
+        asian_total_settlement,
         cards_total_pmf,
         corners_total_pmf,
         goals_total_pmf,
@@ -25,6 +26,7 @@ try:
 except ImportError:  # Vercel imports this file as backend.odds_value_engine.
     from .asian_total_ev import (
         asian_total_ev,
+        asian_total_settlement,
         cards_total_pmf,
         corners_total_pmf,
         goals_total_pmf,
@@ -426,6 +428,7 @@ def _real_total_identity(row: dict[str, Any]) -> tuple[str, str, float, float] |
 def _estimated_quote(
     *, key: str, market: str, selection: str, line: float | None,
     odds: float, model_probability: float, anchor_market: str,
+    anchor_line: float | None = None,
 ) -> dict[str, Any] | None:
     if not math.isfinite(odds) or odds <= 1:
         return None
@@ -441,6 +444,7 @@ def _estimated_quote(
         "estimated_ev": round(estimated_ev, 12),
         "estimated_from_market": anchor_market,
         "anchor_market": anchor_market,
+        **({"anchor_line": anchor_line} if anchor_line is not None else {}),
         "price_origin": "BET365_ANCHORED_ESTIMATE",
     }
 
@@ -518,6 +522,7 @@ def market_anchored_prices(
                     key=key, market=market_label, selection=f"{selection} de {line:g}", line=line,
                     odds=1.0 / (market_probability * overround),
                     model_probability=model_probability, anchor_market=anchor_market,
+                    anchor_line=source_line,
                 )
                 if quote:
                     estimates.append(quote)
@@ -567,7 +572,154 @@ def build_all_picks(
     return rows
 
 
-def rank_value_picks(probabilities: dict[str, float], prices: list[dict[str, Any]], limit: int = 4) -> list[dict[str, Any]]:
+def _pick_parts(key: str) -> tuple[str, str, float | None]:
+    parts = key.split("_")
+    if len(parts) >= 4 and parts[0] in {"goals", "corners", "cards"} and parts[1] in {"over", "under"}:
+        try:
+            return parts[0], parts[1], float(f"{parts[2]}.{parts[3]}")
+        except ValueError:
+            pass
+    if key.startswith("first_half_over_"):
+        return "first_half", "over", 0.5
+    if key.startswith("first_half_under_"):
+        return "first_half", "under", 0.5
+    if key == "btts_yes":
+        return "btts", "yes", None
+    if key == "btts_no":
+        return "btts", "no", None
+    return key.split("_", 1)[0], key.rsplit("_", 1)[-1], None
+
+
+def _expected_total(bundle: dict[str, Any], market: str) -> float | None:
+    if market == "goals":
+        model = _first_model(bundle)
+        total = number(model.get("expected_total_goals"))
+        if total is None:
+            home, away = number(model.get("lambda_home")), number(model.get("lambda_away"))
+            total = home + away if home is not None and away is not None else None
+        return total
+    analysis = ((bundle.get(market) or {}).get("analysis") or {})
+    if market == "corners":
+        total = number(analysis.get("expected_total_corners"))
+        field = "expected_corners"
+    elif market == "cards":
+        total = number(analysis.get("expected_total_yellow_cards"))
+        field = "expected_yellow_cards"
+    else:
+        return None
+    if total is not None:
+        return total
+    home = number((analysis.get("home_team") or {}).get(field))
+    away = number((analysis.get("away_team") or {}).get(field))
+    return home + away if home is not None and away is not None else None
+
+
+def _coherence_score(key: str, bundle: dict[str, Any]) -> float:
+    market, side, line = _pick_parts(key)
+    if market not in {"goals", "corners", "cards"} or line is None:
+        return 50.0
+    expected = _expected_total(bundle, market)
+    if expected is None:
+        return 50.0
+    signed_distance = expected - line if side == "over" else line - expected
+    if signed_distance >= 1.0:
+        return 100.0
+    if signed_distance >= 0.5:
+        return 75.0
+    if signed_distance > -0.5:
+        return 50.0
+    if signed_distance > -1.0:
+        return 25.0
+    return 0.0
+
+
+def _comparison_average(context: dict[str, Any] | None, field: str) -> float | None:
+    comparison = (context or {}).get("comparison") or {}
+    values = []
+    for side in ("home", "away"):
+        value = number((((comparison.get(side) or {}).get("summary") or {}).get(field)))
+        if value is not None:
+            values.append(value if value > 1.000001 else value * 100.0)
+    return sum(values) / len(values) if values else None
+
+
+def _tendency_score(key: str, context: dict[str, Any] | None) -> float:
+    market, side, line = _pick_parts(key)
+    field = None
+    if market == "goals" and line in {1.5, 2.5}:
+        field = f"over_{int(line)}_5"
+    elif market == "cards" and line == 3.5:
+        field = "over_3_5_cards"
+    elif market == "corners" and line == 9.5:
+        field = "over_9_5_corners"
+    elif market == "first_half":
+        field = "over_0_5_ht"
+    elif market == "btts":
+        field = "btts"
+    over = _comparison_average(context, field) if field else None
+    if over is None:
+        return 50.0
+    return min(100.0, max(0.0, 100.0 - over if side in {"under", "no"} else over))
+
+
+def _origin_confidence(quote: dict[str, Any]) -> float:
+    origin = str(quote.get("price_origin") or "")
+    if origin in {"BET365_ANCHORED_ESTIMATE"}:
+        return 0.80
+    if origin in {"ASIAN_MAPPED", "REAL_ASIAN_MAPPED"}:
+        return 0.95
+    return 1.0
+
+
+def _distance_confidence(quote: dict[str, Any]) -> float:
+    if str(quote.get("price_origin") or "") != "BET365_ANCHORED_ESTIMATE":
+        return 1.0
+    display_line = number(quote.get("display_line", quote.get("line")))
+    anchor_line = number(quote.get("anchor_line"))
+    if display_line is None or anchor_line is None:
+        return 1.0
+    return math.exp(-0.12 * abs(display_line - anchor_line))
+
+
+def top_pick_score(
+    key: str,
+    model_probability: float,
+    ev: float,
+    quote: dict[str, Any],
+    bundle: dict[str, Any] | None = None,
+    context: dict[str, Any] | None = None,
+) -> dict[str, float]:
+    """Return ranking-only signals; displayed probability and EV are untouched."""
+
+    probability_score = model_probability * 100.0
+    ev_percent = ev * 100.0
+    ev_score = 100.0 * (1.0 - math.exp(-max(ev_percent, 0.0) / 20.0))
+    expected_score = _coherence_score(key, bundle or {})
+    tendency_score = _tendency_score(key, context)
+    base_score = (
+        0.55 * probability_score
+        + 0.25 * ev_score
+        + 0.12 * expected_score
+        + 0.08 * tendency_score
+    )
+    origin_confidence = _origin_confidence(quote)
+    distance_confidence = _distance_confidence(quote)
+    return {
+        "probability_score": round(probability_score, 6),
+        "ev_score": round(ev_score, 6),
+        "expected_score": round(expected_score, 6),
+        "tendency_score": round(tendency_score, 6),
+        "base_score": round(base_score, 6),
+        "origin_confidence": origin_confidence,
+        "distance_confidence": round(distance_confidence, 8),
+        "top_pick_score": round(base_score * origin_confidence * distance_confidence, 6),
+    }
+
+
+def rank_value_picks(
+    probabilities: dict[str, float], prices: list[dict[str, Any]], limit: int = 4,
+    bundle: dict[str, Any] | None = None, context: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     for quote in preferred_visual_prices(prices):
         model_probability = probabilities.get(str(quote.get("key")))
@@ -577,6 +729,7 @@ def rank_value_picks(probabilities: dict[str, float], prices: list[dict[str, Any
         ev = _quote_ev(model_probability, quote, odds)
         if ev is None or ev <= 0:
             continue
+        score = top_pick_score(str(quote.get("key")), model_probability, ev, quote, bundle, context)
         full_kelly = ev / (odds - 1.0)
         rows.append({
             **quote,
@@ -584,9 +737,144 @@ def rank_value_picks(probabilities: dict[str, float], prices: list[dict[str, Any
             "implied_probability": round(100 / odds, 2),
             "ev": round(ev * 100, 2),
             "recommended_bankroll_pct": round(min(0.05, max(0.0, full_kelly * 0.25)) * 100, 2),
+            **score,
         })
-    rows.sort(key=lambda row: (row["recommended_bankroll_pct"], row["ev"], row["probability"]), reverse=True)
+    rows.sort(key=lambda row: (row["top_pick_score"], row["probability"], row["ev"]), reverse=True)
     return rows[: max(0, int(limit))]
+
+
+def freeze_top_picks(top_picks: list[dict[str, Any]], recommended_at: str) -> list[dict[str, Any]]:
+    """Create the immutable recommendation snapshot used after kickoff."""
+
+    frozen: list[dict[str, Any]] = []
+    for original in top_picks:
+        row = dict(original)
+        key = str(row.get("key") or row.get("pick_id") or "")
+        market, side, parsed_line = _pick_parts(key)
+        odds = number(row.get("current_odds", row.get("source_odds", row.get("estimated_odds", row.get("odds")))))
+        display_line = number(row.get("display_line", row.get("line", parsed_line)))
+        frozen.append({
+            **row,
+            "pick_id": str(row.get("pick_id") or key),
+            "market": row.get("market") or market,
+            "side": row.get("side") or side,
+            "display_side": row.get("display_side") or side,
+            "display_line": display_line,
+            "source_line": number(row.get("source_line")),
+            "source_side": row.get("source_side"),
+            "probability_at_recommendation": number(row.get("probability_at_recommendation", row.get("probability"))),
+            "odds_at_recommendation": number(row.get("odds_at_recommendation", odds)),
+            "ev_at_recommendation": number(row.get("ev_at_recommendation", row.get("ev"))),
+            "top_pick_score_at_recommendation": number(row.get("top_pick_score_at_recommendation", row.get("top_pick_score"))),
+            "recommended_at": row.get("recommended_at") or recommended_at,
+        })
+    return frozen
+
+
+def immutable_top_picks(
+    existing: dict[str, Any], ranked: list[dict[str, Any]], recommended_at: str,
+    event: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    snapshot = existing.get("top_picks_snapshot")
+    if isinstance(snapshot, list) and snapshot:
+        return [dict(row) for row in snapshot if isinstance(row, dict)]
+    legacy = existing.get("top_picks")
+    if isinstance(legacy, list) and legacy:
+        source = legacy
+    elif _terminal_status(event or {}):
+        # Never manufacture a historical recommendation after the result.
+        source = []
+    else:
+        source = ranked
+    return freeze_top_picks(source, recommended_at) if source else []
+
+
+def _terminal_status(event: dict[str, Any]) -> bool:
+    token = str(event.get("status") or event.get("status_description") or "").strip().lower()
+    return token in {"ft", "final", "finished", "ended", "completed", "finalizado", "terminado"}
+
+
+def _actual_number(actual: dict[str, Any], *keys: str) -> float | None:
+    for key in keys:
+        value = number(actual.get(key))
+        if value is not None:
+            return value
+    return None
+
+
+def _actual_total(market: str, event: dict[str, Any], actual: dict[str, Any]) -> int | None:
+    aliases = {
+        "goals": (("home_goals", "goals_home"), ("away_goals", "goals_away")),
+        "first_half": (("home_goals_1h", "home_score_1h"), ("away_goals_1h", "away_score_1h")),
+        "corners": (("home_corners", "corners_home", "home_corner_kicks"), ("away_corners", "corners_away", "away_corner_kicks")),
+        "cards": (("home_yellow_cards", "yellow_cards_home"), ("away_yellow_cards", "yellow_cards_away")),
+    }
+    if market not in aliases:
+        return None
+    home = _actual_number(actual, *aliases[market][0])
+    away = _actual_number(actual, *aliases[market][1])
+    if market == "goals":
+        home = home if home is not None else number(event.get("home_score"))
+        away = away if away is not None else number(event.get("away_score"))
+    return int(home + away) if home is not None and away is not None else None
+
+
+def _binary_result(condition: bool, estimated: bool) -> str:
+    if estimated:
+        return "CUMPLIDO" if condition else "NO CUMPLIDO"
+    return "WIN" if condition else "LOSS"
+
+
+def _settle_recommended_pick(snapshot: dict[str, Any], event: dict[str, Any], actual: dict[str, Any]) -> str:
+    key = str(snapshot.get("key") or snapshot.get("pick_id") or "")
+    market, side, parsed_line = _pick_parts(key)
+    estimated = str(snapshot.get("price_origin") or "") == "BET365_ANCHORED_ESTIMATE"
+    home = _actual_number(actual, "home_goals", "goals_home")
+    away = _actual_number(actual, "away_goals", "goals_away")
+    home = home if home is not None else number(event.get("home_score"))
+    away = away if away is not None else number(event.get("away_score"))
+    if key.startswith("result_") or key.startswith("double_") or key.startswith("btts_"):
+        if home is None or away is None:
+            return "PENDIENTE DE RESULTADO"
+        conditions = {
+            "result_home": home > away, "result_draw": home == away, "result_away": away > home,
+            "double_home_draw": home >= away, "double_away_draw": away >= home,
+            "double_home_away": home != away,
+            "btts_yes": home > 0 and away > 0, "btts_no": home == 0 or away == 0,
+        }
+        return _binary_result(bool(conditions.get(key)), estimated)
+    total = _actual_total(market, event, actual)
+    if total is None:
+        return "PENDIENTE DE RESULTADO"
+    if estimated:
+        line = number(snapshot.get("display_line", parsed_line))
+        if line is None:
+            return "PENDIENTE DE RESULTADO"
+        return _binary_result(total > line if side == "over" else total < line, True)
+    source_line = number(snapshot.get("source_line", snapshot.get("display_line", parsed_line)))
+    source_side = str(snapshot.get("source_side") or side)
+    if source_line is None or source_side not in {"over", "under"}:
+        return "PENDIENTE DE RESULTADO"
+    settlement = asian_total_settlement({str(total): 1.0}, source_side, source_line)
+    return next((label for field, label in (
+        ("full_win", "WIN"), ("half_win", "HALF_WIN"), ("push", "PUSH"),
+        ("half_loss", "HALF_LOSS"), ("full_loss", "LOSS"),
+    ) if getattr(settlement, field) > 0.999999), "PENDIENTE DE RESULTADO")
+
+
+def final_pick_results(
+    snapshot: list[dict[str, Any]], event: dict[str, Any], actual: dict[str, Any] | None,
+) -> dict[str, Any]:
+    if not _terminal_status(event):
+        return {"available": False, "picks": [], "summary": {}}
+    rows = []
+    for original in snapshot:
+        row = dict(original)
+        row["result"] = _settle_recommended_pick(row, event, actual or {})
+        rows.append(row)
+    labels = ("WIN", "HALF_WIN", "PUSH", "HALF_LOSS", "LOSS", "CUMPLIDO", "NO CUMPLIDO", "PENDIENTE DE RESULTADO")
+    counts = {label: sum(row["result"] == label for row in rows) for label in labels}
+    return {"available": True, "picks": rows, "summary": counts}
 
 
 def refresh_model_picks(
@@ -603,11 +891,20 @@ def refresh_model_picks(
     prices = attach_asian_source_values(bundle, existing.get("available_prices") or [])
     display_prices = market_anchored_prices(bundle, probabilities, prices)
     all_picks = build_all_picks(probabilities, display_prices)
+    ranked = rank_value_picks(probabilities, display_prices, 4, bundle, context)
+    snapshot = existing.get("top_picks_snapshot")
+    terminal = _terminal_status((context or {}).get("event") or {})
+    if isinstance(snapshot, list) and snapshot:
+        top_picks = snapshot
+    elif terminal and isinstance(existing.get("top_picks"), list):
+        top_picks = existing.get("top_picks") or []
+    else:
+        top_picks = ranked
     return {
         **existing,
         "odds_status": existing.get("odds_status") or "NOT_AVAILABLE_YET",
         "probabilities": probabilities,
         "available_prices": prices,
         "all_picks": all_picks,
-        "top_picks": rank_value_picks(probabilities, display_prices, 4),
+        "top_picks": top_picks,
     }
