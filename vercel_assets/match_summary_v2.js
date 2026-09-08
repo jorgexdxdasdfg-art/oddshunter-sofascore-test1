@@ -693,7 +693,8 @@ document.body.classList.toggle("oh-home-mode",!document.querySelector('[data-vie
 
 /* OH_VALUE_PICKS_V23 */
 /* OH_ASIAN_SOURCE_EV_V24 */
-document.documentElement.dataset.oddshunterBuild="1.26.4-asian-source-ev";
+/* OH_UNDER_SOURCE_LABEL_V25 */
+document.documentElement.dataset.oddshunterBuild="1.26.5-under-source-label";
 const ohPickLabels={
   result_home:"Gana local",result_draw:"Empate",result_away:"Gana visitante",
   double_home_draw:"Local o empate",double_away_draw:"Empate o visitante",double_home_away:"Local o visitante",
@@ -706,10 +707,17 @@ function ohPickProbability(value){const n=Number(value);return Number.isFinite(n
 function ohPickLabel(key){if(ohPickLabels[key])return ohPickLabels[key];const match=key.match(/^(?:goals|cards|corners)_(over|under)_(\d+)_(\d+)$/);return match?`${match[1]==="over"?"Más":"Menos"} de ${match[2]}.${match[3]}`:key.replaceAll("_"," ")}
 function ohPickPercent(value){const n=Number(value);return Number.isFinite(n)?`${n.toFixed(1).replace(".0","")}%`:"—"}
 function ohPickOdds(value){const n=Number(value);return Number.isFinite(n)&&n>1?n.toFixed(2):"—"}
+function ohSourceBetLabel(price){
+  const side=String(price?.source_side||"").toLowerCase(),line=Number(price?.source_line);
+  if(!Number.isFinite(line)||(side!=="over"&&side!=="under"))return "";
+  const sourceLine=Math.abs(line-Math.round(line))<1e-8?line.toFixed(1):String(line);
+  return `Bet365 ${side==="over"?"O":"U"}${sourceLine}`;
+}
+function ohSourceBetTag(price){const label=ohSourceBetLabel(price);return label?`<small class="oh-source-line">${esc(label)}</small>`:""}
 function ohPickMarketRow(key,value,price){
   const probability=Number(value),odds=Number(price?.current_odds??price?.source_odds??price?.odds),sourceEv=price?.source_ev==null?NaN:Number(price.source_ev),storedEv=price?.ev==null?NaN:Number(price.ev),mapped=price?.price_origin==="ASIAN_MAPPED";
   const ev=Number.isFinite(sourceEv)?sourceEv*100:mapped?null:Number.isFinite(storedEv)?storedEv:Number.isFinite(probability)&&Number.isFinite(odds)&&odds>1?(probability*odds-1)*100:null;
-  return `<div class="oh-picks-market-row"><span>${esc(ohPickLabel(key))}</span><strong>${ohPickProbability(value)}</strong><b>${ohPickOdds(odds)}</b><em class="${ev===null?"na":ev>0?"positive":"negative"}">${ev===null?"—":`${ev>0?"+":""}${ohPickPercent(ev)}`}</em></div>`;
+  return `<div class="oh-picks-market-row"><span>${esc(ohPickLabel(key))}${ohSourceBetTag(price)}</span><strong>${ohPickProbability(value)}</strong><b>${ohPickOdds(odds)}</b><em class="${ev===null?"na":ev>0?"positive":"negative"}">${ev===null?"—":`${ev>0?"+":""}${ohPickPercent(ev)}`}</em></div>`;
 }
 function ohPickGroup(title,icon,keys,probabilities,prices){const rows=keys.filter(key=>probabilities[key]!==undefined).map(key=>ohPickMarketRow(key,probabilities[key],prices.get(key))).join("");return rows?`<section class="panel oh-picks-group"><h3>${icon} ${esc(title)}</h3><div class="oh-picks-table"><div class="oh-picks-table-head"><span>Selección</span><span>Prob.</span><span>Cuota</span><span>EV</span></div>${rows}</div></section>`:""}
 
@@ -758,7 +766,7 @@ function renderPicks(){
     ohPickGroup("Tarjetas","🟨",cardsKeys,probabilities,prices),
     ohPickGroup("Córners","🚩",cornerKeys,probabilities,prices)
   ].join("");
-  const best=top.map((pick,index)=>{const odds=pick?.current_odds??pick?.odds;return `<article class="oh-best-pick"><b>${index+1}</b><div><span>${esc(pick.market||"")} · ${esc(pick.selection||"")}</span><small>Prob. ${esc(String(pick.probability))}% · Cuota ${esc(ohPickOdds(odds))}</small></div><div><strong>EV/ROI ${Number(pick.ev)>0?"+":""}${esc(String(pick.ev))}%</strong><small>Apostar ${esc(String(pick.recommended_bankroll_pct))}% del bank</small></div></article>`}).join("");
+  const best=top.map((pick,index)=>{const odds=pick?.current_odds??pick?.source_odds??pick?.odds;return `<article class="oh-best-pick"><b>${index+1}</b><div><span>${esc(pick.market||"")} · ${esc(pick.selection||"")}</span>${ohSourceBetTag(pick)}<small>Prob. ${esc(String(pick.probability))}% · Cuota ${esc(ohPickOdds(odds))}</small></div><div><strong>EV/ROI ${Number(pick.ev)>0?"+":""}${esc(String(pick.ev))}%</strong><small>Apostar ${esc(String(pick.recommended_bankroll_pct))}% del bank</small></div></article>`}).join("");
   const allWaiting=`<div class="panel oh-picks-wait"><h3>Picks en preparación</h3><p>Las probabilidades aparecerán cuando el análisis del partido esté disponible.</p></div>`;
   const bestWaiting=`<section class="panel oh-best-picks"><h2>4 mejores picks</h2><p>Solo valor esperado positivo · Kelly ¼ limitado al 5% del bank</p><small>Todavía no hay una cuota con EV positivo; OddsHunter no inventará una recomendación.</small></section>`;
   const allView=`<div class="oh-picks-view oh-picks-all"><h2>Todos los picks</h2>${groups||allWaiting}<small class="oh-picks-note">— = Bet365 todavía no devuelve una cuota exactamente compatible con esa línea .5. La probabilidad de OddsHunter sigue disponible y se comprueba automáticamente.</small></div>`;

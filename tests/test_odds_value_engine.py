@@ -92,8 +92,8 @@ def test_quarter_line_keeps_source_identity_when_mapped_to_visual_half_line():
             "odds": 2.0, "price_origin": "ASIAN_MAPPED",
         },
         {
-            "key": "goals_under_2_5", "market": "Goles", "selection": "Menos de 2.5",
-            "line": 2.5, "display_line": 2.5, "source_market": "goal_line",
+            "key": "goals_under_1_5", "market": "Goles", "selection": "Menos de 1.5",
+            "line": 1.5, "display_line": 1.5, "source_market": "goal_line",
             "source_side": "under", "source_line": 2.25, "source_odds": 1.8,
             "odds": 1.8, "price_origin": "ASIAN_MAPPED",
         },
@@ -106,7 +106,23 @@ def test_approved_asian_to_half_mapping_examples():
         3.00: 2.5, 3.25: 3.5, 3.50: 3.5, 3.75: 4.5,
         9.00: 8.5, 9.25: 9.5, 9.50: 9.5, 9.75: 10.5,
     }
-    assert {line: asian_display_line(line) for line in expected} == expected
+    assert {line: asian_display_line("over", line) for line in expected} == expected
+
+
+def test_under_mapping_is_side_aware_for_quarter_lines():
+    expected = {
+        2.00: 1.5, 2.25: 1.5, 2.50: 2.5, 2.75: 2.5,
+        3.00: 2.5, 3.25: 2.5, 3.50: 3.5, 3.75: 3.5,
+        10.00: 9.5, 10.25: 9.5, 10.50: 10.5, 10.75: 10.5,
+    }
+    assert {line: asian_display_line("under", line) for line in expected} == expected
+
+
+def test_same_source_line_maps_over_and_under_to_their_contract_rows():
+    prices = provider_prices({"goal_line": {"closing": {"line": 2.75, "over": 2.0, "under": 1.8}}})
+    assert [(row["source_side"], row["display_line"]) for row in prices] == [
+        ("over", 3.5), ("under", 2.5),
+    ]
 
 
 def test_lines_outside_each_visual_catalog_are_not_created():

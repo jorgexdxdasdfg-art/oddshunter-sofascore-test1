@@ -435,6 +435,8 @@ def patch_backend(root: Path) -> list[str]:
     (path.parent / "odds_value_engine.py").write_text(engine_source.read_text(encoding="utf-8"), encoding="utf-8")
     asian_source = Path(__file__).with_name("asian_total_ev.py")
     (path.parent / "asian_total_ev.py").write_text(asian_source.read_text(encoding="utf-8"), encoding="utf-8")
+    lines_source = Path(__file__).with_name("asian_lines.py")
+    (path.parent / "asian_lines.py").write_text(lines_source.read_text(encoding="utf-8"), encoding="utf-8")
     text = path.read_text(encoding="utf-8")
     original_text = text
     if "OH_MODEL_PICKS_INDEPENDENT_OF_ODDS_V1" in text:

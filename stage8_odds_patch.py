@@ -131,13 +131,13 @@ def patch(root: Path) -> None:
         install_text = replace_once(
             install_text,
             'cp -a "$PKG_DIR/README_CLOUD_STAGE8.md" "$RELEASE/"\n',
-            'cp -a "$PKG_DIR/README_CLOUD_STAGE8.md" "$RELEASE/"\n# ODDS_VALUE_INSTALL_V1\ncp -a "$BUNDLE_ROOT/asian_total_ev.py" "$RELEASE/"\ncp -a "$BUNDLE_ROOT/odds_value_engine.py" "$RELEASE/"\ncp -a "$BUNDLE_ROOT/five_dollar_odds_sync.py" "$RELEASE/"\ncp -a "$BUNDLE_ROOT/turso_odds_value_publish.py" "$RELEASE/"\n',
+            'cp -a "$PKG_DIR/README_CLOUD_STAGE8.md" "$RELEASE/"\n# ODDS_VALUE_INSTALL_V1\ncp -a "$BUNDLE_ROOT/asian_total_ev.py" "$RELEASE/"\ncp -a "$BUNDLE_ROOT/asian_lines.py" "$RELEASE/"\ncp -a "$BUNDLE_ROOT/odds_value_engine.py" "$RELEASE/"\ncp -a "$BUNDLE_ROOT/five_dollar_odds_sync.py" "$RELEASE/"\ncp -a "$BUNDLE_ROOT/turso_odds_value_publish.py" "$RELEASE/"\n',
             "instalación de módulos",
         )
         install_text = replace_once(
             install_text,
             'python3 -m py_compile "$RELEASE/stage8_daemon.py" "$RELEASE/stage8_health.py" "$RELEASE/cloud_stage6_publish.py"\n',
-            'python3 -m py_compile "$RELEASE/stage8_daemon.py" "$RELEASE/stage8_health.py" "$RELEASE/cloud_stage6_publish.py" "$RELEASE/asian_total_ev.py" "$RELEASE/odds_value_engine.py" "$RELEASE/five_dollar_odds_sync.py" "$RELEASE/turso_odds_value_publish.py"\n',
+            'python3 -m py_compile "$RELEASE/stage8_daemon.py" "$RELEASE/stage8_health.py" "$RELEASE/cloud_stage6_publish.py" "$RELEASE/asian_total_ev.py" "$RELEASE/asian_lines.py" "$RELEASE/odds_value_engine.py" "$RELEASE/five_dollar_odds_sync.py" "$RELEASE/turso_odds_value_publish.py"\n',
             "compilación de módulos",
         )
     installer.write_text(install_text, encoding="utf-8", newline="\n")

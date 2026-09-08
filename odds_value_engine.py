@@ -11,6 +11,11 @@ import math
 from typing import Any
 
 try:
+    from asian_lines import BetSide, equivalent_half_line
+except ImportError:  # Vercel imports this file as backend.odds_value_engine.
+    from .asian_lines import BetSide, equivalent_half_line
+
+try:
     from asian_total_ev import (
         asian_total_ev,
         cards_total_pmf,
@@ -155,21 +160,13 @@ def _snapshot(
     return None
 
 
-def asian_display_line(source_line: Any) -> float | None:
+def asian_display_line(source_side: Any, source_line: Any) -> float | None:
     """Map a real Asian source line to the approved visual half-line."""
 
-    line = number(source_line)
-    if line is None or line < 0:
+    try:
+        return equivalent_half_line(BetSide(str(source_side).lower()), source_line)
+    except (TypeError, ValueError):
         return None
-    quarters = round(line * 4)
-    if abs(line * 4 - quarters) > 1e-8:
-        return None
-    integer, fraction = divmod(quarters, 4)
-    if fraction == 0:
-        return integer - 0.5
-    if fraction in (1, 2):
-        return integer + 0.5
-    return integer + 1.5
 
 
 def _price_priority(row: dict[str, Any]) -> int:
@@ -215,12 +212,14 @@ def provider_prices(
     for source, (prefix, label, catalog) in TOTAL_MARKETS.items():
         snapshot = _snapshot(markets.get(source), snapshot_order)
         source_line = number((snapshot or {}).get("line"))
-        display_line = asian_display_line(source_line)
-        if source_line is None or display_line not in catalog:
+        if source_line is None:
             continue
         exact = abs(source_line % 1 - 0.5) <= 1e-8
-        token = str(display_line).replace(".", "_")
         for side, selection in (("over", "Más"), ("under", "Menos")):
+            display_line = asian_display_line(side, source_line)
+            if display_line not in catalog:
+                continue
+            token = str(display_line).replace(".", "_")
             price = number(snapshot.get(side))
             if price and price > 1:
                 rows.append({
