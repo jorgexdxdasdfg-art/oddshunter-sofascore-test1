@@ -125,6 +125,24 @@ def test_same_source_line_maps_over_and_under_to_their_contract_rows():
     ]
 
 
+def test_persisted_under_row_is_normalized_without_new_provider_data():
+    stale = {
+        "key": "goals_under_3_5", "market": "Goles", "selection": "Menos de 3.5",
+        "line": 3.5, "display_line": 3.5, "source_market": "goal_line",
+        "source_side": "under", "source_line": 2.75, "source_odds": 1.825,
+        "odds": 1.825, "source_ev": -0.103283825, "price_origin": "ASIAN_MAPPED",
+    }
+
+    normalized = preferred_visual_prices([stale])
+
+    assert normalized[0]["key"] == "goals_under_2_5"
+    assert normalized[0]["selection"] == "Menos de 2.5"
+    assert normalized[0]["display_line"] == 2.5
+    assert normalized[0]["source_line"] == 2.75
+    assert normalized[0]["source_odds"] == 1.825
+    assert normalized[0]["source_ev"] == -0.103283825
+
+
 def test_lines_outside_each_visual_catalog_are_not_created():
     assert provider_prices({"goal_line": {"closing": {"line": 3.75, "over": 2.0}}}) == []
     assert provider_prices({"card_line": {"closing": {"line": 4.25, "over": 2.0}}}) == []

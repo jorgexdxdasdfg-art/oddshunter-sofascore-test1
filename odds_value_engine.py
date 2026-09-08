@@ -173,12 +173,38 @@ def _price_priority(row: dict[str, Any]) -> int:
     return 2 if row.get("price_origin") == "EXACT_HALF_LINE" else 1
 
 
+def _remap_persisted_source_price(row: dict[str, Any]) -> dict[str, Any] | None:
+    """Normalize previously persisted Asian rows without fetching new odds."""
+
+    source_market = str(row.get("source_market") or "")
+    if source_market not in TOTAL_MARKETS:
+        return row
+    prefix, label, catalog = TOTAL_MARKETS[source_market]
+    source_side = str(row.get("source_side") or "").lower()
+    source_line = number(row.get("source_line"))
+    display_line = asian_display_line(source_side, source_line)
+    if source_side not in {"over", "under"} or display_line not in catalog:
+        return None
+    token = str(display_line).replace(".", "_")
+    return {
+        **row,
+        "key": f"{prefix}_{source_side}_{token}",
+        "market": label,
+        "selection": f"{'Más' if source_side == 'over' else 'Menos'} de {display_line:g}",
+        "line": display_line,
+        "display_line": display_line,
+    }
+
+
 def preferred_visual_prices(prices: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Keep one quote per visual row, always preferring an exact .5 line."""
 
     selected: dict[str, dict[str, Any]] = {}
     order: list[str] = []
-    for row in prices:
+    for original in prices:
+        row = _remap_persisted_source_price(dict(original))
+        if row is None:
+            continue
         key = str(row.get("key") or "")
         if not key:
             continue
