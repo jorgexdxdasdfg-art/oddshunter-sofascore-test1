@@ -692,7 +692,7 @@ setHeader=function(view){
 document.body.classList.toggle("oh-home-mode",!document.querySelector('[data-view="match"].active,[data-view="lineups"].active'));
 
 /* OH_VALUE_PICKS_V23 */
-document.documentElement.dataset.oddshunterBuild="1.26.2-simple-lines";
+document.documentElement.dataset.oddshunterBuild="1.26.3-all-probability-picks";
 const ohPickLabels={
   result_home:"Gana local",result_draw:"Empate",result_away:"Gana visitante",
   double_home_draw:"Local o empate",double_away_draw:"Empate o visitante",double_home_away:"Local o visitante",
@@ -702,7 +702,7 @@ const ohPickLabels={
 };
 
 function ohPickProbability(value){const n=Number(value);return Number.isFinite(n)?`${(n*100).toFixed(1).replace(".0","")}%`:"N/D"}
-function ohPickLabel(key){if(ohPickLabels[key])return ohPickLabels[key];const match=key.match(/^corners_(over|under)_(\d+)_(\d+)$/);return match?`${match[1]==="over"?"Más":"Menos"} de ${match[2]}.${match[3]}`:key.replaceAll("_"," ")}
+function ohPickLabel(key){if(ohPickLabels[key])return ohPickLabels[key];const match=key.match(/^(?:goals|cards|corners)_(over|under)_(\d+)_(\d+)$/);return match?`${match[1]==="over"?"Más":"Menos"} de ${match[2]}.${match[3]}`:key.replaceAll("_"," ")}
 function ohPickPercent(value){const n=Number(value);return Number.isFinite(n)?`${n.toFixed(1).replace(".0","")}%`:"—"}
 function ohPickOdds(value){const n=Number(value);return Number.isFinite(n)&&n>1?n.toFixed(2):"—"}
 function ohPickMarketRow(key,value,price){
@@ -740,13 +740,20 @@ function renderPicks(){
   all.forEach(pick=>{const key=String(pick?.key||""),raw=Number(pick?.probability);if(key&&probabilities[key]===undefined&&Number.isFinite(raw))probabilities[key]=raw>1?raw/100:raw});
   const prices=new Map(all.filter(pick=>pick?.key).map(pick=>[String(pick.key),pick]));
   available.forEach(price=>{const key=String(price?.key||"");if(key)prices.set(key,{...(prices.get(key)||{}),...price})});
-  const cornerKeys=["corners_over_7_5","corners_under_7_5","corners_over_8_5","corners_under_8_5","corners_over_9_5","corners_under_9_5"];
+  const halfLineKeys=prefix=>Object.keys(probabilities).filter(key=>key.startsWith(`${prefix}_`)&&/_(?:over|under)_\d+_5$/.test(key)).sort((a,b)=>{
+    const parts=key=>{const m=key.match(/_(over|under)_(\d+)_5$/);return m?[Number(`${m[2]}.5`),m[1]==="over"?0:1]:[0,0]};
+    const x=parts(a),y=parts(b);return x[0]-y[0]||x[1]-y[1];
+  });
+  const resultKeys=["result_home","result_draw","result_away","double_home_draw","double_away_draw","double_home_away"].filter(key=>probabilities[key]!==undefined);
+  const goalsKeys=halfLineKeys("goals"),cardsKeys=halfLineKeys("cards"),cornerKeys=halfLineKeys("corners");
+  const bttsKeys=["btts_yes","btts_no"].filter(key=>probabilities[key]!==undefined);
+  const firstHalfKeys=Object.keys(probabilities).filter(key=>key.startsWith("first_half_")&&/_\d+_5$/.test(key));
   const groups=[
-    ohPickGroup("Resultado","🛡️",["result_home","result_draw","result_away","double_home_draw","double_away_draw","double_home_away"],probabilities,prices),
-    ohPickGroup("Goles","⚽",["goals_over_1_5","goals_under_1_5","goals_over_2_5","goals_under_2_5","goals_over_3_5","goals_under_3_5"],probabilities,prices),
-    ohPickGroup("Ambos marcan","🥅",["btts_yes","btts_no"],probabilities,prices),
-    ohPickGroup("Gol en primera mitad","⏱️",["first_half_over_0_5","first_half_under_0_5"],probabilities,prices),
-    ohPickGroup("Tarjetas","🟨",["cards_over_1_5","cards_under_1_5","cards_over_2_5","cards_under_2_5","cards_over_3_5","cards_under_3_5"],probabilities,prices),
+    ohPickGroup("Resultado","🛡️",resultKeys,probabilities,prices),
+    ohPickGroup("Goles","⚽",goalsKeys,probabilities,prices),
+    ohPickGroup("Ambos marcan","🥅",bttsKeys,probabilities,prices),
+    ohPickGroup("Gol en primera mitad","⏱️",firstHalfKeys,probabilities,prices),
+    ohPickGroup("Tarjetas","🟨",cardsKeys,probabilities,prices),
     ohPickGroup("Córners","🚩",cornerKeys,probabilities,prices)
   ].join("");
   const best=top.map((pick,index)=>{const odds=pick?.current_odds??pick?.odds;return `<article class="oh-best-pick"><b>${index+1}</b><div><span>${esc(pick.market||"")} · ${esc(pick.selection||"")}</span><small>Prob. ${esc(String(pick.probability))}% · Cuota ${esc(ohPickOdds(odds))}</small></div><div><strong>EV/ROI ${Number(pick.ev)>0?"+":""}${esc(String(pick.ev))}%</strong><small>Apostar ${esc(String(pick.recommended_bankroll_pct))}% del bank</small></div></article>`}).join("");

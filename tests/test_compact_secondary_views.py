@@ -33,7 +33,7 @@ def test_deployment_requires_the_compact_secondary_marker():
     ).read_text(encoding="utf-8")
 
     assert 'COMPACT_SECONDARY_MARKER = "OH_COMPACT_SECONDARY_VIEWS_V20"' in recovery
-    assert "1.26.2-simple-lines" in recovery
+    assert "1.26.3-all-probability-picks" in recovery
     assert workflow.count("OH_COMPACT_SECONDARY_VIEWS_V20") >= 3
 
 
@@ -48,7 +48,7 @@ def test_match_summary_uses_the_compact_centered_reference():
     assert '.summary-lead{width:100%;margin:6px 0 2px;color:var(--muted)' in styles
     assert '.summary-primary-value{width:100%;margin:0' in styles
     assert 'MATCH_SUMMARY_COMPACT_MARKER = "OH_MATCH_SUMMARY_COMPACT_REFERENCE_V21"' in recovery
-    assert "1.26.2-simple-lines" in recovery
+    assert "1.26.3-all-probability-picks" in recovery
 
 
 def test_match_view_honors_dark_theme_and_compacts_section_titles():
@@ -69,7 +69,7 @@ def test_match_view_honors_dark_theme_and_compacts_section_titles():
     assert 'getPropertyValue("--text")' in script
     assert 'getPropertyValue("--muted")' in script
     assert 'MATCH_THEME_MARKER = "OH_MATCH_THEME_AND_TITLES_V22"' in recovery
-    assert "1.26.2-simple-lines" in recovery
+    assert "1.26.3-all-probability-picks" in recovery
 
 
 def test_picks_read_persisted_current_odds_and_all_picks_schema():
@@ -79,17 +79,20 @@ def test_picks_read_persisted_current_odds_and_all_picks_schema():
     assert "price?.current_odds??price?.odds" in script
     assert "Array.isArray(value.all_picks)?value.all_picks:[]" in script
     assert "pick?.current_odds??pick?.odds" in script
-    assert "app.js?v=1.26.2-simple-lines" in recovery
-    assert "app.css?v=1.26.2-simple-lines" in recovery
-    assert "oh-mobile-v1-26-2-simple-lines" in recovery
-    assert 'sw.js?v=1.26.2-simple-lines' in recovery
-    assert 'name="oddshunter-build" content="1.26.2-simple-lines"' in recovery
-    assert 'dataset.oddshunterBuild="1.26.2-simple-lines"' in script
+    assert "app.js?v=1.26.3-all-probability-picks" in recovery
+    assert "app.css?v=1.26.3-all-probability-picks" in recovery
+    assert "oh-mobile-v1-26-3-all-probability-picks" in recovery
+    assert 'sw.js?v=1.26.3-all-probability-picks' in recovery
+    assert 'name="oddshunter-build" content="1.26.3-all-probability-picks"' in recovery
+    assert 'dataset.oddshunterBuild="1.26.3-all-probability-picks"' in script
     assert 'ohPickGroup("Ambos marcan"' in script
     assert 'ohPickGroup("Gol en primera mitad"' in script
     assert 'return Number.isFinite(n)&&n>1?n.toFixed(2):"—"' in script
     assert "Bet365 todavía no devuelve una cuota exactamente compatible con esa línea .5" in script
-    assert 'const cornerKeys=["corners_over_7_5","corners_under_7_5","corners_over_8_5","corners_under_8_5","corners_over_9_5","corners_under_9_5"]' in script
+    assert 'const halfLineKeys=prefix=>Object.keys(probabilities)' in script
+    assert 'goalsKeys=halfLineKeys("goals"),cardsKeys=halfLineKeys("cards"),cornerKeys=halfLineKeys("corners")' in script
+    assert '.filter(p=>p.odds)' not in script
+    assert '.filter(p=>p.ev!==null)' not in script
 
 
 def test_picks_tab_is_inserted_and_verified_in_deployment():
