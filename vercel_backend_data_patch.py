@@ -8,14 +8,26 @@ VALUE_DOC_NAMES_ANCHOR = '    names = ("input_match", "status", "analysis", "rat
 VALUE_DOC_NAMES_PATCHED = '    names = ("input_match", "status", "analysis", "ratings", "goals", "corners", "cards", "shots", "odds_value")\n'
 VALUE_PAYLOAD_ANCHOR = '        "lineups": lineup_payload(competition_key, event_id),\n'
 VALUE_PAYLOAD_OLD = VALUE_PAYLOAD_ANCHOR + '        "value_picks": safe_dict(docs.get("odds_value")),\n'
-VALUE_PAYLOAD_PATCHED = VALUE_PAYLOAD_ANCHOR + '        "value_picks": mobile_model_picks(docs),\n'
-VALUE_MODEL_FUNCTION = '''# OH_MODEL_PICKS_INDEPENDENT_OF_ODDS_V1
-def mobile_model_picks(docs: dict[str, Any]) -> dict[str, Any]:
-    from backend.odds_value_engine import refresh_model_picks
+VALUE_PAYLOAD_V1 = VALUE_PAYLOAD_ANCHOR + '        "value_picks": mobile_model_picks(docs),\n'
+VALUE_PAYLOAD_PATCHED = VALUE_PAYLOAD_ANCHOR + '        "value_picks": mobile_model_picks(docs, comparison),\n'
+VALUE_MODEL_FUNCTION = '''# OH_MODEL_PICKS_INDEPENDENT_OF_ODDS_V2
+def mobile_model_picks(docs: dict[str, Any], comparison: dict[str, Any]) -> dict[str, Any]:
+    from backend.odds_value_engine import refresh_model_picks, number
     bundle = {**safe_dict(docs.get("analysis"))}
     for name in ("goals", "corners", "cards"):
         bundle[name] = safe_dict(docs.get(name))
-    return refresh_model_picks(bundle, safe_dict(docs.get("odds_value")))
+    stored = safe_dict(docs.get("odds_value"))
+    context = {}
+    if "first_half_over_0_5" not in safe_dict(stored.get("probabilities")):
+        derived = {}
+        for side in ("home", "away"):
+            # Reuse the same observed first-half frequencies already exposed
+            # in Comparativa; missing partial scores do not become zeroes.
+            value = number(safe_dict(safe_dict(comparison.get(side)).get("summary")).get("over_0_5_ht"))
+            if value is not None:
+                derived[side + "_general"] = {"first_half_over_0_5": value / 100}
+        context = {"derived": derived}
+    return refresh_model_picks(bundle, stored, context)
 
 
 '''
@@ -423,10 +435,19 @@ def patch_backend(root: Path) -> list[str]:
     (path.parent / "odds_value_engine.py").write_text(engine_source.read_text(encoding="utf-8"), encoding="utf-8")
     text = path.read_text(encoding="utf-8")
     original_text = text
-    if "OH_MODEL_PICKS_INDEPENDENT_OF_ODDS_V1" not in text:
+    if "OH_MODEL_PICKS_INDEPENDENT_OF_ODDS_V1" in text:
+        text, count = re.subn(r"# OH_MODEL_PICKS_INDEPENDENT_OF_ODDS_V1\n.*?(?=def match_payload\()", VALUE_MODEL_FUNCTION, text, count=1, flags=re.DOTALL)
+        if count != 1:
+            raise RuntimeError("No se pudo actualizar el fallback de picks")
+    if "OH_MODEL_PICKS_INDEPENDENT_OF_ODDS_V2" not in text:
         text = replace_once(text, "def match_payload(", VALUE_MODEL_FUNCTION + "def match_payload(", "probabilidades independientes de cuotas")
+    if VALUE_PAYLOAD_V1 in text:
+        text = text.replace(VALUE_PAYLOAD_V1, VALUE_PAYLOAD_PATCHED, 1)
     if VALUE_PAYLOAD_OLD in text:
         text = text.replace(VALUE_PAYLOAD_OLD, VALUE_PAYLOAD_PATCHED, 1)
+    if '        "comparison": comparison_payload(event),\n' in text:
+        text = replace_once(text, '    top_scorelines = safe_list(primary.get("top_scorelines"))\n', '    top_scorelines = safe_list(primary.get("top_scorelines"))\n    comparison = comparison_payload(event)\n', "reutilizar comparativa para picks")
+        text = text.replace('        "comparison": comparison_payload(event),\n', '        "comparison": comparison,\n', 1)
     if "OH_MOBILE_THREE_DAY_WINDOW_V1" not in text:
         text = replace_once(
             text,

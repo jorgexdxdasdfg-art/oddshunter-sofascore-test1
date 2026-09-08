@@ -692,7 +692,7 @@ setHeader=function(view){
 document.body.classList.toggle("oh-home-mode",!document.querySelector('[data-view="match"].active,[data-view="lineups"].active'));
 
 /* OH_VALUE_PICKS_V23 */
-document.documentElement.dataset.oddshunterBuild="1.26.0-live-picks";
+document.documentElement.dataset.oddshunterBuild="1.26.1-live-picks";
 const ohPickLabels={
   result_home:"Gana local",result_draw:"Empate",result_away:"Gana visitante",
   double_home_draw:"Local o empate",double_away_draw:"Empate o visitante",double_home_away:"Local o visitante",

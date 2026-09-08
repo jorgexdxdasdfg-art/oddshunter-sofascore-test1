@@ -102,3 +102,27 @@ def test_target_events_reads_service_owned_schedule_catalog(tmp_path, monkeypatc
     bundles = _schedule_documents(root)
     assert bundles[("serie-a", 9001)]["status"] == "READY"
     assert bundles[("serie-a", 9001)]["goals"]["models"]["MODELO_APRENDIDO"]["lambda_home"] == 1.2
+
+
+def test_provider_not_found_still_persists_all_model_picks(tmp_path, monkeypatch):
+    import five_dollar_odds_sync as sync_module
+    event = {"competition_key": "copa-colombia", "event_id": 99,
+             "home_team": "Home", "away_team": "Away", "kickoff": "2026-09-07T23:00:00Z"}
+    bundle = {"goals": {"models": {"MODELO_APRENDIDO": {
+        "outcome_probabilities": {"home_win": 0.6, "draw": 0.3, "away_win": 0.1},
+        "lambda_home": 1.8, "lambda_away": 0.8,
+        "total_goals_distribution": {"0": 0.1, "1": 0.2, "2": 0.3, "3": 0.4},
+    }}}}
+    monkeypatch.setenv("FIVE_DOLLAR_FOOTBALL_API_KEY", "test-only")
+    monkeypatch.setattr(sync_module, "_target_events", lambda *_: [event])
+    monkeypatch.setattr(sync_module, "_schedule_documents", lambda *_: {("copa-colombia", 99): bundle})
+    monkeypatch.setattr(sync_module, "fetch_fixtures", lambda *_args, **_kwargs: [])
+    class NoRequests:
+        request_count = 0
+    result = sync_module.sync(tmp_path, now=datetime(2026, 9, 7, 20, tzinfo=timezone.utc), client=NoRequests())
+    document = json.loads((tmp_path / "data/analisis/copa-colombia/99/odds_value.json").read_text())
+    assert document["odds_status"] == "PROVIDER_NOT_FOUND"
+    assert document["all_picks"]
+    assert document["probabilities"]["result_home"] == 0.6
+    assert all(pick["odds"] is None for pick in document["all_picks"])
+    assert result["INDIVIDUAL_FALLBACK_REQUESTS"] == 0

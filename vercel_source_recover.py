@@ -113,8 +113,14 @@ def patch_frontend(root: Path) -> dict[str, list[str]]:
         marker_positions = [position for position in marker_positions if position >= 0]
         if marker_positions:
             text = text[: min(marker_positions)].rstrip()
+        # The existing timer must refresh whichever Ecuador day is selected.
+        # Capture the offset so an in-flight response cannot overwrite a day
+        # the user selected while that request was still running.
+        text = text.replace('if(stateRefreshBusy || state.dayOffset!==0)return;', 'if(stateRefreshBusy || document.visibilityState!=="visible")return;\n  const refreshOffset=state.dayOffset;')
+        text = text.replace('api("/api/day?offset=0&limit=1000"),', 'api(`/api/day?offset=${refreshOffset}&limit=1000`),')
+        text = text.replace('    state.dayEvents=preserveLiveAcrossRefresh(state.dayEvents,freshDay);', '    if(state.dayOffset!==refreshOffset)return;\n    state.dayEvents=preserveLiveAcrossRefresh(state.dayEvents,freshDay);') if 'if(state.dayOffset!==refreshOffset)return;' not in text else text
         text = text.rstrip() + "\n\n" + detail_js.rstrip() + "\n"
-        text = re.sub(r"sw\.js\?v=[^\"']+", "sw.js?v=1.26.0-live-picks", text)
+        text = re.sub(r"sw\.js\?v=[^\"']+", "sw.js?v=1.26.1-live-picks", text)
         if text != original:
             path.write_text(text, encoding="utf-8", newline="\n")
         patched_apps.append(path.relative_to(root).as_posix())
@@ -162,11 +168,11 @@ def patch_frontend(root: Path) -> dict[str, list[str]]:
     patched_indexes: list[str] = []
     for path in sorted(root.glob("**/index.html")):
         text = path.read_text(encoding="utf-8")
-        updated = re.sub(r"app\.css\?v=[^\"']+", "app.css?v=1.26.0-live-picks", text)
-        updated = re.sub(r"app\.js\?v=[^\"']+", "app.js?v=1.26.0-live-picks", updated)
-        updated = re.sub(r"sw\.js\?v=[^\"']+", "sw.js?v=1.26.0-live-picks", updated)
+        updated = re.sub(r"app\.css\?v=[^\"']+", "app.css?v=1.26.1-live-picks", text)
+        updated = re.sub(r"app\.js\?v=[^\"']+", "app.js?v=1.26.1-live-picks", updated)
+        updated = re.sub(r"sw\.js\?v=[^\"']+", "sw.js?v=1.26.1-live-picks", updated)
         updated = re.sub(r'\s*<meta\s+name=["\']oddshunter-build["\'][^>]*>', "", updated)
-        updated = updated.replace("</head>", '  <meta name="oddshunter-build" content="1.26.0-live-picks">\n</head>', 1)
+        updated = updated.replace("</head>", '  <meta name="oddshunter-build" content="1.26.1-live-picks">\n</head>', 1)
         updated = re.sub(r'(<div class="logo-box"><img\s+)src="[^"]+"', rf'\1src="/assets/icons/{BRAND_ASSET_NAME}"', updated)
         if 'data-tab="picks"' not in updated:
             updated, count = re.subn(
@@ -184,9 +190,9 @@ def patch_frontend(root: Path) -> dict[str, list[str]]:
     patched_workers: list[str] = []
     for path in sorted(root.glob("**/sw.js")):
         text = path.read_text(encoding="utf-8")
-        updated = re.sub(r"oh-mobile-v[^\"']+", "oh-mobile-v1-26-0-live-picks", text)
-        updated = re.sub(r"app\.css\?v=[^\"']+", "app.css?v=1.26.0-live-picks", updated)
-        updated = re.sub(r"app\.js\?v=[^\"']+", "app.js?v=1.26.0-live-picks", updated)
+        updated = re.sub(r"oh-mobile-v[^\"']+", "oh-mobile-v1-26-1-live-picks", text)
+        updated = re.sub(r"app\.css\?v=[^\"']+", "app.css?v=1.26.1-live-picks", updated)
+        updated = re.sub(r"app\.js\?v=[^\"']+", "app.js?v=1.26.1-live-picks", updated)
         if updated != text:
             path.write_text(updated, encoding="utf-8", newline="\n")
             patched_workers.append(path.relative_to(root).as_posix())
