@@ -69,6 +69,7 @@ jobs:
             SUDO=''; if [ \"\$(id -u)\" -ne 0 ]; then SUDO='sudo -n'; fi
             CUR=\$(readlink -f /opt/oddshunter/current)
             test -x \"\$CUR/.venv-cloud/bin/python\"
+            trap '\$SUDO systemctl enable --now oddshunter-live-sync.timer' EXIT
             \$SUDO systemctl stop oddshunter-live-sync.timer || true
             \$SUDO systemctl stop oddshunter-live-sync.service || true
             \$SUDO install -m 0644 '$REMOTE_DIR/cloud_live_status_sync.py' \"\$CUR/cloud_live_status_sync.py\"

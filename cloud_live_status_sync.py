@@ -842,11 +842,31 @@ def verify_catalog_preservation(now: datetime) -> dict[str, Any]:
         after = snapshot()
         regressions = [key for key, row in finals.items() if key not in after or any(after[key].get(field) != row.get(field) for field in ("status", "home_score", "away_score"))]
         odds_after = {(str(row["competition_key"]), int(row["event_id"])): row["json_text"] for row in client.query("SELECT competition_key,event_id,json_text FROM mobile_analysis_docs WHERE doc_name='odds_value'", [])}
-        odds_changed = [int(row["event_id"]) for row in odds_before if odds_after.get((str(row["competition_key"]), int(row["event_id"]))) != row["json_text"]]
+        odds_changed = [int(row["event_id"]) for row in odds_before if odds_document_regressed(row["json_text"], odds_after.get((str(row["competition_key"]), int(row["event_id"]))))]
         if regressions or odds_changed:
             raise RuntimeError(f"CATALOG_STATE_GATE=FAIL: score_regressions={regressions}, odds_changed={odds_changed}")
         rounds.append({"cycle": index + 1, "finals_preserved": len(finals), "odds_docs_preserved": len(odds_before), "counts_by_day": publication["counts_by_day"]})
     return {"CATALOG_STATE_GATE": "PASS", "rounds": rounds}
+
+
+def odds_document_regressed(previous: str, current: str | None) -> bool:
+    """Allow concurrent fresh odds publication, but never erased/older data."""
+    if current is None:
+        return True
+    before, after = json.loads(previous), json.loads(current)
+    old_time, new_time = parse_dt(before.get("generated_at")), parse_dt(after.get("generated_at"))
+    if old_time and (not new_time or new_time < old_time):
+        return True
+    newer = {row["key"]: row for row in after.get("price_history", [])}
+    for old in before.get("price_history", []):
+        new = newer.get(old["key"])
+        if not new or old.get("opening") != new.get("opening"):
+            return True
+        old_stamp = parse_dt((old.get("current") or {}).get("updated_at"))
+        new_stamp = parse_dt((new.get("current") or {}).get("updated_at"))
+        if old_stamp and (not new_stamp or new_stamp < old_stamp):
+            return True
+    return False
 
 
 def seed_schedule_coverage() -> tuple[set[str], set[int]]:

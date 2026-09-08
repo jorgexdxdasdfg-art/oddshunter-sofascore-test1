@@ -600,3 +600,14 @@ def test_explicit_event_selection_has_no_remaining_time_placeholders():
         def fetchall(self):
             return []
     assert live.select_event_ids(QueryProbe(), [11, 12]) == []
+
+
+def test_catalog_audit_accepts_concurrent_odds_refresh_but_rejects_regression():
+    old = {"generated_at": "2026-09-07T21:00:00Z", "price_history": [{"key": "result_home", "opening": {"odds": 2.5}, "current": {"odds": 2.2, "updated_at": "2026-09-07T21:00:00Z"}}]}
+    new = json.loads(json.dumps(old))
+    new["generated_at"] = "2026-09-07T22:00:00Z"
+    new["price_history"][0]["current"] = {"odds": 2.1, "updated_at": "2026-09-07T22:00:00Z"}
+    assert not live.odds_document_regressed(json.dumps(old), json.dumps(new))
+    assert live.odds_document_regressed(json.dumps(new), json.dumps(old))
+    new["price_history"][0]["opening"]["odds"] = 2.1
+    assert live.odds_document_regressed(json.dumps(old), json.dumps(new))
