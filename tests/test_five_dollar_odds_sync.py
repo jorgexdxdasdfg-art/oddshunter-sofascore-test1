@@ -2,9 +2,17 @@ from __future__ import annotations
 
 import gzip
 import json
+import sqlite3
 from datetime import datetime, timezone
 
-from five_dollar_odds_sync import _merge_prices, _schedule_documents, _target_events, match_fixture
+from five_dollar_odds_sync import (
+    _ensure_odds_tables,
+    _merge_prices,
+    _persist_database,
+    _schedule_documents,
+    _target_events,
+    match_fixture,
+)
 
 
 def test_exact_kickoff_accepts_provider_team_suffixes():
@@ -54,6 +62,30 @@ def test_captured_opening_is_immutable_and_current_moves():
     assert row["current"] == {"odds": 2.3, "updated_at": "2026-09-07T13:00:00+00:00"}
     assert first_stats == {"opening_created": 1, "opening_preserved": 0, "current_updated": 0}
     assert second_stats == {"opening_created": 0, "opening_preserved": 1, "current_updated": 1}
+
+
+def test_asian_source_identity_and_ev_are_persisted_in_odds_state():
+    connection = sqlite3.connect(":memory:")
+    _ensure_odds_tables(connection)
+    history = [{
+        "key": "goals_over_2_5", "market": "Goles", "selection": "Más de 2.5", "line": 2.5,
+        "display_line": 2.5, "source_market": "goal_line", "source_side": "over",
+        "source_line": 2.25, "source_odds": 1.8, "source_ev": 0.07125,
+        "price_origin": "ASIAN_MAPPED",
+        "provider_opening": {"odds": 1.9}, "provider_closing": {"odds": 1.8},
+        "captured_opening": {"odds": 1.9, "captured_at": "2026-09-08T12:00:00Z"},
+        "current": {"odds": 1.8, "updated_at": "2026-09-08T13:00:00Z"},
+    }]
+    event = {
+        "competition_key": "test", "event_id": 7, "kickoff": "2026-09-08T18:00:00Z",
+        "home_team": "Home", "away_team": "Away",
+    }
+    assert _persist_database(connection, event, 70, "AVAILABLE", "2026-09-08T13:00:00Z", history) == 1
+    row = connection.execute(
+        "SELECT display_line,source_market,source_side,source_line,source_odds,source_ev,price_origin "
+        "FROM bet365_odds_state"
+    ).fetchone()
+    assert row == (2.5, "goal_line", "over", 2.25, 1.8, 0.07125, "ASIAN_MAPPED")
 
 
 def test_target_events_reads_service_owned_schedule_catalog(tmp_path, monkeypatch):

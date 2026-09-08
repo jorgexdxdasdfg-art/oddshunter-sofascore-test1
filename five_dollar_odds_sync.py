@@ -18,7 +18,15 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
-from odds_value_engine import model_probabilities, number, provider_prices, rank_value_picks, refresh_model_picks
+from odds_value_engine import (
+    attach_asian_source_values,
+    build_all_picks,
+    model_probabilities,
+    number,
+    provider_prices,
+    rank_value_picks,
+    refresh_model_picks,
+)
 
 ROOT = Path(__file__).resolve().parent
 API_BASE = "https://api.5dollarfootballapi.com/v1"
@@ -473,7 +481,15 @@ def _reuse_cached_extended(
         current_odds = number(old.get("current_odds") or old.get("odds"))
         if current_odds is None or current_odds <= 1:
             continue
-        base = {field: old.get(field) for field in ("key", "market", "selection", "line") if old.get(field) is not None}
+        base = {
+            field: old.get(field)
+            for field in (
+                "key", "market", "selection", "line", "display_line",
+                "source_market", "source_side", "source_line", "source_odds",
+                "source_ev", "price_origin",
+            )
+            if old.get(field) is not None
+        }
         current_prices.append({**base, "odds": current_odds})
         old_history = history.get(key) or {}
         provider_opening = old_history.get("provider_opening") or old_history.get("captured_opening") or old_history.get("opening") or {}
@@ -543,6 +559,8 @@ def _ensure_odds_tables(connection: sqlite3.Connection) -> None:
         CREATE TABLE IF NOT EXISTS bet365_odds_state (
             competition_key TEXT NOT NULL,event_id INTEGER NOT NULL,provider_fixture_id INTEGER NOT NULL,
             market_key TEXT NOT NULL,market TEXT NOT NULL,selection TEXT NOT NULL,line REAL,
+            display_line REAL,source_market TEXT,source_side TEXT,source_line REAL,
+            source_odds REAL,source_ev REAL,price_origin TEXT,
             provider_opening_odds REAL,provider_closing_odds REAL,
             opening_odds REAL NOT NULL,opening_captured_at TEXT NOT NULL,
             current_odds REAL NOT NULL,current_updated_at TEXT NOT NULL,last_checked_at TEXT NOT NULL,
@@ -558,6 +576,14 @@ def _ensure_odds_tables(connection: sqlite3.Connection) -> None:
         connection.execute("ALTER TABLE bet365_odds_state ADD COLUMN provider_opening_odds REAL")
     if "provider_closing_odds" not in columns:
         connection.execute("ALTER TABLE bet365_odds_state ADD COLUMN provider_closing_odds REAL")
+    for name, column_type in (
+        ("display_line", "REAL"), ("source_market", "TEXT"),
+        ("source_side", "TEXT"), ("source_line", "REAL"),
+        ("source_odds", "REAL"), ("source_ev", "REAL"),
+        ("price_origin", "TEXT"),
+    ):
+        if name not in columns:
+            connection.execute(f"ALTER TABLE bet365_odds_state ADD COLUMN {name} {column_type}")
 
 
 def _persist_database(
@@ -586,13 +612,19 @@ def _persist_database(
         connection.execute(
             """INSERT INTO bet365_odds_state
             (competition_key,event_id,provider_fixture_id,market_key,market,selection,line,
+             display_line,source_market,source_side,source_line,source_odds,source_ev,price_origin,
              provider_opening_odds,provider_closing_odds,opening_odds,opening_captured_at,
              current_odds,current_updated_at,last_checked_at)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(competition_key,event_id,market_key) DO UPDATE SET
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(competition_key,event_id,market_key) DO UPDATE SET
             provider_fixture_id=excluded.provider_fixture_id,market=excluded.market,selection=excluded.selection,line=excluded.line,
+            display_line=excluded.display_line,source_market=excluded.source_market,source_side=excluded.source_side,
+            source_line=excluded.source_line,source_odds=excluded.source_odds,source_ev=excluded.source_ev,
+            price_origin=excluded.price_origin,
             provider_opening_odds=excluded.provider_opening_odds,provider_closing_odds=excluded.provider_closing_odds,
             current_odds=excluded.current_odds,current_updated_at=excluded.current_updated_at,last_checked_at=excluded.last_checked_at""",
             (key,event_id,provider_fixture_id,row["key"],row.get("market") or "",row.get("selection") or "",row.get("line"),
+             row.get("display_line"),row.get("source_market"),row.get("source_side"),row.get("source_line"),
+             row.get("source_odds"),row.get("source_ev"),row.get("price_origin"),
              (row.get("provider_opening") or {}).get("odds"),(row.get("provider_closing") or {}).get("odds"),
              opening["odds"],opening["captured_at"],current["odds"],current["updated_at"],checked_at),
         )
@@ -750,21 +782,8 @@ def sync(
                     **(existing.get("probabilities") or {}),
                     **refreshed_probabilities,
                 }
-                all_picks = [
-                    {
-                        "key": key_name,
-                        "probability": round(probability_value * 100, 2),
-                        "odds": next(
-                            (
-                                row.get("current_odds") or row.get("odds")
-                                for row in preserved_prices
-                                if row.get("key") == key_name
-                            ),
-                            None,
-                        ),
-                    }
-                    for key_name, probability_value in probabilities.items()
-                ]
+                preserved_prices = attach_asian_source_values(bundle, preserved_prices)
+                all_picks = build_all_picks(probabilities, preserved_prices)
                 top_picks = rank_value_picks(probabilities, preserved_prices, 4)
                 document = {
                     **existing,
@@ -886,6 +905,8 @@ def sync(
         opening_prices = provider_prices(markets, snapshot_order=("opening", "closing"))
         current_prices = provider_prices(markets, snapshot_order=("closing", "opening"))
         _reuse_cached_extended(existing, opening_prices, current_prices)
+        opening_prices = attach_asian_source_values(bundle, opening_prices)
+        current_prices = attach_asian_source_values(bundle, current_prices)
         if not bookmaker or not current_prices:
             counts["pending"] += 1
             preserved = existing if existing.get("available_prices") else {}
@@ -933,14 +954,7 @@ def sync(
             # primera mitad todavía no exista para un evento nuevo.
             context = {}
         probabilities = model_probabilities(bundle, context)
-        all_picks = [
-            {
-                "key": key_name,
-                "probability": round(probability_value * 100, 2),
-                "odds": next((row.get("current_odds") for row in available if row.get("key") == key_name), None),
-            }
-            for key_name, probability_value in probabilities.items()
-        ]
+        all_picks = build_all_picks(probabilities, available)
         top_picks = rank_value_picks(probabilities, available, 4)
         counts["all_picks_created"] += len(all_picks)
         counts["top4_created"] += len(top_picks)

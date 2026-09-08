@@ -10,6 +10,20 @@ misma linea de Bet365.
 import math
 from typing import Any
 
+from asian_total_ev import (
+    asian_total_ev,
+    cards_total_pmf,
+    corners_total_pmf,
+    goals_total_pmf,
+)
+
+
+TOTAL_MARKETS = {
+    "goal_line": ("goals", "Goles", {1.5, 2.5, 3.5}),
+    "card_line": ("cards", "Tarjetas", {1.5, 2.5, 3.5}),
+    "corner_line": ("corners", "Córners", {5.5, 6.5, 7.5, 8.5, 9.5, 10.5, 11.5}),
+}
+
 
 def number(value: Any) -> float | None:
     try:
@@ -133,6 +147,44 @@ def _snapshot(
     return None
 
 
+def asian_display_line(source_line: Any) -> float | None:
+    """Map a real Asian source line to the approved visual half-line."""
+
+    line = number(source_line)
+    if line is None or line < 0:
+        return None
+    quarters = round(line * 4)
+    if abs(line * 4 - quarters) > 1e-8:
+        return None
+    integer, fraction = divmod(quarters, 4)
+    if fraction == 0:
+        return integer - 0.5
+    if fraction in (1, 2):
+        return integer + 0.5
+    return integer + 1.5
+
+
+def _price_priority(row: dict[str, Any]) -> int:
+    return 2 if row.get("price_origin") == "EXACT_HALF_LINE" else 1
+
+
+def preferred_visual_prices(prices: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Keep one quote per visual row, always preferring an exact .5 line."""
+
+    selected: dict[str, dict[str, Any]] = {}
+    order: list[str] = []
+    for row in prices:
+        key = str(row.get("key") or "")
+        if not key:
+            continue
+        if key not in selected:
+            selected[key] = row
+            order.append(key)
+        elif _price_priority(row) > _price_priority(selected[key]):
+            selected[key] = row
+    return [selected[key] for key in order]
+
+
 def provider_prices(
     markets: dict[str, Any],
     *,
@@ -152,18 +204,30 @@ def provider_prices(
             if price and price > 1:
                 rows.append({"key": key, "market": "Resultado 1X2", "selection": selection, "odds": price})
 
-    for source, prefix, label in (("goal_line", "goals", "Goles"), ("corner_line", "corners", "Córners"), ("card_line", "cards", "Tarjetas")):
+    for source, (prefix, label, catalog) in TOTAL_MARKETS.items():
         snapshot = _snapshot(markets.get(source), snapshot_order)
-        line = number((snapshot or {}).get("line"))
-        # Las lineas asiaticas enteras/cuarto tienen push o medio-push. No se
-        # equiparan silenciosamente con las probabilidades X.5 del bot.
-        if line is None or abs(line % 1 - 0.5) > 1e-8:
+        source_line = number((snapshot or {}).get("line"))
+        display_line = asian_display_line(source_line)
+        if source_line is None or display_line not in catalog:
             continue
-        token = str(line).replace(".", "_")
+        exact = abs(source_line % 1 - 0.5) <= 1e-8
+        token = str(display_line).replace(".", "_")
         for side, selection in (("over", "Más"), ("under", "Menos")):
             price = number(snapshot.get(side))
             if price and price > 1:
-                rows.append({"key": f"{prefix}_{side}_{token}", "market": label, "selection": f"{selection} de {line:g}", "line": line, "odds": price})
+                rows.append({
+                    "key": f"{prefix}_{side}_{token}",
+                    "market": label,
+                    "selection": f"{selection} de {display_line:g}",
+                    "line": display_line,
+                    "display_line": display_line,
+                    "source_market": source,
+                    "source_side": side,
+                    "source_line": source_line,
+                    "source_odds": price,
+                    "odds": price,
+                    "price_origin": "EXACT_HALF_LINE" if exact else "ASIAN_MAPPED",
+                })
 
     btts = _snapshot(markets.get("btts"), snapshot_order)
     for side, selection in (("yes", "Sí"), ("no", "No")):
@@ -177,18 +241,97 @@ def provider_prices(
             price = number(first_half.get(side))
             if price and price > 1:
                 rows.append({"key": f"first_half_{side}_0_5", "market": "Gol en 1.ª mitad", "selection": selection, "line": 0.5, "odds": price})
+    return preferred_visual_prices(rows)
+
+
+def _source_pmf(bundle: dict[str, Any], source_market: str) -> Any:
+    if source_market == "goal_line":
+        return goals_total_pmf(_first_model(bundle))
+    analysis = ((bundle.get("corners") or {}).get("analysis") or {})
+    if source_market == "corner_line":
+        return corners_total_pmf(analysis)
+    analysis = ((bundle.get("cards") or {}).get("analysis") or {})
+    if source_market == "card_line":
+        return cards_total_pmf(analysis)
+    raise ValueError(f"unsupported Asian total market: {source_market}")
+
+
+def attach_asian_source_values(
+    bundle: dict[str, Any], prices: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    """Calculate source EV once, before visual serialization or ranking."""
+
+    result: list[dict[str, Any]] = []
+    pmfs: dict[str, Any] = {}
+    for original in preferred_visual_prices(prices):
+        row = dict(original)
+        source_market = str(row.get("source_market") or "")
+        source_line = number(row.get("source_line"))
+        source_odds = number(row.get("source_odds", row.get("odds")))
+        source_side = str(row.get("source_side") or "")
+        if source_market in TOTAL_MARKETS and source_line is not None and source_odds is not None:
+            try:
+                if source_market not in pmfs:
+                    pmfs[source_market] = _source_pmf(bundle, source_market)
+                row["source_ev"] = round(
+                    asian_total_ev(pmfs[source_market], source_side, source_line, source_odds),
+                    12,
+                )
+            except (TypeError, ValueError):
+                # Sin una PMF liquidable no se sustituye por la probabilidad
+                # de la fila visual: cuota y EV permanecen sin asociar.
+                row.pop("source_ev", None)
+        result.append(row)
+    return result
+
+
+def _quote_ev(model_probability: float, quote: dict[str, Any], odds: float) -> float | None:
+    source_ev = number(quote.get("source_ev"))
+    if source_ev is not None:
+        return source_ev
+    if quote.get("price_origin") == "ASIAN_MAPPED":
+        return None
+    return model_probability * odds - 1.0
+
+
+def build_all_picks(
+    probabilities: dict[str, float], prices: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    by_key = {str(row.get("key")): row for row in preferred_visual_prices(prices)}
+    rows: list[dict[str, Any]] = []
+    for key, model_probability in probabilities.items():
+        quote = by_key.get(key) or {}
+        odds = number(quote.get("current_odds", quote.get("source_odds", quote.get("odds"))))
+        odds = odds if odds is not None and odds > 1 else None
+        ev = _quote_ev(model_probability, quote, odds) if odds is not None else None
+        source_fields = {
+            field: quote[field]
+            for field in (
+                "display_line", "source_market", "source_side", "source_line",
+                "source_odds", "source_ev", "price_origin",
+            )
+            if quote.get(field) is not None
+        }
+        rows.append({
+            "key": key,
+            "probability": round(model_probability * 100, 2),
+            "odds": odds,
+            "ev": round(ev * 100, 2) if ev is not None else None,
+            "odds_status": "AVAILABLE" if odds is not None and ev is not None else "NOT_IN_PROVIDER_RESPONSE",
+            **source_fields,
+        })
     return rows
 
 
 def rank_value_picks(probabilities: dict[str, float], prices: list[dict[str, Any]], limit: int = 4) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
-    for quote in prices:
+    for quote in preferred_visual_prices(prices):
         model_probability = probabilities.get(str(quote.get("key")))
-        odds = number(quote.get("odds"))
+        odds = number(quote.get("current_odds", quote.get("source_odds", quote.get("odds"))))
         if model_probability is None or odds is None or odds <= 1:
             continue
-        ev = model_probability * odds - 1.0
-        if ev <= 0:
+        ev = _quote_ev(model_probability, quote, odds)
+        if ev is None or ev <= 0:
             continue
         full_kelly = ev / (odds - 1.0)
         rows.append({
@@ -213,18 +356,8 @@ def refresh_model_picks(
     """
     existing = stored or {}
     probabilities = {**(existing.get("probabilities") or {}), **model_probabilities(bundle, context)}
-    prices = existing.get("available_prices") or []
-    by_key = {str(row.get("key")): row for row in prices}
-    all_picks = []
-    for key, prob in probabilities.items():
-        quote = by_key.get(key) or {}
-        odds = number(quote.get("current_odds", quote.get("odds")))
-        odds = odds if odds is not None and odds > 1 else None
-        all_picks.append({
-            "key": key, "probability": round(prob * 100, 2), "odds": odds,
-            "ev": round((prob * odds - 1) * 100, 2) if odds is not None else None,
-            "odds_status": "AVAILABLE" if odds else "NOT_IN_PROVIDER_RESPONSE",
-        })
+    prices = attach_asian_source_values(bundle, existing.get("available_prices") or [])
+    all_picks = build_all_picks(probabilities, prices)
     return {
         **existing,
         "odds_status": existing.get("odds_status") or "NOT_AVAILABLE_YET",

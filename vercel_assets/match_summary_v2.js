@@ -692,7 +692,8 @@ setHeader=function(view){
 document.body.classList.toggle("oh-home-mode",!document.querySelector('[data-view="match"].active,[data-view="lineups"].active'));
 
 /* OH_VALUE_PICKS_V23 */
-document.documentElement.dataset.oddshunterBuild="1.26.3-all-probability-picks";
+/* OH_ASIAN_SOURCE_EV_V24 */
+document.documentElement.dataset.oddshunterBuild="1.26.4-asian-source-ev";
 const ohPickLabels={
   result_home:"Gana local",result_draw:"Empate",result_away:"Gana visitante",
   double_home_draw:"Local o empate",double_away_draw:"Empate o visitante",double_home_away:"Local o visitante",
@@ -706,7 +707,8 @@ function ohPickLabel(key){if(ohPickLabels[key])return ohPickLabels[key];const ma
 function ohPickPercent(value){const n=Number(value);return Number.isFinite(n)?`${n.toFixed(1).replace(".0","")}%`:"—"}
 function ohPickOdds(value){const n=Number(value);return Number.isFinite(n)&&n>1?n.toFixed(2):"—"}
 function ohPickMarketRow(key,value,price){
-  const probability=Number(value),odds=Number(price?.current_odds??price?.odds),ev=Number.isFinite(probability)&&Number.isFinite(odds)&&odds>1?(probability*odds-1)*100:null;
+  const probability=Number(value),odds=Number(price?.current_odds??price?.source_odds??price?.odds),sourceEv=price?.source_ev==null?NaN:Number(price.source_ev),storedEv=price?.ev==null?NaN:Number(price.ev),mapped=price?.price_origin==="ASIAN_MAPPED";
+  const ev=Number.isFinite(sourceEv)?sourceEv*100:mapped?null:Number.isFinite(storedEv)?storedEv:Number.isFinite(probability)&&Number.isFinite(odds)&&odds>1?(probability*odds-1)*100:null;
   return `<div class="oh-picks-market-row"><span>${esc(ohPickLabel(key))}</span><strong>${ohPickProbability(value)}</strong><b>${ohPickOdds(odds)}</b><em class="${ev===null?"na":ev>0?"positive":"negative"}">${ev===null?"—":`${ev>0?"+":""}${ohPickPercent(ev)}`}</em></div>`;
 }
 function ohPickGroup(title,icon,keys,probabilities,prices){const rows=keys.filter(key=>probabilities[key]!==undefined).map(key=>ohPickMarketRow(key,probabilities[key],prices.get(key))).join("");return rows?`<section class="panel oh-picks-group"><h3>${icon} ${esc(title)}</h3><div class="oh-picks-table"><div class="oh-picks-table-head"><span>Selección</span><span>Prob.</span><span>Cuota</span><span>EV</span></div>${rows}</div></section>`:""}

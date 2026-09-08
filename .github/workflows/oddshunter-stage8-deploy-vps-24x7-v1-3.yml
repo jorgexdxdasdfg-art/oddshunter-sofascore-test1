@@ -242,7 +242,7 @@ jobs:
           cp stage8-browser-build/PLAYWRIGHT_BROWSERS_STAGE8.tar.gz stage8-deploy/
           cp stage8-browser-build/PLAYWRIGHT_VERSION_STAGE8.txt stage8-deploy/
           cp stage8-browser-build/PLAYWRIGHT_BROWSERS_STAGE8.sha256 stage8-deploy/
-          cp odds_value_engine.py five_dollar_odds_sync.py turso_odds_value_publish.py stage8_odds_patch.py stage8-deploy/
+          cp asian_total_ev.py odds_value_engine.py five_dollar_odds_sync.py turso_odds_value_publish.py stage8_odds_patch.py stage8-deploy/
 
           umask 077
           {
