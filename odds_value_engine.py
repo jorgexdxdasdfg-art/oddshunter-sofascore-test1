@@ -10,12 +10,20 @@ misma linea de Bet365.
 import math
 from typing import Any
 
-from asian_total_ev import (
-    asian_total_ev,
-    cards_total_pmf,
-    corners_total_pmf,
-    goals_total_pmf,
-)
+try:
+    from asian_total_ev import (
+        asian_total_ev,
+        cards_total_pmf,
+        corners_total_pmf,
+        goals_total_pmf,
+    )
+except ImportError:  # Vercel imports this file as backend.odds_value_engine.
+    from .asian_total_ev import (
+        asian_total_ev,
+        cards_total_pmf,
+        corners_total_pmf,
+        goals_total_pmf,
+    )
 
 
 TOTAL_MARKETS = {

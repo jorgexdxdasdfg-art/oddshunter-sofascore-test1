@@ -97,6 +97,14 @@ def test_picks_read_persisted_current_odds_and_all_picks_schema():
     assert '.filter(p=>p.ev!==null)' not in script
 
 
+def test_vercel_backend_ships_asian_engine_inside_backend_package():
+    patcher = (ROOT / "vercel_backend_data_patch.py").read_text(encoding="utf-8")
+    engine = (ROOT / "odds_value_engine.py").read_text(encoding="utf-8")
+
+    assert '(path.parent / "asian_total_ev.py").write_text' in patcher
+    assert "from .asian_total_ev import" in engine
+
+
 def test_picks_tab_is_inserted_and_verified_in_deployment():
     script = (ROOT / "vercel_assets" / "match_summary_v2.js").read_text(encoding="utf-8")
     styles = (ROOT / "vercel_assets" / "match_summary_v2.css").read_text(encoding="utf-8")
