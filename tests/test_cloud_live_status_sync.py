@@ -554,3 +554,49 @@ def test_schedule_catalog_contains_every_fixture_for_yesterday_today_and_tomorro
     assert all(json.loads(row["headline_json"])["home_win"] == 50.0 for row in catalog["events"])
     assert catalog["missing_analysis"] == []
     con.close()
+
+
+def test_old_catalog_cannot_revert_live_final_scores_or_reschedule():
+    con = sqlite3.connect(":memory:")
+    con.executescript("""
+        CREATE TABLE mobile_events (
+            competition_key TEXT,event_id INTEGER,competition_name TEXT,season_name TEXT,
+            round_name TEXT,stage TEXT,kickoff TEXT,status TEXT,status_description TEXT,
+            home_team_id INTEGER,home_team TEXT,away_team_id INTEGER,away_team TEXT,
+            home_score INTEGER,away_score INTEGER,analysis_status TEXT,headline_json TEXT,
+            PRIMARY KEY(competition_key,event_id));
+    """)
+    stale = ["test", 10, "League", "2026", None, None, "2026-09-07T15:00:00Z",
+             "NS", "notstarted", 1, "Home", 2, "Away", None, None, "READY", "{}"]
+    sql = live.schedule_event_upsert_sql()
+    con.execute(sql, stale)
+    con.execute("UPDATE mobile_events SET status='LIVE',home_score=1,away_score=2")
+    for _ in range(2):
+        con.execute(sql, stale)
+        assert con.execute("SELECT status,home_score,away_score FROM mobile_events").fetchone() == ("LIVE", 1, 2)
+    con.execute("UPDATE mobile_events SET status='FT',home_score=3,away_score=2")
+    for _ in range(2):
+        con.execute(sql, stale)
+        assert con.execute("SELECT status,home_score,away_score FROM mobile_events").fetchone() == ("FT", 3, 2)
+    # The dedicated result writer can still apply an actual score correction.
+    con.execute("UPDATE mobile_events SET home_score=4")
+    stale[7], stale[13], stale[14] = "FT", 3, 2
+    con.execute(sql, stale)
+    assert con.execute("SELECT home_score,away_score FROM mobile_events").fetchone() == (4, 2)
+    # New fixtures and unstarted fixture reschedules remain accepted.
+    stale[1], stale[7], stale[13], stale[14] = 11, "NS", None, None
+    con.execute(sql, stale)
+    stale[6] = "2026-09-08T16:00:00Z"
+    con.execute(sql, stale)
+    assert con.execute("SELECT kickoff FROM mobile_events WHERE event_id=11").fetchone()[0] == stale[6]
+
+
+def test_explicit_event_selection_has_no_remaining_time_placeholders():
+    class QueryProbe:
+        def execute(self, sql, params):
+            assert sql.count("?") == len(params) == 2
+            assert "m.sofascore_id IN (?,?)" in sql
+            return self
+        def fetchall(self):
+            return []
+    assert live.select_event_ids(QueryProbe(), [11, 12]) == []

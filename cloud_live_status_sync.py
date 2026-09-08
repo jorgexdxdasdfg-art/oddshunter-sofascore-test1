@@ -277,7 +277,7 @@ def select_event_ids(con: sqlite3.Connection, event_ids: Iterable[int]) -> list[
         return []
     placeholders = ",".join("?" for _ in ids)
     sql = MATCH_SELECT.replace(
-        "  AND datetime(m.kickoff)>=datetime(?) AND datetime(m.kickoff)<=datetime(?)",
+        "  AND datetime(m.kickoff)>=datetime(?) AND datetime(m.kickoff)<datetime(?)",
         f"  AND m.sofascore_id IN ({placeholders})",
     )
     return [dict(row) for row in con.execute(sql, ids).fetchall()]
@@ -748,17 +748,7 @@ def publish_schedule_catalog(
         [iso_utc(schedule_start), iso_utc(schedule_end), *expected_ids],
     )
 
-    event_sql = (
-        "INSERT INTO mobile_events (competition_key,event_id,competition_name,season_name,round_name,stage,"
-        "kickoff,status,status_description,home_team_id,home_team,away_team_id,away_team,home_score,away_score,"
-        "analysis_status,headline_json) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) "
-        "ON CONFLICT (competition_key,event_id) DO UPDATE SET competition_name=excluded.competition_name,"
-        "season_name=excluded.season_name,round_name=excluded.round_name,stage=excluded.stage,kickoff=excluded.kickoff,"
-        "status=excluded.status,status_description=excluded.status_description,home_team_id=excluded.home_team_id,"
-        "home_team=excluded.home_team,away_team_id=excluded.away_team_id,away_team=excluded.away_team,"
-        "home_score=excluded.home_score,away_score=excluded.away_score,analysis_status=excluded.analysis_status,"
-        "headline_json=excluded.headline_json"
-    )
+    event_sql = schedule_event_upsert_sql()
     event_columns = (
         "competition_key", "event_id", "competition_name", "season_name", "round_name", "stage", "kickoff",
         "status", "status_description", "home_team_id", "home_team", "away_team_id", "away_team", "home_score",
@@ -769,8 +759,13 @@ def publish_schedule_catalog(
     doc_sql = (
         "INSERT INTO mobile_analysis_docs (competition_key,event_id,doc_name,json_text,source_mtime) VALUES (?,?,?,?,?) "
         "ON CONFLICT (competition_key,event_id,doc_name) DO UPDATE SET json_text=excluded.json_text,"
-        "source_mtime=excluded.source_mtime"
+        "source_mtime=excluded.source_mtime "
+        "WHERE COALESCE(julianday(excluded.source_mtime),julianday(excluded.source_mtime,'unixepoch'),0) "
+        ">= COALESCE(julianday(mobile_analysis_docs.source_mtime),julianday(mobile_analysis_docs.source_mtime,'unixepoch'),0)"
     )
+    # Odds are owned by the odds publisher. An old desktop snapshot must never
+    # overwrite the newer quotes/probabilities published by that service.
+    docs = [row for row in docs if row.get("doc_name") != "odds_value"]
     if docs:
         client.execute_many(
             [
@@ -801,9 +796,57 @@ def publish_schedule_catalog(
     }
 
 
+def schedule_event_upsert_sql() -> str:
+    # Live/result sync is authoritative once a match has progressed. This
+    # condition is evaluated inside the upsert, so a concurrent live update
+    # cannot be rolled back by a catalog prepared before that update.
+    keep = "UPPER(COALESCE(mobile_events.status,'')) IN ('FT','AET','PEN','FINISHED','FINAL','ENDED','LIVE','INPROGRESS','HT','POSTPONED','CANCELED','CANCELLED','ABANDONED')"
+    return (
+        "INSERT INTO mobile_events (competition_key,event_id,competition_name,season_name,round_name,stage,"
+        "kickoff,status,status_description,home_team_id,home_team,away_team_id,away_team,home_score,away_score,"
+        "analysis_status,headline_json) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) "
+        "ON CONFLICT (competition_key,event_id) DO UPDATE SET competition_name=excluded.competition_name,"
+        "season_name=excluded.season_name,round_name=excluded.round_name,stage=excluded.stage,"
+        f"kickoff=CASE WHEN {keep} THEN mobile_events.kickoff ELSE excluded.kickoff END,"
+        f"status=CASE WHEN {keep} THEN mobile_events.status ELSE excluded.status END,"
+        f"status_description=CASE WHEN {keep} THEN mobile_events.status_description ELSE excluded.status_description END,"
+        "home_team_id=excluded.home_team_id,"
+        "home_team=excluded.home_team,away_team_id=excluded.away_team_id,away_team=excluded.away_team,"
+        f"home_score=CASE WHEN {keep} THEN mobile_events.home_score ELSE COALESCE(excluded.home_score,mobile_events.home_score) END,"
+        f"away_score=CASE WHEN {keep} THEN mobile_events.away_score ELSE COALESCE(excluded.away_score,mobile_events.away_score) END,"
+        "analysis_status=excluded.analysis_status,"
+        "headline_json=excluded.headline_json"
+    )
+
+
 def publish_catalog_only(now: datetime) -> dict[str, Any]:
     """Publish only the bounded schedule, without running provider repair."""
     return publish_schedule_catalog(turso_client(), now, registry_by_league())
+
+
+def verify_catalog_preservation(now: datetime) -> dict[str, Any]:
+    """Republish twice and verify real remote scores/docs survive both cycles."""
+    client = turso_client()
+    def snapshot():
+        rows = client.query("SELECT competition_key,event_id,status,home_score,away_score FROM mobile_events", [])
+        return {(str(row["competition_key"]), int(row["event_id"])): row for row in rows}
+    before = snapshot()
+    finals = {key: row for key, row in before.items() if str(row["status"]).upper() in FINAL_STATUSES}
+    odds_before = client.query("SELECT competition_key,event_id,json_text FROM mobile_analysis_docs WHERE doc_name='odds_value'", [])
+    if not finals:
+        raise RuntimeError("CATALOG_STATE_GATE=FAIL: no real final fixtures to verify")
+    rounds = []
+    for index in range(2):
+        os.environ["ODDSHUNTER_FORCE_SCHEDULE_CATALOG"] = "1"
+        publication = publish_schedule_catalog(client, now, registry_by_league())
+        after = snapshot()
+        regressions = [key for key, row in finals.items() if key not in after or any(after[key].get(field) != row.get(field) for field in ("status", "home_score", "away_score"))]
+        odds_after = {(str(row["competition_key"]), int(row["event_id"])): row["json_text"] for row in client.query("SELECT competition_key,event_id,json_text FROM mobile_analysis_docs WHERE doc_name='odds_value'", [])}
+        odds_changed = [int(row["event_id"]) for row in odds_before if odds_after.get((str(row["competition_key"]), int(row["event_id"]))) != row["json_text"]]
+        if regressions or odds_changed:
+            raise RuntimeError(f"CATALOG_STATE_GATE=FAIL: score_regressions={regressions}, odds_changed={odds_changed}")
+        rounds.append({"cycle": index + 1, "finals_preserved": len(finals), "odds_docs_preserved": len(odds_before), "counts_by_day": publication["counts_by_day"]})
+    return {"CATALOG_STATE_GATE": "PASS", "rounds": rounds}
 
 
 def seed_schedule_coverage() -> tuple[set[str], set[int]]:
@@ -1445,6 +1488,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="OddsHunter live/final score publisher")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--catalog-only", action="store_true")
+    parser.add_argument("--verify-catalog-preservation", action="store_true")
     parser.add_argument(
         "--near-limit",
         type=int,
@@ -1478,6 +1522,11 @@ def main() -> int:
     args = build_parser().parse_args()
     if not args.dry_run:
         require_write_gates()
+    if args.verify_catalog_preservation:
+        if args.dry_run:
+            raise SystemExit("--verify-catalog-preservation requiere publicación real")
+        print(json.dumps(verify_catalog_preservation(utc_now()), ensure_ascii=False))
+        return 0
     if args.catalog_only:
         if args.dry_run:
             raise SystemExit("--catalog-only requiere publicación real")

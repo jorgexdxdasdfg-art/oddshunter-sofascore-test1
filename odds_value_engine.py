@@ -200,3 +200,36 @@ def rank_value_picks(probabilities: dict[str, float], prices: list[dict[str, Any
         })
     rows.sort(key=lambda row: (row["recommended_bankroll_pct"], row["ev"], row["probability"]), reverse=True)
     return rows[: max(0, int(limit))]
+
+
+def refresh_model_picks(
+    bundle: dict[str, Any], stored: dict[str, Any] | None = None,
+    context: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Build every model selection independently of bookmaker coverage.
+
+    Pure calculation: API serialization and odds sync share this function;
+    opening either Mobile tab never triggers a provider request.
+    """
+    existing = stored or {}
+    probabilities = {**(existing.get("probabilities") or {}), **model_probabilities(bundle, context)}
+    prices = existing.get("available_prices") or []
+    by_key = {str(row.get("key")): row for row in prices}
+    all_picks = []
+    for key, prob in probabilities.items():
+        quote = by_key.get(key) or {}
+        odds = number(quote.get("current_odds", quote.get("odds")))
+        odds = odds if odds is not None and odds > 1 else None
+        all_picks.append({
+            "key": key, "probability": round(prob * 100, 2), "odds": odds,
+            "ev": round((prob * odds - 1) * 100, 2) if odds is not None else None,
+            "odds_status": "AVAILABLE" if odds else "NOT_IN_PROVIDER_RESPONSE",
+        })
+    return {
+        **existing,
+        "odds_status": existing.get("odds_status") or "NOT_AVAILABLE_YET",
+        "probabilities": probabilities,
+        "available_prices": prices,
+        "all_picks": all_picks,
+        "top_picks": rank_value_picks(probabilities, prices, 4),
+    }

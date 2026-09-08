@@ -85,7 +85,7 @@ jobs:
               -p Environment=ODDSHUNTER_ALLOW_WORK_DB_WRITE=1 \
               -p Environment=ODDSHUNTER_STAGE6_ALLOW_TURSO_WRITE=1 \
               -p Environment=ODDSHUNTER_FORCE_SCHEDULE_CATALOG=1 \
-              \"\$CUR/.venv-cloud/bin/python\" -u \"\$CUR/cloud_live_status_sync.py\" --catalog-only
+              \"\$CUR/.venv-cloud/bin/python\" -u \"\$CUR/cloud_live_status_sync.py\" --verify-catalog-preservation
             \$SUDO systemctl enable --now oddshunter-live-sync.timer
             \$SUDO systemctl daemon-reload
             \$SUDO systemctl enable --now oddshunter-schedule-refresh.timer

@@ -18,7 +18,7 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
-from odds_value_engine import model_probabilities, number, provider_prices, rank_value_picks
+from odds_value_engine import model_probabilities, number, provider_prices, rank_value_picks, refresh_model_picks
 
 ROOT = Path(__file__).resolve().parent
 API_BASE = "https://api.5dollarfootballapi.com/v1"
@@ -789,6 +789,23 @@ def sync(
                 counts["all_picks_created"] += len(all_picks)
                 counts["top4_created"] += len(top_picks)
             else:
+                context = {}
+                try:
+                    from global_match_context import build_global_context
+                    context = build_global_context(root, competition_key, event_id, bundle=bundle, match_hint=event)
+                except (ImportError, OSError, RuntimeError, TypeError, ValueError):
+                    pass
+                document = refresh_model_picks(bundle, existing, context)
+                document.update({
+                    "schema_version": 2, "generated_at": checked_at,
+                    "last_checked_at": checked_at, "event_id": event_id,
+                    "competition_key": competition_key, "provider": "5DollarFootballAPI",
+                    "bookmaker": "Bet365", "provider_fixture_id": None,
+                    "odds_status": status,
+                })
+                _atomic_json(target, document)
+                counts["updated"] += 1
+                counts["all_picks_created"] += len(document["all_picks"])
                 _persist_database(connection,event,None,status,checked_at,[])
             match_audit.append({
                 "app_fixture_id": event_id,
@@ -936,6 +953,7 @@ def sync(
             "bookmaker": "Bet365",
             "provider_fixture_id": int(fixture["id"]),
             "odds_status": "AVAILABLE",
+            "provider_markets": {**(existing.get("provider_markets") or {}), **markets},
             "first_captured_at": min(row["opening"]["captured_at"] for row in history),
             "last_checked_at": checked_at,
             "extended_last_checked_at": checked_at if extended_checked_now else existing.get("extended_last_checked_at"),

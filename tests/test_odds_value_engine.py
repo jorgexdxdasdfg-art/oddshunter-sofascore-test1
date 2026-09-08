@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from odds_value_engine import model_probabilities, provider_prices, rank_value_picks
+from odds_value_engine import model_probabilities, provider_prices, rank_value_picks, refresh_model_picks
 
 
 def bundle():
@@ -87,3 +87,26 @@ def test_batch_1x2_uses_documented_home_draw_away_keys():
     current = {row["key"]: row["odds"] for row in provider_prices(markets, snapshot_order=("closing",))}
     assert opening == {"result_home": 2.15, "result_draw": 3.4, "result_away": 3.0}
     assert current == {"result_home": 2.1, "result_draw": 3.5, "result_away": 3.1}
+
+
+def test_model_picks_exist_without_a_provider_match_or_quotes():
+    value = refresh_model_picks(bundle(), {"odds_status": "PROVIDER_NOT_FOUND"})
+    assert len(value["all_picks"]) == len(model_probabilities(bundle()))
+    assert value["probabilities"]["result_home"] == 0.52
+    assert all(pick["odds"] is None and pick["ev"] is None for pick in value["all_picks"])
+    assert value["top_picks"] == []
+    assert value["odds_status"] == "PROVIDER_NOT_FOUND"
+
+
+def test_model_refresh_recalculates_ev_without_touching_opening_or_current():
+    stored = {
+        "available_prices": [{"key": "result_home", "odds": 2.2, "current_odds": 2.2, "opening_odds": 2.5}],
+        "price_history": [{"opening": {"odds": 2.5}, "current": {"odds": 2.2}}],
+        "probabilities": {"first_half_over_0_5": 0.7},
+    }
+    value = refresh_model_picks(bundle(), stored)
+    home = next(p for p in value["all_picks"] if p["key"] == "result_home")
+    assert home["ev"] == 14.4
+    assert value["price_history"] == stored["price_history"]
+    assert value["available_prices"] == stored["available_prices"]
+    assert value["probabilities"]["first_half_over_0_5"] == 0.7

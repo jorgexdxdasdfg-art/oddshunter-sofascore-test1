@@ -7,7 +7,18 @@ from pathlib import Path
 VALUE_DOC_NAMES_ANCHOR = '    names = ("input_match", "status", "analysis", "ratings", "goals", "corners", "cards", "shots")\n'
 VALUE_DOC_NAMES_PATCHED = '    names = ("input_match", "status", "analysis", "ratings", "goals", "corners", "cards", "shots", "odds_value")\n'
 VALUE_PAYLOAD_ANCHOR = '        "lineups": lineup_payload(competition_key, event_id),\n'
-VALUE_PAYLOAD_PATCHED = VALUE_PAYLOAD_ANCHOR + '        "value_picks": safe_dict(docs.get("odds_value")),\n'
+VALUE_PAYLOAD_OLD = VALUE_PAYLOAD_ANCHOR + '        "value_picks": safe_dict(docs.get("odds_value")),\n'
+VALUE_PAYLOAD_PATCHED = VALUE_PAYLOAD_ANCHOR + '        "value_picks": mobile_model_picks(docs),\n'
+VALUE_MODEL_FUNCTION = '''# OH_MODEL_PICKS_INDEPENDENT_OF_ODDS_V1
+def mobile_model_picks(docs: dict[str, Any]) -> dict[str, Any]:
+    from backend.odds_value_engine import refresh_model_picks
+    bundle = {**safe_dict(docs.get("analysis"))}
+    for name in ("goals", "corners", "cards"):
+        bundle[name] = safe_dict(docs.get(name))
+    return refresh_model_picks(bundle, safe_dict(docs.get("odds_value")))
+
+
+'''
 
 UPCOMING_ROUTE_ANCHOR = '    items = reader.scan_analysis_events(include_finished=False)\n'
 UPCOMING_ROUTE_PATCHED = '    items = reader.upcoming_events_for_mobile()\n'
@@ -406,8 +417,16 @@ def patch_backend(root: Path) -> list[str]:
         raise RuntimeError(f"Se esperaba un backend/reader.py activo; encontrados={primary}")
 
     path = primary[0]
+    # Ship the same pure model/EV engine as PC and the runtime; this module has
+    # no network dependency and does not fetch quotes during a Mobile request.
+    engine_source = Path(__file__).with_name("odds_value_engine.py")
+    (path.parent / "odds_value_engine.py").write_text(engine_source.read_text(encoding="utf-8"), encoding="utf-8")
     text = path.read_text(encoding="utf-8")
     original_text = text
+    if "OH_MODEL_PICKS_INDEPENDENT_OF_ODDS_V1" not in text:
+        text = replace_once(text, "def match_payload(", VALUE_MODEL_FUNCTION + "def match_payload(", "probabilidades independientes de cuotas")
+    if VALUE_PAYLOAD_OLD in text:
+        text = text.replace(VALUE_PAYLOAD_OLD, VALUE_PAYLOAD_PATCHED, 1)
     if "OH_MOBILE_THREE_DAY_WINDOW_V1" not in text:
         text = replace_once(
             text,
