@@ -694,7 +694,8 @@ document.body.classList.toggle("oh-home-mode",!document.querySelector('[data-vie
 /* OH_VALUE_PICKS_V23 */
 /* OH_ASIAN_SOURCE_EV_V24 */
 /* OH_UNDER_SOURCE_LABEL_V25 */
-document.documentElement.dataset.oddshunterBuild="1.26.5-under-source-label";
+/* OH_REAL_ODDS_PRECISION_V26 */
+document.documentElement.dataset.oddshunterBuild="1.26.6-real-odds-precision";
 const ohPickLabels={
   result_home:"Gana local",result_draw:"Empate",result_away:"Gana visitante",
   double_home_draw:"Local o empate",double_away_draw:"Empate o visitante",double_home_away:"Local o visitante",
@@ -706,7 +707,7 @@ const ohPickLabels={
 function ohPickProbability(value){const n=Number(value);return Number.isFinite(n)?`${(n*100).toFixed(1).replace(".0","")}%`:"N/D"}
 function ohPickLabel(key){if(ohPickLabels[key])return ohPickLabels[key];const match=key.match(/^(?:goals|cards|corners)_(over|under)_(\d+)_(\d+)$/);return match?`${match[1]==="over"?"Más":"Menos"} de ${match[2]}.${match[3]}`:key.replaceAll("_"," ")}
 function ohPickPercent(value){const n=Number(value);return Number.isFinite(n)?`${n.toFixed(1).replace(".0","")}%`:"—"}
-function ohPickOdds(value){const n=Number(value);return Number.isFinite(n)&&n>1?n.toFixed(2):"—"}
+function ohPickOdds(value){const n=Number(value);if(!Number.isFinite(n)||n<=1)return "—";const exact=n.toFixed(3);return exact.endsWith("0")?n.toFixed(2):exact}
 function ohSourceBetLabel(price){
   const side=String(price?.source_side||"").toLowerCase(),line=Number(price?.source_line);
   if(!Number.isFinite(line)||(side!=="over"&&side!=="under"))return "";

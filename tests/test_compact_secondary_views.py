@@ -33,7 +33,7 @@ def test_deployment_requires_the_compact_secondary_marker():
     ).read_text(encoding="utf-8")
 
     assert 'COMPACT_SECONDARY_MARKER = "OH_COMPACT_SECONDARY_VIEWS_V20"' in recovery
-    assert "1.26.5-under-source-label" in recovery
+    assert "1.26.6-real-odds-precision" in recovery
     assert workflow.count("OH_COMPACT_SECONDARY_VIEWS_V20") >= 3
 
 
@@ -48,7 +48,7 @@ def test_match_summary_uses_the_compact_centered_reference():
     assert '.summary-lead{width:100%;margin:6px 0 2px;color:var(--muted)' in styles
     assert '.summary-primary-value{width:100%;margin:0' in styles
     assert 'MATCH_SUMMARY_COMPACT_MARKER = "OH_MATCH_SUMMARY_COMPACT_REFERENCE_V21"' in recovery
-    assert "1.26.5-under-source-label" in recovery
+    assert "1.26.6-real-odds-precision" in recovery
 
 
 def test_match_view_honors_dark_theme_and_compacts_section_titles():
@@ -69,7 +69,7 @@ def test_match_view_honors_dark_theme_and_compacts_section_titles():
     assert 'getPropertyValue("--text")' in script
     assert 'getPropertyValue("--muted")' in script
     assert 'MATCH_THEME_MARKER = "OH_MATCH_THEME_AND_TITLES_V22"' in recovery
-    assert "1.26.5-under-source-label" in recovery
+    assert "1.26.6-real-odds-precision" in recovery
 
 
 def test_picks_read_persisted_current_odds_and_all_picks_schema():
@@ -79,15 +79,16 @@ def test_picks_read_persisted_current_odds_and_all_picks_schema():
     assert "price?.current_odds??price?.source_odds??price?.odds" in script
     assert "Array.isArray(value.all_picks)?value.all_picks:[]" in script
     assert "pick?.current_odds??pick?.source_odds??pick?.odds" in script
-    assert "app.js?v=1.26.5-under-source-label" in recovery
-    assert "app.css?v=1.26.5-under-source-label" in recovery
-    assert "oh-mobile-v1-26-5-under-source-label" in recovery
-    assert 'sw.js?v=1.26.5-under-source-label' in recovery
-    assert 'name="oddshunter-build" content="1.26.5-under-source-label"' in recovery
-    assert 'dataset.oddshunterBuild="1.26.5-under-source-label"' in script
+    assert "app.js?v=1.26.6-real-odds-precision" in recovery
+    assert "app.css?v=1.26.6-real-odds-precision" in recovery
+    assert "oh-mobile-v1-26-6-real-odds-precision" in recovery
+    assert 'sw.js?v=1.26.6-real-odds-precision' in recovery
+    assert 'name="oddshunter-build" content="1.26.6-real-odds-precision"' in recovery
+    assert 'dataset.oddshunterBuild="1.26.6-real-odds-precision"' in script
     assert 'ohPickGroup("Ambos marcan"' in script
     assert 'ohPickGroup("Gol en primera mitad"' in script
-    assert 'return Number.isFinite(n)&&n>1?n.toFixed(2):"—"' in script
+    assert 'const exact=n.toFixed(3);return exact.endsWith("0")?n.toFixed(2):exact' in script
+    assert "OH_REAL_ODDS_PRECISION_V26" in script
     assert 'mapped=price?.price_origin==="ASIAN_MAPPED"' in script
     assert "Number.isFinite(sourceEv)?sourceEv*100:mapped?null" in script
     assert "OH_ASIAN_SOURCE_EV_V24" in script
