@@ -21,6 +21,7 @@ from urllib.request import Request, urlopen
 from odds_value_engine import (
     attach_asian_source_values,
     build_all_picks,
+    market_anchored_prices,
     model_probabilities,
     number,
     provider_prices,
@@ -783,8 +784,9 @@ def sync(
                     **refreshed_probabilities,
                 }
                 preserved_prices = attach_asian_source_values(bundle, preserved_prices)
-                all_picks = build_all_picks(probabilities, preserved_prices)
-                top_picks = rank_value_picks(probabilities, preserved_prices, 4)
+                display_prices = market_anchored_prices(bundle, probabilities, preserved_prices)
+                all_picks = build_all_picks(probabilities, display_prices)
+                top_picks = rank_value_picks(probabilities, display_prices, 4)
                 document = {
                     **existing,
                     "generated_at": checked_at,
@@ -954,8 +956,9 @@ def sync(
             # primera mitad todavía no exista para un evento nuevo.
             context = {}
         probabilities = model_probabilities(bundle, context)
-        all_picks = build_all_picks(probabilities, available)
-        top_picks = rank_value_picks(probabilities, available, 4)
+        display_prices = market_anchored_prices(bundle, probabilities, available)
+        all_picks = build_all_picks(probabilities, display_prices)
+        top_picks = rank_value_picks(probabilities, display_prices, 4)
         counts["all_picks_created"] += len(all_picks)
         counts["top4_created"] += len(top_picks)
         document = {

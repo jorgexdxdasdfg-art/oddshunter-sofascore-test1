@@ -7,6 +7,7 @@ from odds_value_engine import (
     asian_display_line,
     attach_asian_source_values,
     build_all_picks,
+    market_anchored_prices,
     model_probabilities,
     preferred_visual_prices,
     provider_prices,
@@ -266,3 +267,88 @@ def test_model_refresh_recalculates_ev_without_touching_opening_or_current():
     assert value["price_history"] == stored["price_history"]
     assert value["available_prices"] == stored["available_prices"]
     assert value["probabilities"]["first_half_over_0_5"] == 0.7
+
+
+def test_double_chance_estimates_use_real_1x2_anchor_and_observed_margin():
+    probabilities = model_probabilities(bundle())
+    real = provider_prices({"1x2": {"closing": {"home": 2.05, "draw": 3.2, "away": 4.0}}})
+    prices = {row["key"]: row for row in market_anchored_prices(bundle(), probabilities, real)}
+    overround = 1 / 2.05 + 1 / 3.2 + 1 / 4.0
+    fair_home = (1 / 2.05) / overround
+    fair_draw = (1 / 3.2) / overround
+
+    quote = prices["double_home_draw"]
+    assert quote["estimated_odds"] == pytest.approx(round(1 / ((fair_home + fair_draw) * overround), 3))
+    assert quote["estimated_ev"] == pytest.approx(
+        probabilities["double_home_draw"] * quote["estimated_odds"] - 1
+    )
+    assert quote["estimated_from_market"] == "1X2_BET365"
+    assert quote["price_origin"] == "BET365_ANCHORED_ESTIMATE"
+
+
+def test_real_total_anchor_fills_full_visual_ladders_without_replacing_real_rows():
+    value = asian_bundle()
+    probabilities = model_probabilities(value)
+    corner_points = value["corners"]["analysis"]["poisson_total_distribution"]
+    corner_mass = {
+        int(key): amount for key, amount in corner_points["probabilities"].items()
+    }
+    corner_mass[12] = corner_points["12+"]
+    for line in (5.5, 6.5, 7.5, 8.5, 9.5, 10.5, 11.5):
+        token = str(line).replace(".", "_")
+        over = sum(amount for total, amount in corner_mass.items() if total > line)
+        probabilities[f"corners_over_{token}"] = over
+        probabilities[f"corners_under_{token}"] = 1 - over
+    markets = {
+        "goal_line": {"closing": {"line": 2.5, "over": 1.875, "under": 1.975}},
+        "card_line": {"closing": {"line": 3.5, "over": 1.95, "under": 1.85}},
+        "corner_line": {"closing": {"line": 9.5, "over": 1.95, "under": 1.85}},
+    }
+    real = attach_asian_source_values(value, provider_prices(markets))
+    prices = {row["key"]: row for row in market_anchored_prices(value, probabilities, real)}
+
+    expected = {
+        *(f"goals_{side}_{line}_5" for side in ("over", "under") for line in (1, 2, 3)),
+        *(f"cards_{side}_{line}_5" for side in ("over", "under") for line in (1, 2, 3)),
+        *(f"corners_{side}_{line}_5" for side in ("over", "under") for line in range(5, 12)),
+    }
+    assert expected <= prices.keys()
+    assert prices["goals_over_2_5"]["price_origin"] == "EXACT_HALF_LINE"
+    assert prices["goals_over_2_5"]["source_odds"] == 1.875
+    assert prices["goals_over_1_5"]["price_origin"] == "BET365_ANCHORED_ESTIMATE"
+    assert prices["cards_under_2_5"]["anchor_market"] == "card_line O3.5/U3.5 BET365"
+    assert prices["corners_over_11_5"]["estimated_ev"] == pytest.approx(
+        probabilities["corners_over_11_5"] * prices["corners_over_11_5"]["estimated_odds"] - 1
+    )
+
+
+def test_real_quotes_always_beat_anchored_estimates():
+    estimated = {
+        "key": "goals_over_2_5", "odds": 2.2,
+        "price_origin": "BET365_ANCHORED_ESTIMATE",
+    }
+    mapped = {
+        "key": "goals_over_2_5", "source_line": 2.25, "source_odds": 1.8,
+        "odds": 1.8, "price_origin": "ASIAN_MAPPED",
+    }
+    exact = {
+        "key": "goals_over_2_5", "source_line": 2.5, "source_odds": 1.9,
+        "odds": 1.9, "price_origin": "EXACT_HALF_LINE",
+    }
+    assert preferred_visual_prices([estimated, mapped])[0] == mapped
+    assert preferred_visual_prices([estimated, mapped, exact])[0] == exact
+
+
+def test_refresh_persists_estimate_fields_only_in_picks_not_real_price_cache():
+    stored = {
+        "available_prices": provider_prices({
+            "1x2": {"closing": {"home": 2.05, "draw": 3.2, "away": 4.0}},
+            "goal_line": {"closing": {"line": 2.5, "over": 1.9, "under": 1.95}},
+        })
+    }
+    value = refresh_model_picks(asian_bundle(), stored)
+    estimated = next(row for row in value["all_picks"] if row["key"] == "double_home_draw")
+    assert estimated["price_origin"] == "BET365_ANCHORED_ESTIMATE"
+    assert estimated["estimated_odds"] == estimated["odds"]
+    assert estimated["estimated_ev"] * 100 == pytest.approx(estimated["ev"])
+    assert all(row.get("price_origin") != "BET365_ANCHORED_ESTIMATE" for row in value["available_prices"])

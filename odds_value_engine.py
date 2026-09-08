@@ -8,7 +8,7 @@ misma linea de Bet365.
 """
 
 import math
-from typing import Any
+from typing import Any, Mapping
 
 try:
     from asian_lines import BetSide, equivalent_half_line
@@ -170,7 +170,11 @@ def asian_display_line(source_side: Any, source_line: Any) -> float | None:
 
 
 def _price_priority(row: dict[str, Any]) -> int:
-    return 2 if row.get("price_origin") == "EXACT_HALF_LINE" else 1
+    return {
+        "EXACT_HALF_LINE": 3,
+        "ASIAN_MAPPED": 2,
+        "BET365_ANCHORED_ESTIMATE": 1,
+    }.get(str(row.get("price_origin") or ""), 2)
 
 
 def _remap_persisted_source_price(row: dict[str, Any]) -> dict[str, Any] | None:
@@ -318,10 +322,216 @@ def attach_asian_source_values(
     return result
 
 
+def _pmf_points(pmf: Mapping[str | int, Any]) -> dict[int, float]:
+    """Flatten an existing OddsHunter PMF for market-shape calibration."""
+
+    payload = pmf.get("probabilities") if isinstance(pmf.get("probabilities"), Mapping) else pmf
+    rows: dict[int, float] = {}
+    for raw_total, raw_value in payload.items():
+        token = str(raw_total).strip()
+        if token in {"probabilities", "mean", "size", "family"}:
+            continue
+        try:
+            total = int(token[:-1] if token.endswith("+") else token)
+        except ValueError:
+            continue
+        value = number(raw_value)
+        if value is not None and value >= 0:
+            rows[total] = rows.get(total, 0.0) + value
+    if payload is not pmf:
+        for raw_total, raw_value in pmf.items():
+            token = str(raw_total).strip()
+            if not token.endswith("+"):
+                continue
+            try:
+                total = int(token[:-1])
+            except ValueError:
+                continue
+            value = number(raw_value)
+            if value is not None and value >= 0:
+                rows[total] = rows.get(total, 0.0) + value
+    mass = sum(rows.values())
+    if mass <= 0:
+        raise ValueError("PMF without positive mass")
+    return {total: value / mass for total, value in rows.items()}
+
+
+def _tilted_pmf(points: Mapping[int, float], theta: float) -> dict[int, float]:
+    center = sum(total * value for total, value in points.items())
+    weighted = {
+        total: value * math.exp(max(-700.0, min(700.0, theta * (total - center))))
+        for total, value in points.items()
+    }
+    mass = sum(weighted.values())
+    return {total: value / mass for total, value in weighted.items()}
+
+
+def _asian_over_score(pmf: Mapping[str | int, Any], line: float) -> float:
+    """Return the complementary 0..1 settlement score of the Over side."""
+
+    try:
+        from asian_total_ev import asian_total_settlement
+    except ImportError:
+        from .asian_total_ev import asian_total_settlement
+
+    settlement = asian_total_settlement(pmf, "over", line)
+    return (
+        settlement.full_win
+        + 0.75 * settlement.half_win
+        + 0.5 * settlement.push
+        + 0.25 * settlement.half_loss
+    )
+
+
+def _calibrated_market_pmf(
+    pmf: Mapping[str | int, Any], source_line: float, market_over_probability: float
+) -> dict[int, float]:
+    """Exponentially tilt the existing PMF to the de-vigged Bet365 anchor."""
+
+    points = _pmf_points(pmf)
+    target = min(1.0 - 1e-10, max(1e-10, market_over_probability))
+    low, high = -12.0, 12.0
+    for _ in range(100):
+        middle = (low + high) / 2.0
+        score = _asian_over_score(_tilted_pmf(points, middle), source_line)
+        if score < target:
+            low = middle
+        else:
+            high = middle
+    return _tilted_pmf(points, (low + high) / 2.0)
+
+
+def _real_total_identity(row: dict[str, Any]) -> tuple[str, str, float, float] | None:
+    if row.get("price_origin") == "BET365_ANCHORED_ESTIMATE":
+        return None
+    key = str(row.get("key") or "")
+    source_market = str(row.get("source_market") or "")
+    if source_market not in TOTAL_MARKETS:
+        source_market = next(
+            (market for market, (prefix, _, _) in TOTAL_MARKETS.items() if key.startswith(f"{prefix}_")),
+            "",
+        )
+    if source_market not in TOTAL_MARKETS:
+        return None
+    source_side = str(row.get("source_side") or "").lower()
+    if source_side not in {"over", "under"}:
+        source_side = "over" if "_over_" in key else "under" if "_under_" in key else ""
+    source_line = number(row.get("source_line", row.get("line")))
+    source_odds = number(row.get("source_odds", row.get("current_odds", row.get("odds"))))
+    if source_side not in {"over", "under"} or source_line is None or source_odds is None or source_odds <= 1:
+        return None
+    return source_market, source_side, source_line, source_odds
+
+
+def _estimated_quote(
+    *, key: str, market: str, selection: str, line: float | None,
+    odds: float, model_probability: float, anchor_market: str,
+) -> dict[str, Any] | None:
+    if not math.isfinite(odds) or odds <= 1:
+        return None
+    rounded_odds = round(odds, 3)
+    estimated_ev = model_probability * rounded_odds - 1.0
+    return {
+        "key": key,
+        "market": market,
+        "selection": selection,
+        **({"line": line, "display_line": line} if line is not None else {}),
+        "odds": rounded_odds,
+        "estimated_odds": rounded_odds,
+        "estimated_ev": round(estimated_ev, 12),
+        "estimated_from_market": anchor_market,
+        "anchor_market": anchor_market,
+        "price_origin": "BET365_ANCHORED_ESTIMATE",
+    }
+
+
+def market_anchored_prices(
+    bundle: dict[str, Any], probabilities: dict[str, float], prices: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    """Fill missing visual rows from real cached Bet365 anchor markets.
+
+    This is a pure calculation over already fetched prices. Real quotes remain
+    authoritative and are never replaced by a derived estimate.
+    """
+
+    real_prices = [dict(row) for row in preferred_visual_prices(prices)]
+    estimates: list[dict[str, Any]] = []
+    by_key = {str(row.get("key") or ""): row for row in real_prices}
+
+    result_odds = {
+        key: number((by_key.get(key) or {}).get("current_odds", (by_key.get(key) or {}).get("odds")))
+        for key in ("result_home", "result_draw", "result_away")
+    }
+    if all(value is not None and value > 1 for value in result_odds.values()):
+        inverse = {key: 1.0 / float(value) for key, value in result_odds.items()}
+        overround = sum(inverse.values())
+        fair = {key: value / overround for key, value in inverse.items()}
+        for key, selection, component_keys in (
+            ("double_home_draw", "Local o empate", ("result_home", "result_draw")),
+            ("double_away_draw", "Empate o visitante", ("result_draw", "result_away")),
+            ("double_home_away", "Local o visitante", ("result_home", "result_away")),
+        ):
+            model_probability = probabilities.get(key)
+            market_probability = sum(fair[item] for item in component_keys)
+            if model_probability is None or market_probability <= 0:
+                continue
+            quote = _estimated_quote(
+                key=key, market="Doble oportunidad", selection=selection, line=None,
+                odds=1.0 / (market_probability * overround),
+                model_probability=model_probability, anchor_market="1X2_BET365",
+            )
+            if quote:
+                estimates.append(quote)
+
+    anchors: dict[tuple[str, float], dict[str, float]] = {}
+    for row in real_prices:
+        identity = _real_total_identity(row)
+        if identity:
+            source_market, side, source_line, source_odds = identity
+            anchors.setdefault((source_market, source_line), {})[side] = source_odds
+
+    for (source_market, source_line), sides in anchors.items():
+        if set(sides) != {"over", "under"}:
+            continue
+        inverse_over, inverse_under = 1.0 / sides["over"], 1.0 / sides["under"]
+        overround = inverse_over + inverse_under
+        try:
+            market_pmf = _calibrated_market_pmf(
+                _source_pmf(bundle, source_market), source_line, inverse_over / overround
+            )
+        except (TypeError, ValueError, OverflowError):
+            continue
+        prefix, market_label, catalog = TOTAL_MARKETS[source_market]
+        anchor_market = f"{source_market} O{source_line:g}/U{source_line:g} BET365"
+        for line in sorted(catalog):
+            market_over = sum(value for total, value in market_pmf.items() if total > line)
+            for side, selection, market_probability in (
+                ("over", "Más", market_over),
+                ("under", "Menos", 1.0 - market_over),
+            ):
+                token = str(line).replace(".", "_")
+                key = f"{prefix}_{side}_{token}"
+                model_probability = probabilities.get(key)
+                if model_probability is None or market_probability <= 0:
+                    continue
+                quote = _estimated_quote(
+                    key=key, market=market_label, selection=f"{selection} de {line:g}", line=line,
+                    odds=1.0 / (market_probability * overround),
+                    model_probability=model_probability, anchor_market=anchor_market,
+                )
+                if quote:
+                    estimates.append(quote)
+
+    return preferred_visual_prices(real_prices + estimates)
+
+
 def _quote_ev(model_probability: float, quote: dict[str, Any], odds: float) -> float | None:
     source_ev = number(quote.get("source_ev"))
     if source_ev is not None:
         return source_ev
+    estimated_ev = number(quote.get("estimated_ev"))
+    if estimated_ev is not None:
+        return estimated_ev
     if quote.get("price_origin") == "ASIAN_MAPPED":
         return None
     return model_probability * odds - 1.0
@@ -341,7 +551,8 @@ def build_all_picks(
             field: quote[field]
             for field in (
                 "display_line", "source_market", "source_side", "source_line",
-                "source_odds", "source_ev", "price_origin",
+                "source_odds", "source_ev", "estimated_odds", "estimated_ev",
+                "estimated_from_market", "anchor_market", "price_origin",
             )
             if quote.get(field) is not None
         }
@@ -390,12 +601,13 @@ def refresh_model_picks(
     existing = stored or {}
     probabilities = {**(existing.get("probabilities") or {}), **model_probabilities(bundle, context)}
     prices = attach_asian_source_values(bundle, existing.get("available_prices") or [])
-    all_picks = build_all_picks(probabilities, prices)
+    display_prices = market_anchored_prices(bundle, probabilities, prices)
+    all_picks = build_all_picks(probabilities, display_prices)
     return {
         **existing,
         "odds_status": existing.get("odds_status") or "NOT_AVAILABLE_YET",
         "probabilities": probabilities,
         "available_prices": prices,
         "all_picks": all_picks,
-        "top_picks": rank_value_picks(probabilities, prices, 4),
+        "top_picks": rank_value_picks(probabilities, display_prices, 4),
     }
