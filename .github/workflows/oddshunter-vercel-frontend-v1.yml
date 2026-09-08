@@ -1,4 +1,5 @@
 name: OddsHunter VERCEL FRONTEND LABEL V1
+# Deployment retry remains safe because production is promoted only after preview succeeds.
 
 on:
   workflow_dispatch:
