@@ -48,18 +48,38 @@ def patch_source(source: str) -> str:
     if start < 0 or end < 0:
         raise RuntimeError("STAGE5_ANALYSIS_QUEUE_ANCHOR_NOT_FOUND")
     patched = source[:start] + REPLACEMENT + source[end + 1 :]
-    new_call = (
-        'analysis_targets = future_analysis_targets(\n'
-        '            con, by_league,\n'
-        '            int(os.environ.get("ODDSHUNTER_ANALYSIS_TARGET_LIMIT", "64")),\n'
-        '        )'
+    # Resolve the registry beside the queue selection.  Some deployed Stage5
+    # revisions build ``by_league`` later in main(), so depending on that local
+    # variable makes the service fail before it can process any fixture.
+    def new_call(match: re.Match[str]) -> str:
+        indent = match.group("indent")
+        return (
+            f'{indent}analysis_registry, _analysis_active = active_registry()\n'
+            f'{indent}analysis_targets = future_analysis_targets(\n'
+            f'{indent}    con, analysis_registry,\n'
+            f'{indent}    int(os.environ.get("ODDSHUNTER_ANALYSIS_TARGET_LIMIT", "64")),\n'
+            f'{indent})'
+        )
+
+    call_patterns = (
+        re.compile(
+            r"^(?P<indent>[ \t]*)(?:analysis_registry\s*,\s*_analysis_active\s*=\s*"
+            r"active_registry\(\)[ \t]*\r?\n(?P=indent))?"
+            r"analysis_targets\s*=\s*future_analysis_targets\(\s*"
+            r"con\s*,\s*[A-Za-z_]\w*\s*,\s*"
+            r"int\(os\.environ\.get\(\"ODDSHUNTER_ANALYSIS_TARGET_LIMIT\",\s*\"64\"\)\)\s*,?\s*\)",
+            re.MULTILINE,
+        ),
+        re.compile(
+            r"^(?P<indent>[ \t]*)analysis_targets\s*=\s*future_analysis_targets\([^\n]*\)",
+            re.MULTILINE,
+        ),
     )
-    call_pattern = re.compile(
-        r"analysis_targets\s*=\s*future_analysis_targets\([^\n]*\)"
-    )
-    if call_pattern.search(patched):
-        patched = call_pattern.sub(new_call, patched, count=1)
-    elif "ODDSHUNTER_ANALYSIS_TARGET_LIMIT" not in patched:
+    for call_pattern in call_patterns:
+        if call_pattern.search(patched):
+            patched = call_pattern.sub(new_call, patched, count=1)
+            break
+    else:
         raise RuntimeError("STAGE5_ANALYSIS_LIMIT_CALL_NOT_FOUND")
     return patched
 
