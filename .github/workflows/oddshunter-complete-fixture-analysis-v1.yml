@@ -10,6 +10,7 @@ on:
       - tests/test_fixture_analysis_queue.py
       - .github/workflows/oddshunter-complete-fixture-analysis-v1.yml
       - mobile_schedule_seed_builder.py
+      - deploy/mobile_schedule_catalog_seed.json.gz
   workflow_dispatch:
 
 permissions:
@@ -56,6 +57,7 @@ jobs:
           SSH=(ssh -i ~/.ssh/oddshunter_analysis -p "$VPS_PORT" -o BatchMode=yes -o StrictHostKeyChecking=yes "$VPS_USER@$VPS_HOST")
           "${SCP[@]}" fixture_analysis_queue.py stage5_complete_fixture_analysis_patch.py \
             cloud_schedule_refresh.py mobile_schedule_seed_builder.py cloud_live_status_sync.py \
+            deploy/mobile_schedule_catalog_seed.json.gz \
             "$VPS_USER@$VPS_HOST:/tmp/"
           "${SSH[@]}" 'bash -s' <<'REMOTE'
           set -eEuo pipefail
@@ -74,6 +76,12 @@ jobs:
           $SUDO install -o oddshunter -g oddshunter -m 0644 /tmp/cloud_schedule_refresh.py "$CUR/cloud_schedule_refresh.py"
           $SUDO install -o oddshunter -g oddshunter -m 0644 /tmp/mobile_schedule_seed_builder.py "$CUR/mobile_schedule_seed_builder.py"
           $SUDO install -o oddshunter -g oddshunter -m 0644 /tmp/cloud_live_status_sync.py "$CUR/cloud_live_status_sync.py"
+          # Bootstrap the VPS with the same three-day catalog and analysis
+          # documents used by Desktop. The normal refresh merges into this
+          # snapshot, so a partial provider/database cycle cannot shrink a day.
+          $SUDO install -o oddshunter -g oddshunter -m 0644 \
+            /tmp/mobile_schedule_catalog_seed.json.gz \
+            /var/lib/oddshunter/data/mobile_schedule_catalog_seed.json.gz
           grep -q 'ODDSHUNTER_ANALYSIS_TARGET_LIMIT' "$TARGET"
           grep -q 'select_pending_fixture_analyses' "$TARGET"
           # Refresh the exact provider fixture catalog first.  This is the same
