@@ -54,7 +54,7 @@ jobs:
           "${SCP[@]}" fixture_analysis_queue.py stage5_complete_fixture_analysis_patch.py "$VPS_USER@$VPS_HOST:/tmp/"
           "${SSH[@]}" 'bash -s' <<'REMOTE'
           set -eEuo pipefail
-          trap 'echo "REMOTE_FAILURE_LINE=$LINENO COMMAND=$BASH_COMMAND"' ERR
+          trap 'echo "::error title=Remote fixture queue install failed::line=$LINENO command=$BASH_COMMAND"' ERR
           if [ "$(id -u)" -eq 0 ]; then SUDO=""; else SUDO="sudo -n"; fi
           CUR="$(readlink -f /opt/oddshunter/current)"
           PY="$CUR/.venv-cloud/bin/python"
