@@ -343,6 +343,9 @@ jobs:
           schedule=json.loads(schedule_lines[-1].split("SCHEDULE_CATALOG_REPORT =",1)[1].strip())
           if schedule.get("result") != "PUBLISHED":
               raise SystemExit(f"SCHEDULE_CATALOG_NOT_PUBLISHED={schedule}")
+          # Turso committed the catalog already; allow edge readers to observe
+          # that revision before asserting the public Mobile API.
+          time.sleep(15)
           ecuador=timezone(timedelta(hours=-5))
           today=datetime.now(timezone.utc).astimezone(ecuador).date()
           ids_by_day=schedule.get("event_ids_by_day") or {}
