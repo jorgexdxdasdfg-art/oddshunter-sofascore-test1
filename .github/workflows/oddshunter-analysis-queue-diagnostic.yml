@@ -15,6 +15,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
+      - uses: actions/checkout@v4
+
       - name: Prepare SSH
         env:
           VPS_HOST: ${{ secrets.VPS_HOST }}
@@ -36,13 +38,16 @@ jobs:
         run: |
           set -euo pipefail
           SSH=(ssh -i ~/.ssh/oddshunter_diag -p "$VPS_PORT" -o BatchMode=yes -o StrictHostKeyChecking=yes "$VPS_USER@$VPS_HOST")
+          scp -i ~/.ssh/oddshunter_diag -P "$VPS_PORT" -o BatchMode=yes -o StrictHostKeyChecking=yes fixture_analysis_runtime_diagnostic.py "$VPS_USER@$VPS_HOST:/tmp/fixture_analysis_runtime_diagnostic.py"
           STATUS="$("${SSH[@]}" '
             if [ "$(id -u)" -eq 0 ]; then SUDO=""; else SUDO="sudo -n"; fi
+            CUR=$(readlink -f /opt/oddshunter/current)
             EPOCH=$(cat /tmp/oddshunter_complete_analysis_epoch 2>/dev/null || echo 0)
             ACTIVE=$($SUDO systemctl is-active oddshunter.service 2>/dev/null || true)
             LINE=$($SUDO journalctl -u oddshunter.service --since "@$EPOCH" --no-pager 2>/dev/null |
               tail -n 45 | tr "\n" " | " || true)
-            printf "service=%s journal=%s" "$ACTIVE" "$LINE"
+            SELECTOR=$($SUDO -u oddshunter "$CUR/.venv-cloud/bin/python" /tmp/fixture_analysis_runtime_diagnostic.py "$CUR" 2>&1 || true)
+            printf "service=%s selector=%s journal=%s" "$ACTIVE" "$SELECTOR" "$LINE"
           ')"
           STATUS="${STATUS//'%'/'%25'}"
           STATUS="${STATUS//$'\n'/'%0A'}"
