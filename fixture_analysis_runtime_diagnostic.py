@@ -3,6 +3,7 @@ from __future__ import annotations
 """Read-only diagnostics for the production complete-fixture selector."""
 
 import json
+import gzip
 import sqlite3
 import sys
 from datetime import datetime, timedelta, timezone
@@ -62,7 +63,22 @@ def main() -> int:
                 "visible": has_visible_characteristics(root / "data" / "analisis", key, int(row.get("sofascore_id") or 0)) if key else None,
                 "match": f'{row.get("home_team")} vs {row.get("away_team")}',
             })
-    print(json.dumps({"now": now.isoformat(), "active_leagues": len(by_league), "rows": len(rows), "counts_all": counts_all, "counts_registry": counts_registry, "pending_count": len(pending), "operational": nearby}, ensure_ascii=False))
+    seed_summary: dict[str, Any] = {}
+    seed_path = Path("/var/lib/oddshunter/data/mobile_schedule_catalog_seed.json.gz")
+    try:
+        with gzip.open(seed_path, "rt", encoding="utf-8-sig") as handle:
+            seed_document = json.load(handle)
+        validation = seed_document.get("validation") if isinstance(seed_document, dict) else {}
+        seed_summary = {
+            "counts_by_day": seed_document.get("counts_by_day"),
+            "leagues_by_day": seed_document.get("leagues_by_day"),
+            "input_events": (validation or {}).get("input_events"),
+            "provider_errors": (validation or {}).get("provider_errors"),
+            "preserved_previous_events": (validation or {}).get("preserved_previous_events"),
+        }
+    except Exception as exc:
+        seed_summary = {"error": f"{type(exc).__name__}: {exc}"}
+    print(json.dumps({"now": now.isoformat(), "active_leagues": len(by_league), "rows": len(rows), "counts_all": counts_all, "counts_registry": counts_registry, "pending_count": len(pending), "seed": seed_summary}, ensure_ascii=False))
     return 0
 
 

@@ -1,5 +1,5 @@
 name: OddsHunter Analysis Queue Diagnostic
-# Read-only probe for the complete-fixture analysis rollout (schedule failure).
+# Read-only probe for the complete-fixture analysis rollout (schedule summary).
 
 on:
   push:
