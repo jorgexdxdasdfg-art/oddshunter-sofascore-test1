@@ -1,5 +1,5 @@
 name: OddsHunter Analysis Queue Diagnostic
-# Read-only probe for the complete-fixture analysis rollout (coverage check).
+# Read-only probe for the complete-fixture analysis rollout (schedule report).
 
 on:
   push:
@@ -47,7 +47,9 @@ jobs:
             LINE=$($SUDO journalctl -u oddshunter.service --since "@$EPOCH" --no-pager 2>/dev/null |
               tail -n 45 | tr "\n" " | " || true)
             SELECTOR=$($SUDO -u oddshunter "$CUR/.venv-cloud/bin/python" /tmp/fixture_analysis_runtime_diagnostic.py "$CUR" 2>&1 || true)
-            printf "service=%s selector=%s journal=%s" "$ACTIVE" "$SELECTOR" "$LINE"
+            SCHEDULE=$(cat "$CUR/data/automation/cloud_schedule_refresh/last.json" 2>/dev/null || true)
+            SCHEDULE_JOURNAL=$($SUDO journalctl -u oddshunter-schedule-refresh.service -n 80 --no-pager 2>/dev/null | tr "\n" " | " || true)
+            printf "service=%s selector=%s schedule=%s schedule_journal=%s journal=%s" "$ACTIVE" "$SELECTOR" "$SCHEDULE" "$SCHEDULE_JOURNAL" "$LINE"
           ')"
           STATUS="${STATUS//'%'/'%25'}"
           STATUS="${STATUS//$'\n'/'%0A'}"
