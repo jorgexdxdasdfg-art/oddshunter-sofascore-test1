@@ -1,0 +1,50 @@
+name: OddsHunter Analysis Queue Diagnostic
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/oddshunter-analysis-queue-diagnostic.yml
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Prepare SSH
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_SSH_PRIVATE_KEY: ${{ secrets.VPS_SSH_PRIVATE_KEY }}
+          VPS_PORT_SECRET: ${{ secrets.VPS_PORT }}
+        run: |
+          set -euo pipefail
+          PORT="${VPS_PORT_SECRET:-22}"
+          echo "VPS_PORT=$PORT" >> "$GITHUB_ENV"
+          install -d -m 0700 ~/.ssh
+          printf '%s\n' "$VPS_SSH_PRIVATE_KEY" > ~/.ssh/oddshunter_diag
+          chmod 0600 ~/.ssh/oddshunter_diag
+          ssh-keyscan -p "$PORT" -H "$VPS_HOST" > ~/.ssh/known_hosts
+
+      - name: Read queue status
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+        run: |
+          set -euo pipefail
+          SSH=(ssh -i ~/.ssh/oddshunter_diag -p "$VPS_PORT" -o BatchMode=yes -o StrictHostKeyChecking=yes "$VPS_USER@$VPS_HOST")
+          STATUS="$("${SSH[@]}" '
+            if [ "$(id -u)" -eq 0 ]; then SUDO=""; else SUDO="sudo -n"; fi
+            EPOCH=$(cat /tmp/oddshunter_complete_analysis_epoch 2>/dev/null || echo 0)
+            ACTIVE=$($SUDO systemctl is-active oddshunter.service 2>/dev/null || true)
+            LINE=$($SUDO journalctl -u oddshunter.service --since "@$EPOCH" --no-pager 2>/dev/null |
+              grep -E "CYCLE=[0-9]+ (PASS|FAIL)|Traceback|TypeError|RuntimeError|START STAGE5|END STAGE5" |
+              tail -n 12 | tr "\n" " | " || true)
+            printf "service=%s journal=%s" "$ACTIVE" "$LINE"
+          ')"
+          STATUS="${STATUS//'%'/'%25'}"
+          STATUS="${STATUS//$'\n'/'%0A'}"
+          STATUS="${STATUS//$'\r'/'%0D'}"
+          echo "::notice title=Analysis queue runtime::$STATUS"
