@@ -14,9 +14,9 @@ REPLACEMENT = '''def future_analysis_targets(
     by_league: dict[int, dict[str, Any]],
     limit: int = 64,
 ) -> list[dict[str, Any]]:
-    from fixture_analysis_queue import select_pending_fixture_analyses
+    from fixture_analysis_queue import load_schedule_seed_fixture_rows, select_pending_fixture_analyses
 
-    rows = con.execute(
+    rows = list(con.execute(
         """
         SELECT
             m.sofascore_id, m.league_id, m.kickoff, m.status, m.season,
@@ -30,7 +30,14 @@ REPLACEMENT = '''def future_analysis_targets(
           AND a.sofascore_id IS NOT NULL
         ORDER BY m.kickoff ASC, m.match_id ASC
         """
-    ).fetchall()
+    ).fetchall())
+    rows.extend(load_schedule_seed_fixture_rows(
+        Path(os.environ.get(
+            "ODDSHUNTER_SCHEDULE_CATALOG_SEED",
+            "/var/lib/oddshunter/data/mobile_schedule_catalog_seed.json.gz",
+        )),
+        by_league,
+    ))
     return select_pending_fixture_analyses(
         rows,
         by_league,

@@ -3,6 +3,7 @@ from __future__ import annotations
 """Select every unanalysed fixture in the Mobile today/tomorrow window."""
 
 import json
+import gzip
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterable, Mapping
@@ -10,6 +11,45 @@ from typing import Any, Iterable, Mapping
 
 ECUADOR_TZ = timezone(timedelta(hours=-5))
 VISIBLE_ANALYSIS_STATES = {"FULL", "PARTIAL_WITH_FALLBACK"}
+
+
+def load_schedule_seed_fixture_rows(
+    seed_path: Path,
+    by_league: Mapping[int, Mapping[str, Any]],
+) -> list[dict[str, Any]]:
+    """Load provider-discovered fixtures that are not yet in working SQLite."""
+
+    if not seed_path.is_file():
+        return []
+    try:
+        with gzip.open(seed_path, "rt", encoding="utf-8-sig") as handle:
+            document = json.load(handle)
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        return []
+    league_by_key = {
+        str(item.get("key") or "").strip(): int(league_id)
+        for league_id, item in by_league.items()
+        if str(item.get("key") or "").strip()
+    }
+    rows: list[dict[str, Any]] = []
+    for event in document.get("events", []) if isinstance(document, dict) else []:
+        if not isinstance(event, dict):
+            continue
+        league_id = league_by_key.get(str(event.get("competition_key") or "").strip())
+        if league_id is None:
+            continue
+        rows.append({
+            "sofascore_id": event.get("event_id"),
+            "league_id": league_id,
+            "kickoff": event.get("kickoff"),
+            "status": event.get("status"),
+            "season": event.get("season_name"),
+            "home_team_id": event.get("home_team_id"),
+            "home_team": event.get("home_team"),
+            "away_team_id": event.get("away_team_id"),
+            "away_team": event.get("away_team"),
+        })
+    return rows
 
 
 def _parse_dt(value: Any) -> datetime | None:

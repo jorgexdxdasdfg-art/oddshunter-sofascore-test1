@@ -1,8 +1,10 @@
 from datetime import datetime, timezone
 from pathlib import Path
+import gzip
+import json
 import sqlite3
 
-from fixture_analysis_queue import select_pending_fixture_analyses
+from fixture_analysis_queue import load_schedule_seed_fixture_rows, select_pending_fixture_analyses
 from stage5_complete_fixture_analysis_patch import patch_source
 
 
@@ -63,6 +65,33 @@ def test_named_but_empty_model_remains_pending(tmp_path: Path) -> None:
         limit=64,
     )
     assert [item["event_id"] for item in selected] == [1]
+
+
+def test_provider_discovered_seed_fixture_joins_analysis_queue(tmp_path: Path) -> None:
+    seed = tmp_path / "schedule.json.gz"
+    with gzip.open(seed, "wt", encoding="utf-8") as handle:
+        json.dump({"events": [{
+            "event_id": 77,
+            "competition_key": "saudi-pro-league",
+            "kickoff": "2026-09-09T16:00:00Z",
+            "status": "NS",
+            "season_name": "2026/27",
+            "home_team_id": 7,
+            "home_team": "Al-Kholood",
+            "away_team_id": 8,
+            "away_team": "Al-Shabab",
+        }]}, handle)
+    registry = {20: {"key": "saudi-pro-league"}}
+    rows = load_schedule_seed_fixture_rows(seed, registry)
+    selected = select_pending_fixture_analyses(
+        rows,
+        registry,
+        tmp_path / "analisis",
+        now=datetime(2026, 9, 9, 10, tzinfo=timezone.utc),
+        limit=64,
+    )
+    assert selected[0]["event_id"] == 77
+    assert selected[0]["home_team"] == "Al-Kholood"
 
 
 def test_accepts_sqlite_rows_used_by_stage5(tmp_path: Path) -> None:

@@ -25,7 +25,8 @@ jobs:
           set -euo pipefail
           python -m pip install --quiet pytest
           python -m pytest -q tests/test_fixture_analysis_queue.py
-          python -m py_compile fixture_analysis_queue.py stage5_complete_fixture_analysis_patch.py
+          python -m py_compile fixture_analysis_queue.py stage5_complete_fixture_analysis_patch.py \
+            cloud_schedule_refresh.py mobile_schedule_seed_builder.py cloud_live_status_sync.py
 
       - name: Prepare SSH
         env:
@@ -51,7 +52,9 @@ jobs:
           set -euo pipefail
           SCP=(scp -i ~/.ssh/oddshunter_analysis -P "$VPS_PORT" -o BatchMode=yes -o StrictHostKeyChecking=yes)
           SSH=(ssh -i ~/.ssh/oddshunter_analysis -p "$VPS_PORT" -o BatchMode=yes -o StrictHostKeyChecking=yes "$VPS_USER@$VPS_HOST")
-          "${SCP[@]}" fixture_analysis_queue.py stage5_complete_fixture_analysis_patch.py "$VPS_USER@$VPS_HOST:/tmp/"
+          "${SCP[@]}" fixture_analysis_queue.py stage5_complete_fixture_analysis_patch.py \
+            cloud_schedule_refresh.py mobile_schedule_seed_builder.py cloud_live_status_sync.py \
+            "$VPS_USER@$VPS_HOST:/tmp/"
           "${SSH[@]}" 'bash -s' <<'REMOTE'
           set -eEuo pipefail
           trap 'echo "::error title=Remote fixture queue install failed::line=$LINENO command=$BASH_COMMAND"' ERR
@@ -66,8 +69,30 @@ jobs:
           $SUDO -u oddshunter "$PY" -m py_compile /tmp/cloud_stage5_cycle.complete.py /tmp/fixture_analysis_queue.py
           $SUDO install -o oddshunter -g oddshunter -m 0644 /tmp/cloud_stage5_cycle.complete.py "$TARGET"
           $SUDO install -o oddshunter -g oddshunter -m 0644 /tmp/fixture_analysis_queue.py "$CUR/fixture_analysis_queue.py"
+          $SUDO install -o oddshunter -g oddshunter -m 0644 /tmp/cloud_schedule_refresh.py "$CUR/cloud_schedule_refresh.py"
+          $SUDO install -o oddshunter -g oddshunter -m 0644 /tmp/mobile_schedule_seed_builder.py "$CUR/mobile_schedule_seed_builder.py"
+          $SUDO install -o oddshunter -g oddshunter -m 0644 /tmp/cloud_live_status_sync.py "$CUR/cloud_live_status_sync.py"
           grep -q 'ODDSHUNTER_ANALYSIS_TARGET_LIMIT' "$TARGET"
           grep -q 'select_pending_fixture_analyses' "$TARGET"
+          # Refresh the exact provider fixture catalog first.  This is the same
+          # non-odds schedule flow used by Desktop and makes every discovered
+          # fixture available to both Mobile and the analysis queue.
+          $SUDO systemctl stop oddshunter-schedule-refresh.service || true
+          if ! $SUDO systemctl start oddshunter-schedule-refresh.service; then
+            $SUDO journalctl -u oddshunter-schedule-refresh.service -n 160 --no-pager
+            exit 51
+          fi
+          $SUDO -u oddshunter "$PY" - "$CUR/data/automation/cloud_schedule_refresh/last.json" <<'PY'
+          import json,sys
+          from datetime import datetime,timedelta,timezone
+          with open(sys.argv[1],encoding="utf-8") as handle:
+              report=json.load(handle)
+          today=datetime.now(timezone.utc).astimezone(timezone(timedelta(hours=-5))).date().isoformat()
+          count=int((report.get("counts_by_day") or {}).get(today) or 0)
+          print("PROVIDER_SCHEDULE_TODAY="+str(count))
+          if count < 37:
+              raise SystemExit("PROVIDER_SCHEDULE_COVERAGE_BELOW_DESKTOP=FAIL")
+          PY
           date -u +%s | $SUDO tee /tmp/oddshunter_complete_analysis_epoch >/dev/null
           $SUDO systemctl restart oddshunter.service
           $SUDO systemctl is-active --quiet oddshunter.service
@@ -114,6 +139,8 @@ jobs:
               with urllib.request.urlopen(request, timeout=45) as response:
                   rows = json.load(response)
               totals[offset] = len(rows)
+              if offset == 0 and len(rows) < 37:
+                  raise SystemExit(f"TODAY_FIXTURE_COVERAGE_GATE=FAIL:{len(rows)}")
               for row in rows:
                   headline = row.get("headline") or {}
                   values = (headline.get("home_win"), headline.get("draw"), headline.get("away_win"))
