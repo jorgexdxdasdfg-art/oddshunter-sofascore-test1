@@ -120,7 +120,7 @@ def patch_frontend(root: Path) -> dict[str, list[str]]:
         text = text.replace('api("/api/day?offset=0&limit=1000"),', 'api(`/api/day?offset=${refreshOffset}&limit=1000`),')
         text = text.replace('    state.dayEvents=preserveLiveAcrossRefresh(state.dayEvents,freshDay);', '    if(state.dayOffset!==refreshOffset)return;\n    state.dayEvents=preserveLiveAcrossRefresh(state.dayEvents,freshDay);') if 'if(state.dayOffset!==refreshOffset)return;' not in text else text
         text = text.rstrip() + "\n\n" + detail_js.rstrip() + "\n"
-        text = re.sub(r"sw\.js\?v=[^\"']+", "sw.js?v=1.29.1-complete-fixtures-results", text)
+        text = re.sub(r"sw\.js\?v=[^\"']+", "sw.js?v=1.29.2-championship-label", text)
         if text != original:
             path.write_text(text, encoding="utf-8", newline="\n")
         patched_apps.append(path.relative_to(root).as_posix())
@@ -168,11 +168,11 @@ def patch_frontend(root: Path) -> dict[str, list[str]]:
     patched_indexes: list[str] = []
     for path in sorted(root.glob("**/index.html")):
         text = path.read_text(encoding="utf-8")
-        updated = re.sub(r"app\.css\?v=[^\"']+", "app.css?v=1.29.1-complete-fixtures-results", text)
-        updated = re.sub(r"app\.js\?v=[^\"']+", "app.js?v=1.29.1-complete-fixtures-results", updated)
-        updated = re.sub(r"sw\.js\?v=[^\"']+", "sw.js?v=1.29.1-complete-fixtures-results", updated)
+        updated = re.sub(r"app\.css\?v=[^\"']+", "app.css?v=1.29.2-championship-label", text)
+        updated = re.sub(r"app\.js\?v=[^\"']+", "app.js?v=1.29.2-championship-label", updated)
+        updated = re.sub(r"sw\.js\?v=[^\"']+", "sw.js?v=1.29.2-championship-label", updated)
         updated = re.sub(r'\s*<meta\s+name=["\']oddshunter-build["\'][^>]*>', "", updated)
-        updated = updated.replace("</head>", '  <meta name="oddshunter-build" content="1.29.1-complete-fixtures-results">\n</head>', 1)
+        updated = updated.replace("</head>", '  <meta name="oddshunter-build" content="1.29.2-championship-label">\n</head>', 1)
         updated = re.sub(r'(<div class="logo-box"><img\s+)src="[^"]+"', rf'\1src="/assets/icons/{BRAND_ASSET_NAME}"', updated)
         if 'data-tab="picks"' not in updated:
             updated, count = re.subn(
@@ -190,16 +190,16 @@ def patch_frontend(root: Path) -> dict[str, list[str]]:
     patched_workers: list[str] = []
     for path in sorted(root.glob("**/sw.js")):
         text = path.read_text(encoding="utf-8")
-        updated = re.sub(r"oh-mobile-v[^\"']+", "oh-mobile-v1-29-1-complete-fixtures-results", text)
-        updated = re.sub(r"app\.css\?v=[^\"']+", "app.css?v=1.29.1-complete-fixtures-results", updated)
-        updated = re.sub(r"app\.js\?v=[^\"']+", "app.js?v=1.29.1-complete-fixtures-results", updated)
+        updated = re.sub(r"oh-mobile-v[^\"']+", "oh-mobile-v1-29-2-championship-label", text)
+        updated = re.sub(r"app\.css\?v=[^\"']+", "app.css?v=1.29.2-championship-label", updated)
+        updated = re.sub(r"app\.js\?v=[^\"']+", "app.js?v=1.29.2-championship-label", updated)
         if updated != text:
             path.write_text(updated, encoding="utf-8", newline="\n")
             patched_workers.append(path.relative_to(root).as_posix())
 
     for path in app_candidates:
         text = path.read_text(encoding="utf-8")
-        if any(old in text for old in OLD_LABELS) or NEW_LABEL not in text or DETAIL_MARKER not in text or COMPACT_SECONDARY_MARKER not in text or "OH_EXPECTED_REAL_COMPARISON_V16" not in text or "OH_TOP_PICK_SCORE_V28" not in text or "OH_FINAL_PICK_RESULTS_V28" not in text or "OH_CORNERS_VISUAL_ORDER_V28" not in text:
+        if any(old in text for old in OLD_LABELS) or NEW_LABEL not in text or DETAIL_MARKER not in text or COMPACT_SECONDARY_MARKER not in text or "OH_EXPECTED_REAL_COMPARISON_V16" not in text or "OH_TOP_PICK_SCORE_V28" not in text or "OH_FINAL_PICK_RESULTS_V28" not in text or "OH_CORNERS_VISUAL_ORDER_V28" not in text or "OH_CHAMPIONSHIP_LABEL_FIX_V29" not in text:
             raise RuntimeError(f"El parche de frontend quedó incompleto en {path}")
     return {"backend": patched_backend, "app_js": patched_apps, "app_css": patched_styles, "icon_assets": patched_icons, "index_html": patched_indexes, "service_worker": patched_workers}
 

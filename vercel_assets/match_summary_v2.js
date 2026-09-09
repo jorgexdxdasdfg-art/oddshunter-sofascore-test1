@@ -843,3 +843,6 @@ renderMatchTab=function(){
 };
 
 /* OH_COMPACT_SECONDARY_VIEWS_V20 */
+
+/* OH_CHAMPIONSHIP_LABEL_FIX_V29 */
+LEAGUE_NAMES["championship"]="Championship";
