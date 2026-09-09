@@ -149,6 +149,26 @@ def load_schedule_bootstrap(
     return rows
 
 
+def load_bootstrap_excluded_event_ids(path: Path | None) -> set[int]:
+    """Return provider IDs explicitly retired from the season snapshot."""
+
+    if path is None or not path.is_file():
+        return set()
+    try:
+        with gzip.open(path, "rt", encoding="utf-8-sig") as handle:
+            document = json.load(handle)
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        return set()
+    source = document.get("excluded_event_ids", []) if isinstance(document, dict) else []
+    result: set[int] = set()
+    for value in source if isinstance(source, list) else []:
+        try:
+            result.add(int(value))
+        except (TypeError, ValueError):
+            continue
+    return result
+
+
 def provider_event(event_id: int) -> dict[str, Any] | None:
     url = f"https://api.sofascore.com/api/v1/event/{event_id}"
     for attempt in range(3):
@@ -333,6 +353,13 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
     ).fetchall() if int(row["league_id"]) in competitions]
     con.close()
 
+    retired_event_ids = load_bootstrap_excluded_event_ids(args.bootstrap)
+    if retired_event_ids:
+        db_rows = [
+            row for row in db_rows
+            if int(row["event_id"]) not in retired_event_ids
+        ]
+
     # The bootstrap contains the complete season schedule already known by
     # Desktop. SQLite remains authoritative for rows it has; bootstrap rows
     # only fill fixtures absent from the incremental VPS working database.
@@ -504,6 +531,7 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
         "validation": {
             "input_events": len(db_rows),
             "bootstrap_events_in_window": len(bootstrap_rows),
+            "retired_event_ids": sorted(retired_event_ids),
             "corrected_event_ids": sorted(corrected),
             "excluded": excluded,
             "provider_errors": errors,
