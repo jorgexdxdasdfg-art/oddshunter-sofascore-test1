@@ -1,0 +1,134 @@
+name: OddsHunter Complete Fixture Analysis V1
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - fixture_analysis_queue.py
+      - stage5_complete_fixture_analysis_patch.py
+      - tests/test_fixture_analysis_queue.py
+      - .github/workflows/oddshunter-complete-fixture-analysis-v1.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate analysis queue
+        run: |
+          set -euo pipefail
+          python -m pip install --quiet pytest
+          python -m pytest -q tests/test_fixture_analysis_queue.py
+          python -m py_compile fixture_analysis_queue.py stage5_complete_fixture_analysis_patch.py
+
+      - name: Prepare SSH
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_SSH_PRIVATE_KEY: ${{ secrets.VPS_SSH_PRIVATE_KEY }}
+          VPS_PORT_SECRET: ${{ secrets.VPS_PORT }}
+        run: |
+          set -euo pipefail
+          test -n "${VPS_HOST:-}"
+          test -n "${VPS_SSH_PRIVATE_KEY:-}"
+          PORT="${VPS_PORT_SECRET:-22}"
+          echo "VPS_PORT=$PORT" >> "$GITHUB_ENV"
+          install -d -m 0700 ~/.ssh
+          printf '%s\n' "$VPS_SSH_PRIVATE_KEY" > ~/.ssh/oddshunter_analysis
+          chmod 0600 ~/.ssh/oddshunter_analysis
+          ssh-keyscan -p "$PORT" -H "$VPS_HOST" > ~/.ssh/known_hosts
+
+      - name: Install complete fixture queue
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+        run: |
+          set -euo pipefail
+          SCP=(scp -i ~/.ssh/oddshunter_analysis -P "$VPS_PORT" -o BatchMode=yes -o StrictHostKeyChecking=yes)
+          SSH=(ssh -i ~/.ssh/oddshunter_analysis -p "$VPS_PORT" -o BatchMode=yes -o StrictHostKeyChecking=yes "$VPS_USER@$VPS_HOST")
+          "${SCP[@]}" fixture_analysis_queue.py stage5_complete_fixture_analysis_patch.py "$VPS_USER@$VPS_HOST:/tmp/"
+          "${SSH[@]}" 'bash -s' <<'REMOTE'
+          set -euo pipefail
+          if [ "$(id -u)" -eq 0 ]; then SUDO=""; else SUDO="sudo -n"; fi
+          CUR="$(readlink -f /opt/oddshunter/current)"
+          PY="$CUR/.venv-cloud/bin/python"
+          TARGET="$CUR/cloud_stage5_cycle.py"
+          STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
+          BACKUP="$TARGET.PRE_COMPLETE_FIXTURE_ANALYSIS_$STAMP"
+          $SUDO cp -a "$TARGET" "$BACKUP"
+          $SUDO -u oddshunter "$PY" /tmp/stage5_complete_fixture_analysis_patch.py "$TARGET" /tmp/cloud_stage5_cycle.complete.py
+          $SUDO -u oddshunter "$PY" -m py_compile /tmp/cloud_stage5_cycle.complete.py /tmp/fixture_analysis_queue.py
+          $SUDO install -o oddshunter -g oddshunter -m 0644 /tmp/cloud_stage5_cycle.complete.py "$TARGET"
+          $SUDO install -o oddshunter -g oddshunter -m 0644 /tmp/fixture_analysis_queue.py "$CUR/fixture_analysis_queue.py"
+          grep -q 'ODDSHUNTER_ANALYSIS_TARGET_LIMIT' "$TARGET"
+          grep -q 'select_pending_fixture_analyses' "$TARGET"
+          date -u +%s | $SUDO tee /tmp/oddshunter_complete_analysis_epoch >/dev/null
+          $SUDO systemctl restart oddshunter.service
+          $SUDO systemctl is-active --quiet oddshunter.service
+          echo COMPLETE_FIXTURE_QUEUE_INSTALL=PASS
+          echo BACKUP="$BACKUP"
+          REMOTE
+
+      - name: Wait for complete analysis cycle
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+        run: |
+          set -euo pipefail
+          SSH=(ssh -i ~/.ssh/oddshunter_analysis -p "$VPS_PORT" -o BatchMode=yes -o StrictHostKeyChecking=yes "$VPS_USER@$VPS_HOST")
+          complete=0
+          for attempt in $(seq 1 80); do
+            line="$("${SSH[@]}" '
+              EPOCH=$(cat /tmp/oddshunter_complete_analysis_epoch 2>/dev/null || echo 0)
+              if [ "$(id -u)" -eq 0 ]; then SUDO=""; else SUDO="sudo -n"; fi
+              $SUDO journalctl -u oddshunter.service --since "@$EPOCH" --no-pager 2>/dev/null |
+                grep -E "CYCLE=[0-9]+ PASS" | tail -n 1 || true
+            ')"
+            if [ -n "$line" ]; then
+              echo "$line"
+              complete=1
+              break
+            fi
+            sleep 20
+          done
+          test "$complete" -eq 1
+
+      - name: Verify every Mobile fixture has characteristics
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, time, urllib.request
+
+          base = "https://oddshunter-mobile.vercel.app/api/day?offset={}&limit=1000&cb={}"
+          missing = []
+          totals = {}
+          for offset in (-1, 0, 1):
+              url = base.format(offset, time.time_ns())
+              request = urllib.request.Request(url, headers={"Cache-Control": "no-cache"})
+              with urllib.request.urlopen(request, timeout=45) as response:
+                  rows = json.load(response)
+              totals[offset] = len(rows)
+              for row in rows:
+                  headline = row.get("headline") or {}
+                  values = (headline.get("home_win"), headline.get("draw"), headline.get("away_win"))
+                  # Finished historical fixtures retain their original snapshot;
+                  # future fixtures must all expose the model characteristics.
+                  if offset >= 0 and not all(value is not None for value in values):
+                      missing.append({
+                          "event_id": row.get("event_id"),
+                          "competition": row.get("competition_key"),
+                          "home": row.get("home_team"),
+                          "away": row.get("away_team"),
+                          "analysis_status": row.get("analysis_status"),
+                      })
+          print("MOBILE_DAY_TOTALS=" + json.dumps(totals, sort_keys=True))
+          print("MISSING_CHARACTERISTICS=" + json.dumps(missing, ensure_ascii=False))
+          if missing:
+              raise SystemExit("COMPLETE_FIXTURE_CHARACTERISTICS_GATE=FAIL")
+          print("COMPLETE_FIXTURE_CHARACTERISTICS_GATE=PASS")
+          PY
