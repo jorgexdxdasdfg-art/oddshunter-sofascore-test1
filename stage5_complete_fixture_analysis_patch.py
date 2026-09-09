@@ -55,7 +55,7 @@ def patch_source(source: str) -> str:
         '        )'
     )
     call_pattern = re.compile(
-        r"analysis_targets\s*=\s*future_analysis_targets\(\s*con\s*,\s*by_league\s*,\s*\d+\s*\)"
+        r"analysis_targets\s*=\s*future_analysis_targets\([^\n]*\)"
     )
     if call_pattern.search(patched):
         patched = call_pattern.sub(new_call, patched, count=1)
@@ -69,7 +69,12 @@ def main() -> int:
     parser.add_argument("source", type=Path)
     parser.add_argument("output", type=Path)
     args = parser.parse_args()
-    args.output.write_text(patch_source(args.source.read_text(encoding="utf-8")), encoding="utf-8")
+    try:
+        patched = patch_source(args.source.read_text(encoding="utf-8"))
+    except Exception as exc:
+        print(f"::error title=Stage5 patch contract failed::{type(exc).__name__}: {exc}")
+        raise
+    args.output.write_text(patched, encoding="utf-8")
     return 0
 
 

@@ -52,3 +52,10 @@ def test_patch_removes_two_match_and_one_per_competition_contract() -> None:
     assert "ODDSHUNTER_ANALYSIS_TARGET_LIMIT" in patched
     assert "select_pending_fixture_analyses" in patched
     assert "seen = set()" not in patched
+
+
+def test_patch_accepts_named_legacy_limit() -> None:
+    source = '''def future_analysis_targets(\n    old\n):\n    return []\n\ndef write_schedule(target):\n    pass\n\ndef main():\n    analysis_targets = future_analysis_targets(con, by_league, FUTURE_LIMIT)\n'''
+    patched = patch_source(source)
+    assert "FUTURE_LIMIT" not in patched
+    assert "ODDSHUNTER_ANALYSIS_TARGET_LIMIT" in patched
