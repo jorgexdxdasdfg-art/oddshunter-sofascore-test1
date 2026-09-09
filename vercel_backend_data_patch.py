@@ -11,13 +11,14 @@ VALUE_PAYLOAD_OLD = VALUE_PAYLOAD_ANCHOR + '        "value_picks": safe_dict(doc
 VALUE_PAYLOAD_V1 = VALUE_PAYLOAD_ANCHOR + '        "value_picks": mobile_model_picks(docs),\n'
 VALUE_PAYLOAD_V2 = VALUE_PAYLOAD_ANCHOR + '        "value_picks": mobile_model_picks(docs, comparison),\n'
 VALUE_PAYLOAD_PATCHED = VALUE_PAYLOAD_ANCHOR + '        "value_picks": mobile_model_picks(docs, comparison, event, expected_real),\n'
-VALUE_MODEL_FUNCTION = '''# OH_MODEL_PICKS_INDEPENDENT_OF_ODDS_V3
+VALUE_MODEL_FUNCTION = '''# OH_MODEL_PICKS_INDEPENDENT_OF_ODDS_V4
 def mobile_model_picks(
     docs: dict[str, Any], comparison: dict[str, Any],
     event: dict[str, Any] | None = None, expected_real: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     from backend.odds_value_engine import (
-        final_pick_results, freeze_top_picks, number, refresh_model_picks,
+        final_pick_results, freeze_all_picks, freeze_top_picks,
+        high_probability_pick_results, number, refresh_model_picks,
     )
     bundle = {**safe_dict(docs.get("analysis"))}
     for name in ("goals", "corners", "cards"):
@@ -48,8 +49,22 @@ def mobile_model_picks(
     if snapshot:
         value["top_picks_snapshot"] = snapshot
         value["top_picks"] = snapshot
+    raw_all_snapshot = stored.get("all_picks_snapshot")
+    all_snapshot = raw_all_snapshot if isinstance(raw_all_snapshot, list) else []
+    raw_all_legacy = stored.get("all_picks")
+    all_legacy = raw_all_legacy if isinstance(raw_all_legacy, list) else []
+    if not all_snapshot and all_legacy:
+        all_snapshot = freeze_all_picks(
+            all_legacy,
+            str(stored.get("generated_at") or stored.get("last_checked_at") or ""),
+        )
+    if all_snapshot:
+        value["all_picks_snapshot"] = all_snapshot
     value["final_pick_results"] = final_pick_results(
         snapshot, event, safe_dict(expected_real.get("real")),
+    )
+    value["high_probability_pick_results"] = high_probability_pick_results(
+        all_snapshot, event, safe_dict(expected_real.get("real")), 60.0,
     )
     return value
 
@@ -476,11 +491,11 @@ def patch_backend(root: Path) -> list[str]:
     (path.parent / "asian_lines.py").write_text(lines_source.read_text(encoding="utf-8"), encoding="utf-8")
     text = path.read_text(encoding="utf-8")
     original_text = text
-    if "OH_MODEL_PICKS_INDEPENDENT_OF_ODDS_V3" not in text and re.search(r"OH_MODEL_PICKS_INDEPENDENT_OF_ODDS_V[12]", text):
-        text, count = re.subn(r"# OH_MODEL_PICKS_INDEPENDENT_OF_ODDS_V[12]\n.*?(?=def match_payload\()", VALUE_MODEL_FUNCTION, text, count=1, flags=re.DOTALL)
+    if "OH_MODEL_PICKS_INDEPENDENT_OF_ODDS_V4" not in text and re.search(r"OH_MODEL_PICKS_INDEPENDENT_OF_ODDS_V[123]", text):
+        text, count = re.subn(r"# OH_MODEL_PICKS_INDEPENDENT_OF_ODDS_V[123]\n.*?(?=def match_payload\()", VALUE_MODEL_FUNCTION, text, count=1, flags=re.DOTALL)
         if count != 1:
             raise RuntimeError("No se pudo actualizar el fallback de picks")
-    if "OH_MODEL_PICKS_INDEPENDENT_OF_ODDS_V3" not in text:
+    if "OH_MODEL_PICKS_INDEPENDENT_OF_ODDS_V4" not in text:
         text = replace_once(text, "def match_payload(", VALUE_MODEL_FUNCTION + "def match_payload(", "probabilidades independientes de cuotas")
     if VALUE_PAYLOAD_V1 in text:
         text = text.replace(VALUE_PAYLOAD_V1, VALUE_PAYLOAD_PATCHED, 1)

@@ -46,9 +46,8 @@ def test_extreme_distant_estimate_does_not_automatically_beat_strong_exact_pick(
 
     ranked = rank_value_picks(probabilities, prices)
 
-    assert [row["key"] for row in ranked] == ["corners_under_9_5", "corners_under_5_5"]
+    assert [row["key"] for row in ranked] == ["corners_under_9_5"]
     assert ranked[0]["ev"] == 28.8
-    assert ranked[1]["ev"] == 87.5
 
 
 def test_snapshot_preserves_original_values_and_is_immutable_on_refresh():

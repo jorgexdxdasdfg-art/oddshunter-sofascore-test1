@@ -61,6 +61,7 @@ except ModuleNotFoundError:
     requests = _RequestsCompatibility()  # type: ignore[assignment]
 
 from match_stats_pipeline import MetricPair
+from fixture_status import fixture_state, is_fixture_live
 from team_identity_registry import get_default_team_identity_registry
 from xg_estimator import AggregateStats
 from xg_pipeline import DirectXG, MatchAggregateStats, MatchRef
@@ -102,6 +103,11 @@ MAX_DATE_DELTA_HOURS = 36.0
 # devuelve HTTP 422 y deja todos los partidos de la jornada congelados como NS.
 TEAM_RESULTS_LIMIT = 6
 COMPETITION_FAMILIES: dict[str, tuple[str, ...]] = {
+    "conmebol-sudamericana": (
+        "conmebol sudamericana",
+        "copa sudamericana",
+        "con csa",
+    ),
     "leagues-cup": (
         "leagues cup",
         "concacaf leagues cup",
@@ -203,10 +209,20 @@ def _name_score(expected: Any, candidate: Any) -> float:
         return 1.0
     left_tokens = _team_tokens(left)
     right_tokens = _team_tokens(right)
+    matched_left: set[str] = set()
+    matched_right: set[str] = set()
+    for left_token in left_tokens:
+        for right_token in right_tokens:
+            if left_token == right_token or (
+                min(len(left_token), len(right_token)) >= 3
+                and (left_token.startswith(right_token) or right_token.startswith(left_token))
+            ):
+                matched_left.add(left_token)
+                matched_right.add(right_token)
+                break
     token_score = (
-        len(left_tokens & right_tokens)
-        / max(len(left_tokens | right_tokens), 1)
-    )
+        len(matched_left) + len(matched_right)
+    ) / max(len(left_tokens) + len(right_tokens), 1)
     containment = 0.92 if left in right or right in left else 0.0
     sequence = SequenceMatcher(None, left, right).ratio()
     return max(token_score, containment, sequence)
@@ -1029,11 +1045,11 @@ class Futbol24Client:
         ended = bool(status.get("is_ended") or status.get("ended"))
         in_play = bool(status.get("in_play") or status.get("inPlay"))
 
-        if ended or normalized in {
+        if ended or fixture_state(raw_name) == "finished" or normalized in {
             "ft", "finished", "final", "after extra time", "after penalties"
         }:
             return "finished", raw_name or None
-        if in_play or normalized in {
+        if in_play or is_fixture_live(raw_name) or normalized in {
             "live", "in play", "1st half", "2nd half", "halftime", "extra time"
         }:
             return "live", raw_name or None

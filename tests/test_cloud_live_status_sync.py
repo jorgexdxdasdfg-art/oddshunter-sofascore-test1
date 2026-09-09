@@ -7,6 +7,25 @@ import types
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
+from fixture_status import fixture_state, is_fixture_live
+
+
+def test_fixture_live_status_contract_and_special_states() -> None:
+    for status in ("1H", "HT", "2H", "ET", "BT", "P", "LIVE", "IN_PLAY", "inprogress"):
+        assert is_fixture_live(status)
+        assert fixture_state(status) == "live"
+    for status in ("POSTPONED", "CANCELLED", "ABANDONED", "SUSPENDED", "WALKOVER"):
+        assert not is_fixture_live(status)
+        assert fixture_state(status) == "terminal"
+
+
+def test_overdue_scheduled_snapshot_is_rejected_for_live_fallback() -> None:
+    now = datetime(2026, 9, 9, 1, 0, tzinfo=timezone.utc)
+    row = {"kickoff": "2026-09-09T00:30:00+00:00"}
+    stale = {"state": "scheduled", "kickoff": "2026-09-09T22:00:00+00:00"}
+    assert live.stale_scheduled_snapshot(row, stale, now)
+    assert not live.stale_scheduled_snapshot(row, {"state": "live"}, now)
+
 
 @dataclass
 class StubMatchRef:

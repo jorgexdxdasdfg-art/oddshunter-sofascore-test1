@@ -19,6 +19,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
+
+from fixture_status import fixture_state
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
@@ -163,13 +165,14 @@ def provider_status(event: dict[str, Any], fallback: str) -> tuple[str, str]:
     status = event.get("status") if isinstance(event.get("status"), dict) else {}
     kind = str(status.get("type") or "").strip().casefold()
     description = str(status.get("description") or kind or fallback)
-    if kind in FINAL_TYPES:
+    state = fixture_state(kind or description)
+    if state == "finished":
         return "FT", description
-    if kind in SPECIAL_TYPES:
+    if state == "terminal":
         return kind.upper(), description
-    if kind == "inprogress":
+    if state == "live":
         return "LIVE", description
-    if kind == "notstarted":
+    if state == "scheduled":
         return "NS", description
     return fallback or "NS", description
 
@@ -368,10 +371,16 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
                 excluded.append({"event_id": event_id, "reason": "IDENTITY_MISMATCH"})
                 continue
             remote_kickoff = datetime.fromtimestamp(int(remote.get("startTimestamp")), timezone.utc) if remote.get("startTimestamp") else None
-            if remote_kickoff and remote_kickoff != kickoff:
+            remote_status, remote_description = provider_status(remote, status)
+            stale_scheduled = (
+                remote_status == "NS" and kickoff is not None
+                and kickoff <= now - timedelta(minutes=15)
+            )
+            if remote_kickoff and remote_kickoff != kickoff and not stale_scheduled:
                 corrected.append(event_id)
                 kickoff = remote_kickoff
-            status, status_description = provider_status(remote, status)
+            if not stale_scheduled:
+                status, status_description = remote_status, remote_description
             home_score_doc = remote.get("homeScore") if isinstance(remote.get("homeScore"), dict) else {}
             away_score_doc = remote.get("awayScore") if isinstance(remote.get("awayScore"), dict) else {}
             home_score = home_score_doc.get("current", home_score)

@@ -69,6 +69,26 @@ class ResolverTests(unittest.TestCase):
         client.logger = lambda _message: None
         return client
 
+    def test_abbreviated_team_token_resolves_without_team_hardcode(self):
+        self.assertEqual(MODULE._name_score("Independiente Santa Fe", "Ind. Santa Fe"), 1.0)
+        client = self.client()
+        match = MatchRef(
+            competition="CONMEBOL Sudamericana", season="2026",
+            kickoff="2026-09-08T22:00:00+00:00",
+            home_team="Independiente Santa Fe", away_team="Vasco da Gama",
+        )
+        candidate = {
+            "date": "2026-09-08T22:00:00+00:00",
+            "league": {"name": "CON CSA"},
+            "team1": {"name": "Ind. Santa Fe"},
+            "team2": {"name": "Vasco da Gama/RJ"},
+            "status": {"name_short": "HT", "in_play": True},
+            "score1": "0-0",
+        }
+        validation = client._candidate_validation(match, candidate, require_score=False)
+        self.assertTrue(validation["valid"])
+        self.assertEqual(client._status_snapshot(candidate)[0], "live")
+
     def test_reversed_neutral_venue_result_is_normalized(self):
         client = self.client()
         match = MatchRef(

@@ -6,6 +6,8 @@ import subprocess
 import time
 from datetime import datetime, timezone
 from typing import Any, Callable, Mapping
+
+from fixture_status import fixture_state
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
@@ -109,16 +111,7 @@ def snapshot_from_document(event_id: int, document: Mapping[str, Any], expected:
                 raise ValueError(f"SofaScore cambió la identidad {side} del evento")
     status = event.get("status") or {}
     status_type = str(status.get("type") or "").strip().lower()
-    if status_type == "finished":
-        state = "finished"
-    elif status_type in {"inprogress", "live", "started"}:
-        state = "live"
-    elif status_type in {"scheduled", "notstarted"}:
-        state = "scheduled"
-    elif status_type in {"canceled", "cancelled", "postponed", "abandoned", "interrupted"}:
-        state = "terminal"
-    else:
-        state = "unknown"
+    state = fixture_state(status_type or status.get("description"))
     timestamp = _integer(event.get("startTimestamp"))
     home_score = event.get("homeScore") or {}
     away_score = event.get("awayScore") or {}

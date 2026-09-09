@@ -104,6 +104,7 @@
 .oh-picks-market-row>span{display:flex;min-width:0;flex-direction:column;gap:2px;text-align:left;color:var(--text);font-weight:750}
 .oh-source-line{display:block;color:var(--muted);font-size:8.5px;line-height:1.05;font-weight:650;white-space:nowrap}
 .oh-picks-market-row>strong,.oh-picks-market-row>b{color:var(--text);font-size:11.5px;font-weight:850}
+.oh-picks-market-row>strong.oh-probability-high,.oh-probability-high{color:#1bc978!important}
 .oh-picks-market-row>em{font-style:normal;font-size:11px;font-weight:900}.oh-picks-market-row>em.positive{color:#139b61}.oh-picks-market-row>em.negative{color:var(--red)}.oh-picks-market-row>em.na{color:var(--muted)}
 .oh-picks-note{display:block;padding:0 5px;color:var(--muted);font-size:10px;line-height:1.35;text-align:center}
 .oh-best-picks{grid-column:1/-1;margin:0;padding:15px;border-radius:18px}
@@ -118,6 +119,11 @@
 .oh-final-pick-result{display:grid;grid-template-columns:24px minmax(0,1fr) auto;gap:8px;align-items:center;padding:10px 0;border-top:1px solid var(--line)}
 .oh-final-pick-result>div{display:flex;min-width:0;flex-direction:column;gap:3px}
 .oh-final-pick-result b{font-size:11.5px}.oh-final-pick-result small{color:var(--muted);font-size:9.5px;line-height:1.2}
+.oh-final-pick-result small strong{font-size:inherit}.oh-final-pick-result small em{font-style:normal;font-weight:900}.oh-final-pick-result small em.positive{color:#1bc978}.oh-final-pick-result small em.negative{color:var(--red)}.oh-final-pick-result small em.na{color:var(--muted)}
+.oh-final-result-tabs{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin:12px 0;padding:4px;border:1px solid var(--line);border-radius:12px;background:var(--panel-2)}
+.oh-final-result-tabs button{min-width:0;padding:9px 5px;border:0;border-radius:9px;background:transparent;color:var(--muted);font:inherit;font-size:10px;font-weight:850}.oh-final-result-tabs button.active{background:var(--red);color:#fff}
+.oh-final-results-body>h2{font-size:13px;margin:0}.oh-final-results-body>p{margin:5px 0 10px;color:var(--muted);font-size:9.5px}.oh-final-empty{padding:14px 0;color:var(--muted);font-size:10px;text-align:center}
+.oh-precision-card{display:flex;flex-direction:column;gap:6px;margin:9px 0 12px;padding:11px;border:1px solid var(--line);border-radius:12px}.oh-precision-card>b{font-size:10.5px;color:#1bc978}.oh-precision-card>strong{font-size:14px}.oh-precision-card>span{height:7px;overflow:hidden;border-radius:999px;background:var(--line)}.oh-precision-card>span>i{display:block;height:100%;border-radius:inherit;background:#1bc978}
 .oh-final-pick-result>strong{max-width:92px;color:var(--text);font-size:9.5px;line-height:1.15;text-align:right}
 .oh-final-pick-icon{font-size:17px;text-align:center}
 .oh-picks-wait{grid-column:1/-1}

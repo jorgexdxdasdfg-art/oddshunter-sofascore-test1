@@ -722,7 +722,10 @@ def rank_value_picks(
 ) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     for quote in preferred_visual_prices(prices):
-        model_probability = probabilities.get(str(quote.get("key")))
+        key = str(quote.get("key"))
+        if key in {"corners_over_5_5", "corners_under_5_5"}:
+            continue
+        model_probability = probabilities.get(key)
         odds = number(quote.get("current_odds", quote.get("source_odds", quote.get("odds"))))
         if model_probability is None or odds is None or odds <= 1:
             continue
@@ -741,6 +744,56 @@ def rank_value_picks(
         })
     rows.sort(key=lambda row: (row["top_pick_score"], row["probability"], row["ev"]), reverse=True)
     return rows[: max(0, int(limit))]
+
+
+def freeze_all_picks(all_picks: list[dict[str, Any]], captured_at: str) -> list[dict[str, Any]]:
+    """Freeze the complete pre-match probability catalogue, odds optional."""
+
+    frozen: list[dict[str, Any]] = []
+    for original in all_picks:
+        row = dict(original)
+        key = str(row.get("key") or row.get("pick_id") or "")
+        if not key:
+            continue
+        market, side, parsed_line = _pick_parts(key)
+        frozen.append({
+            **row,
+            "pick_id": str(row.get("pick_id") or key),
+            "market": row.get("market") or market,
+            "side": row.get("side") or side,
+            "display_side": row.get("display_side") or side,
+            "display_line": number(row.get("display_line", row.get("line", parsed_line))),
+            "probability_at_recommendation": number(
+                row.get("probability_at_recommendation", row.get("probability"))
+            ),
+            "odds_at_recommendation": number(
+                row.get("odds_at_recommendation", row.get("odds"))
+            ),
+            "ev_at_recommendation": number(
+                row.get("ev_at_recommendation", row.get("ev"))
+            ),
+            "recommended_at": row.get("recommended_at") or captured_at,
+        })
+    return frozen
+
+
+def immutable_all_picks(
+    existing: dict[str, Any], all_picks: list[dict[str, Any]], captured_at: str,
+    event: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    """Keep the first full pre-match catalogue; never reconstruct it after FT."""
+
+    snapshot = existing.get("all_picks_snapshot")
+    if isinstance(snapshot, list) and snapshot:
+        return [dict(row) for row in snapshot if isinstance(row, dict)]
+    legacy = existing.get("all_picks")
+    if isinstance(legacy, list) and legacy:
+        source = legacy
+    elif _terminal_status(event or {}):
+        source = []
+    else:
+        source = all_picks
+    return freeze_all_picks(source, captured_at) if source else []
 
 
 def freeze_top_picks(top_picks: list[dict[str, Any]], recommended_at: str) -> list[dict[str, Any]]:
@@ -870,11 +923,73 @@ def final_pick_results(
     rows = []
     for original in snapshot:
         row = dict(original)
+        if str(row.get("key") or row.get("pick_id") or "") in {"corners_over_5_5", "corners_under_5_5"}:
+            continue
         row["result"] = _settle_recommended_pick(row, event, actual or {})
         rows.append(row)
     labels = ("WIN", "HALF_WIN", "PUSH", "HALF_LOSS", "LOSS", "CUMPLIDO", "NO CUMPLIDO", "PENDIENTE DE RESULTADO")
     counts = {label: sum(row["result"] == label for row in rows) for label in labels}
     return {"available": True, "picks": rows, "summary": counts}
+
+
+def _settle_display_pick(snapshot: dict[str, Any], event: dict[str, Any], actual: dict[str, Any]) -> str:
+    """Evaluate prediction accuracy using the displayed selection, never source odds."""
+
+    key = str(snapshot.get("key") or snapshot.get("pick_id") or "")
+    market, side, parsed_line = _pick_parts(key)
+    home = _actual_number(actual, "home_goals", "goals_home")
+    away = _actual_number(actual, "away_goals", "goals_away")
+    home = home if home is not None else number(event.get("home_score"))
+    away = away if away is not None else number(event.get("away_score"))
+    if key.startswith("result_") or key.startswith("double_") or key.startswith("btts_"):
+        if home is None or away is None:
+            return "PENDIENTE"
+        conditions = {
+            "result_home": home > away, "result_draw": home == away, "result_away": away > home,
+            "double_home_draw": home >= away, "double_away_draw": away >= home,
+            "double_home_away": home != away,
+            "btts_yes": home > 0 and away > 0, "btts_no": home == 0 or away == 0,
+        }
+        return "ACERTADO" if bool(conditions.get(key)) else "FALLADO"
+    total = _actual_total(market, event, actual)
+    line = number(snapshot.get("display_line", parsed_line))
+    display_side = str(snapshot.get("display_side") or side)
+    if total is None or line is None or display_side not in {"over", "under"}:
+        return "PENDIENTE"
+    happened = total > line if display_side == "over" else total < line
+    return "ACERTADO" if happened else "FALLADO"
+
+
+def high_probability_pick_results(
+    snapshot: list[dict[str, Any]], event: dict[str, Any], actual: dict[str, Any] | None,
+    threshold: float = 60.0,
+) -> dict[str, Any]:
+    if not _terminal_status(event):
+        return {"available": False, "threshold": threshold, "picks": [], "summary": {}}
+    rows: list[dict[str, Any]] = []
+    for original in snapshot:
+        row = dict(original)
+        key = str(row.get("key") or row.get("pick_id") or "")
+        if key in {"corners_over_5_5", "corners_under_5_5"}:
+            continue
+        model_probability = number(row.get("probability_at_recommendation", row.get("probability")))
+        if model_probability is None or model_probability < threshold:
+            continue
+        row["probability_at_recommendation"] = model_probability
+        row["result"] = _settle_display_pick(row, event, actual or {})
+        rows.append(row)
+    rows.sort(key=lambda row: number(row.get("probability_at_recommendation")) or 0.0, reverse=True)
+    hits = sum(row["result"] == "ACERTADO" for row in rows)
+    misses = sum(row["result"] == "FALLADO" for row in rows)
+    pending = sum(row["result"] == "PENDIENTE" for row in rows)
+    decided = hits + misses
+    precision = round(hits * 100.0 / decided, 1) if decided else None
+    return {
+        "available": True,
+        "threshold": threshold,
+        "picks": rows,
+        "summary": {"ACERTADO": hits, "FALLADO": misses, "PENDIENTE": pending, "precision": precision},
+    }
 
 
 def refresh_model_picks(
@@ -906,5 +1021,6 @@ def refresh_model_picks(
         "probabilities": probabilities,
         "available_prices": prices,
         "all_picks": all_picks,
+        "all_picks_snapshot": existing.get("all_picks_snapshot") or [],
         "top_picks": top_picks,
     }

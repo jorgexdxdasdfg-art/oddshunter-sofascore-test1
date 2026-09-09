@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from futbol24_client import Futbol24Client
+from fixture_status import fixture_state, is_fixture_live
 from sofascore_event_client import SofaScoreEventClient
 from xg_pipeline import MatchRef
 
@@ -33,7 +34,7 @@ SCHEDULE_CATALOG_SEED = Path(
 )
 
 FINAL_STATUSES = {"FT", "AET", "PEN", "FINISHED", "FINAL"}
-SPECIAL_STATUSES = {"CANCELED", "CANCELLED", "POSTPONED", "ABANDONED"}
+SPECIAL_STATUSES = {"CANCELED", "CANCELLED", "POSTPONED", "ABANDONED", "SUSPENDED", "INTERRUPTED", "WALKOVER", "WO"}
 
 # Correcciones de calendario verificadas cuando el proveedor que originó el
 # evento conserva una fecha antigua. No se inventa un resultado: se exige que
@@ -459,6 +460,15 @@ def normalized_update(snapshot: dict[str, Any]) -> dict[str, Any] | None:
     return None
 
 
+def stale_scheduled_snapshot(row: dict[str, Any], update: dict[str, Any] | None, now: datetime) -> bool:
+    """Reject an overdue `scheduled` answer so the live fallback can resolve it."""
+
+    if not update or update.get("state") != "scheduled":
+        return False
+    stored_kickoff = parse_dt(row.get("kickoff"))
+    return stored_kickoff is not None and stored_kickoff <= now - timedelta(minutes=15)
+
+
 def verified_schedule_snapshot(row: dict[str, Any]) -> dict[str, Any] | None:
     """Devuelve una reprogramación manual solo si la identidad es exacta."""
     event_id = int(row.get("event_id") or 0)
@@ -517,9 +527,10 @@ def _schedule_headline(goals: dict[str, Any]) -> dict[str, Any]:
 
 def _schedule_status(value: Any) -> str:
     normalized = str(value or "NS").strip().upper()
-    if normalized in {"NS", "SCHEDULED", "NOTSTARTED", "NOT_STARTED"}:
+    state = fixture_state(normalized)
+    if state == "scheduled":
         return "notstarted"
-    if normalized in {"INPROGRESS", "IN_PROGRESS", "LIVE"}:
+    if state == "live":
         return "inprogress"
     return normalized.lower()
 
@@ -1383,6 +1394,11 @@ def run(
                         item["source"] = "sofascore-event-id"
                     except Exception as exc:
                         provider_logger(f"SofaScore exacto falló event_id={row['event_id']}; respaldo Futbol24: {exc}")
+                    if stale_scheduled_snapshot(row, update, now):
+                        provider_logger(
+                            f"SofaScore devolvió scheduled vencido event_id={row['event_id']}; respaldo Futbol24"
+                        )
+                        update = None
                     if update is None:
                         snapshot = f24.get_match_snapshot(match_ref(row, competition))
                         update = normalized_update(snapshot) if isinstance(snapshot, dict) else None

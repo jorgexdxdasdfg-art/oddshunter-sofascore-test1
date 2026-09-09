@@ -7,6 +7,9 @@ from odds_value_engine import (
     asian_display_line,
     attach_asian_source_values,
     build_all_picks,
+    freeze_all_picks,
+    high_probability_pick_results,
+    immutable_all_picks,
     market_anchored_prices,
     model_probabilities,
     preferred_visual_prices,
@@ -352,3 +355,48 @@ def test_refresh_persists_estimate_fields_only_in_picks_not_real_price_cache():
     assert estimated["estimated_odds"] == estimated["odds"]
     assert estimated["estimated_ev"] * 100 == pytest.approx(estimated["ev"])
     assert all(row.get("price_origin") != "BET365_ANCHORED_ESTIMATE" for row in value["available_prices"])
+
+
+def test_high_probability_results_ignore_odds_ev_and_use_display_selection():
+    snapshot = freeze_all_picks([
+        {"key": "corners_over_8_5", "probability": 85.1, "odds": 1.142, "ev": -2.8, "display_line": 8.5},
+        {"key": "cards_over_1_5", "probability": 90.2, "odds": None, "ev": None, "display_line": 1.5},
+        {"key": "goals_under_3_5", "probability": 75.4, "odds": 1.36, "ev": -19.0, "display_line": 3.5},
+        {"key": "btts_yes", "probability": 59.9, "odds": 2.0, "ev": 19.8},
+        {"key": "corners_over_5_5", "probability": 99.0, "odds": 1.01, "ev": 0.0, "display_line": 5.5},
+    ], "2026-09-08T20:00:00Z")
+    result = high_probability_pick_results(
+        snapshot,
+        {"status": "FT", "home_score": 2, "away_score": 0},
+        {"home_corners": 5, "away_corners": 5, "home_yellow_cards": 1, "away_yellow_cards": 1},
+    )
+    assert [row["key"] for row in result["picks"]] == [
+        "cards_over_1_5", "corners_over_8_5", "goals_under_3_5",
+    ]
+    assert [row["result"] for row in result["picks"]] == ["ACERTADO", "ACERTADO", "ACERTADO"]
+    assert result["summary"] == {"ACERTADO": 3, "FALLADO": 0, "PENDIENTE": 0, "precision": 100.0}
+
+
+def test_high_probability_pending_stats_are_not_assumed_zero():
+    snapshot = freeze_all_picks([
+        {"key": "cards_under_3_5", "probability": 72.0, "display_line": 3.5},
+    ], "2026-09-08T20:00:00Z")
+    result = high_probability_pick_results(snapshot, {"status": "FT", "home_score": 0, "away_score": 0}, {})
+    assert result["picks"][0]["result"] == "PENDIENTE"
+    assert result["summary"]["precision"] is None
+
+
+def test_all_pick_snapshot_is_immutable_and_not_created_after_final():
+    original = freeze_all_picks([{"key": "result_home", "probability": 61.0, "odds": 2.1, "ev": 28.1}], "before")
+    existing = {"all_picks_snapshot": original}
+    assert immutable_all_picks(existing, [{"key": "result_home", "probability": 10.0}], "after", {"status": "FT"}) == original
+    assert immutable_all_picks({}, [{"key": "result_home", "probability": 61.0}], "after", {"status": "FT"}) == []
+
+
+def test_corner_5_5_never_competes_for_top_four():
+    probabilities = {"corners_over_5_5": .99, "goals_over_1_5": .70}
+    prices = [
+        {"key": "corners_over_5_5", "odds": 2.0},
+        {"key": "goals_over_1_5", "odds": 2.0},
+    ]
+    assert [row["key"] for row in rank_value_picks(probabilities, prices)] == ["goals_over_1_5"]

@@ -698,7 +698,8 @@ document.body.classList.toggle("oh-home-mode",!document.querySelector('[data-vie
 /* OH_TOP_PICK_SCORE_V28 */
 /* OH_FINAL_PICK_RESULTS_V28 */
 /* OH_CORNERS_VISUAL_ORDER_V28 */
-document.documentElement.dataset.oddshunterBuild="1.28.0-scored-final-picks";
+/* OH_COMPLETE_FIXTURES_RESULTS_V29 */
+document.documentElement.dataset.oddshunterBuild="1.29.0-complete-fixtures-results";
 const ohPickLabels={
   result_home:"Gana local",result_draw:"Empate",result_away:"Gana visitante",
   double_home_draw:"Local o empate",double_away_draw:"Empate o visitante",double_home_away:"Local o visitante",
@@ -710,6 +711,7 @@ const ohPickLabels={
 function ohPickProbability(value){const n=Number(value);return Number.isFinite(n)?`${(n*100).toFixed(1).replace(".0","")}%`:"N/D"}
 function ohPickLabel(key){if(ohPickLabels[key])return ohPickLabels[key];const match=key.match(/^(?:goals|cards|corners)_(over|under)_(\d+)_(\d+)$/);return match?`${match[1]==="over"?"Más":"Menos"} de ${match[2]}.${match[3]}`:key.replaceAll("_"," ")}
 function ohPickPercent(value){const n=Number(value);return Number.isFinite(n)?`${n.toFixed(1).replace(".0","")}%`:"—"}
+function ohProbabilityClass(value){const n=Number(value);return Number.isFinite(n)&&(n>1?n:n*100)>=60?"oh-probability-high":""}
 function ohPickOdds(value){const n=Number(value);if(!Number.isFinite(n)||n<=1)return "—";const exact=n.toFixed(3);return exact.endsWith("0")?n.toFixed(2):exact}
 function ohSourceBetLabel(price){
   if(price?.price_origin==="BET365_ANCHORED_ESTIMATE"||price?.estimated_from_market)return "Est. desde Bet365";
@@ -722,7 +724,7 @@ function ohSourceBetTag(price){const label=ohSourceBetLabel(price);return label?
 function ohPickMarketRow(key,value,price){
   const probability=Number(value),odds=Number(price?.current_odds??price?.source_odds??price?.estimated_odds??price?.odds),sourceEv=price?.source_ev==null?NaN:Number(price.source_ev),estimatedEv=price?.estimated_ev==null?NaN:Number(price.estimated_ev),storedEv=price?.ev==null?NaN:Number(price.ev),mapped=price?.price_origin==="ASIAN_MAPPED";
   const ev=Number.isFinite(sourceEv)?sourceEv*100:Number.isFinite(estimatedEv)?estimatedEv*100:mapped?null:Number.isFinite(storedEv)?storedEv:Number.isFinite(probability)&&Number.isFinite(odds)&&odds>1?(probability*odds-1)*100:null;
-  return `<div class="oh-picks-market-row"><span>${esc(ohPickLabel(key))}${ohSourceBetTag(price)}</span><strong>${ohPickProbability(value)}</strong><b>${ohPickOdds(odds)}</b><em class="${ev===null?"na":ev>0?"positive":"negative"}">${ev===null?"—":`${ev>0?"+":""}${ohPickPercent(ev)}`}</em></div>`;
+  return `<div class="oh-picks-market-row"><span>${esc(ohPickLabel(key))}${ohSourceBetTag(price)}</span><strong class="${ohProbabilityClass(value)}">${ohPickProbability(value)}</strong><b>${ohPickOdds(odds)}</b><em class="${ev===null?"na":ev>0?"positive":"negative"}">${ev===null?"—":`${ev>0?"+":""}${ohPickPercent(ev)}`}</em></div>`;
 }
 function ohPickGroup(title,icon,keys,probabilities,prices){const rows=keys.filter(key=>probabilities[key]!==undefined).map(key=>ohPickMarketRow(key,probabilities[key],prices.get(key))).join("");return rows?`<section class="panel oh-picks-group"><h3>${icon} ${esc(title)}</h3><div class="oh-picks-table"><div class="oh-picks-table-head"><span>Selección</span><span>Prob.</span><span>Cuota</span><span>EV</span></div>${rows}</div></section>`:""}
 
@@ -730,20 +732,35 @@ function ohFinalResultIcon(result){
   return ({WIN:"✅",CUMPLIDO:"✅",HALF_WIN:"🟡",PUSH:"⚪",HALF_LOSS:"🟠",LOSS:"❌","NO CUMPLIDO":"❌","PENDIENTE DE RESULTADO":"⏳"})[result]||"⏳";
 }
 function ohFinalResultLabel(result){return String(result||"PENDIENTE DE RESULTADO").replaceAll("_"," ")}
-function ohFinalPicksSection(value){
-  const final=value?.final_pick_results||{};
-  if(!final.available)return "";
-  const picks=Array.isArray(final.picks)?final.picks:[];
-  if(!picks.length)return "";
+let ohFinalResultsTab="recommended";
+function ohFinalRecommendedBody(final){
+  const picks=Array.isArray(final?.picks)?final.picks:[];
+  if(!picks.length)return `<div class="oh-final-empty">No existe un snapshot prepartido recomendado para este partido.</div>`;
   const order=["WIN","HALF_WIN","PUSH","HALF_LOSS","LOSS","CUMPLIDO","NO CUMPLIDO","PENDIENTE DE RESULTADO"];
   const labels={WIN:"WIN",HALF_WIN:"HALF WIN",PUSH:"PUSH",HALF_LOSS:"HALF LOSS",LOSS:"LOSS",CUMPLIDO:"CUMPLIDO","NO CUMPLIDO":"NO CUMPLIDO","PENDIENTE DE RESULTADO":"PENDIENTE"};
   const counts=final.summary||{};
   const summary=order.filter(key=>Number(counts[key])>0).map(key=>`${counts[key]} ${labels[key]}`).join(" · ");
   const rows=picks.map(pick=>{
     const result=ohFinalResultLabel(pick.result),probability=pick.probability_at_recommendation??pick.probability,odds=pick.odds_at_recommendation??pick.odds,ev=Number(pick.ev_at_recommendation??pick.ev);
-    return `<article class="oh-final-pick-result"><span class="oh-final-pick-icon">${ohFinalResultIcon(pick.result)}</span><div><b>${esc(pick.selection||ohPickLabel(String(pick.key||pick.pick_id||"")))}</b>${ohSourceBetTag(pick)}<small>Prob. original ${esc(ohPickPercent(Number(probability)))} · Cuota original ${esc(ohPickOdds(odds))}</small><small>EV original ${Number.isFinite(ev)&&ev>0?"+":""}${esc(ohPickPercent(ev))}</small></div><strong>${esc(result)}</strong></article>`;
+    const evClass=Number.isFinite(ev)?ev>0?"positive":"negative":"na";
+    return `<article class="oh-final-pick-result"><span class="oh-final-pick-icon">${ohFinalResultIcon(pick.result)}</span><div><b>${esc(pick.selection||ohPickLabel(String(pick.key||pick.pick_id||"")))}</b>${ohSourceBetTag(pick)}<small>Prob. original <strong class="${ohProbabilityClass(probability)}">${esc(ohPickPercent(Number(probability)))}</strong> · Cuota original ${esc(ohPickOdds(odds))}</small><small>EV original <em class="${evClass}">${Number.isFinite(ev)&&ev>0?"+":""}${esc(ohPickPercent(ev))}</em></small></div><strong>${esc(result)}</strong></article>`;
   }).join("");
-  return `<section class="panel oh-final-pick-results"><h2>✅ Resultado de los picks recomendados</h2><p>${esc(summary)}</p>${rows}</section>`;
+  return `<h2>Resultados de los picks recomendados</h2><p>${esc(summary)}</p>${rows}`;
+}
+function ohHighProbabilityBody(final){
+  const picks=Array.isArray(final?.picks)?final.picks:[],summary=final?.summary||{},hits=Number(summary.ACERTADO)||0,misses=Number(summary.FALLADO)||0,pending=Number(summary.PENDIENTE)||0,precision=Number(summary.precision);
+  const rows=picks.map(pick=>{
+    const probability=Number(pick.probability_at_recommendation??pick.probability),odds=pick.odds_at_recommendation??pick.odds,ev=Number(pick.ev_at_recommendation??pick.ev),result=String(pick.result||"PENDIENTE");
+    const icon=result==="ACERTADO"?"✅":result==="FALLADO"?"❌":"⏳",evClass=Number.isFinite(ev)?ev>0?"positive":"negative":"na";
+    return `<article class="oh-final-pick-result"><span class="oh-final-pick-icon">${icon}</span><div><b>${esc(pick.selection||ohPickLabel(String(pick.key||pick.pick_id||"")))}</b>${ohSourceBetTag(pick)}<small>Prob. <strong class="oh-probability-high">${esc(ohPickPercent(probability))}</strong> · Cuota ${esc(ohPickOdds(odds))}</small><small>EV <em class="${evClass}">${Number.isFinite(ev)&&ev>0?"+":""}${esc(ohPickPercent(ev))}</em></small></div><strong>${esc(result)}</strong></article>`;
+  }).join("");
+  return `<h2>Resultados de los picks de mayor probabilidad</h2><p>Probabilidad ≥ 60% (sin importar EV ni cuota)</p><div class="oh-precision-card"><b>${hits} ACERTADOS · ${misses} FALLADOS${pending?` · ${pending} PENDIENTES`:""}</b><strong>Precisión: ${Number.isFinite(precision)?`${precision}%`:"—"}</strong><span><i style="width:${Number.isFinite(precision)?precision:0}%"></i></span></div>${rows||`<div class="oh-final-empty">No hubo picks prepartido con probabilidad ≥ 60%.</div>`}`;
+}
+function ohFinalPicksSection(value){
+  const recommended=value?.final_pick_results||{},high=value?.high_probability_pick_results||{};
+  if(!recommended.available&&!high.available)return "";
+  const body=ohFinalResultsTab==="high"?ohHighProbabilityBody(high):ohFinalRecommendedBody(recommended);
+  return `<section class="panel oh-final-pick-results"><h2>✅ Resultados de los picks</h2><div class="oh-final-result-tabs"><button data-final-results-tab="recommended" class="${ohFinalResultsTab==="recommended"?"active":""}">Recomendados (${Array.isArray(recommended.picks)?recommended.picks.length:0})</button><button data-final-results-tab="high" class="${ohFinalResultsTab==="high"?"active":""}">Prob. ≥ 60% (${Array.isArray(high.picks)?high.picks.length:0})</button></div><div class="oh-final-results-body">${body}</div></section>`;
 }
 
 let ohPicksSubTab="all";
@@ -780,7 +797,7 @@ function renderPicks(){
     const x=parts(a),y=parts(b);return x[0]-y[0]||x[1]-y[1];
   });
   const resultKeys=["result_home","result_draw","result_away","double_home_draw","double_away_draw","double_home_away"].filter(key=>probabilities[key]!==undefined);
-  const goalsKeys=halfLineKeys("goals"),cardsKeys=halfLineKeys("cards").filter(key=>!/_0_5$/.test(key)),cornerKeys=halfLineKeys("corners").sort((a,b)=>{
+  const goalsKeys=halfLineKeys("goals"),cardsKeys=halfLineKeys("cards").filter(key=>!/_0_5$/.test(key)),cornerKeys=halfLineKeys("corners").filter(key=>!/^corners_(?:over|under)_5_5$/.test(key)).sort((a,b)=>{
     const parse=key=>{const match=key.match(/_(over|under)_(\d+)_5$/);return match?{side:match[1],line:Number(`${match[2]}.5`)}:{side:"over",line:0}};
     const left=parse(a),right=parse(b),leftGroup=left.side==="over"?0:1,rightGroup=right.side==="over"?0:1;
     return leftGroup-rightGroup||(left.side==="over"?left.line-right.line:right.line-left.line);
@@ -795,7 +812,8 @@ function renderPicks(){
     ohPickGroup("Tarjetas","🟨",cardsKeys,probabilities,prices),
     ohPickGroup("Córners","🚩",cornerKeys,probabilities,prices)
   ].join("");
-  const best=top.map((pick,index)=>{const odds=pick?.current_odds??pick?.source_odds??pick?.estimated_odds??pick?.odds;return `<article class="oh-best-pick"><b>${index+1}</b><div><span>${esc(pick.market||"")} · ${esc(pick.selection||"")}</span>${ohSourceBetTag(pick)}<small>Prob. ${esc(String(pick.probability))}% · Cuota ${esc(ohPickOdds(odds))}</small></div><div><strong>EV/ROI ${Number(pick.ev)>0?"+":""}${esc(String(pick.ev))}%</strong><small>Apostar ${esc(String(pick.recommended_bankroll_pct))}% del bank</small></div></article>`}).join("");
+  const visibleTop=top.filter(pick=>!new Set(["corners_over_5_5","corners_under_5_5"]).has(String(pick?.key||pick?.pick_id||"")));
+  const best=visibleTop.map((pick,index)=>{const odds=pick?.current_odds??pick?.source_odds??pick?.estimated_odds??pick?.odds;return `<article class="oh-best-pick"><b>${index+1}</b><div><span>${esc(pick.market||"")} · ${esc(pick.selection||"")}</span>${ohSourceBetTag(pick)}<small>Prob. <strong class="${ohProbabilityClass(pick.probability)}">${esc(String(pick.probability))}%</strong> · Cuota ${esc(ohPickOdds(odds))}</small></div><div><strong>EV/ROI ${Number(pick.ev)>0?"+":""}${esc(String(pick.ev))}%</strong><small>Apostar ${esc(String(pick.recommended_bankroll_pct))}% del bank</small></div></article>`}).join("");
   const allWaiting=`<div class="panel oh-picks-wait"><h3>Picks en preparación</h3><p>Las probabilidades aparecerán cuando el análisis del partido esté disponible.</p></div>`;
   const bestWaiting=`<section class="panel oh-best-picks"><h2>4 mejores picks</h2><p>Solo valor esperado positivo · Kelly ¼ limitado al 5% del bank</p><small>Todavía no hay una cuota con EV positivo; OddsHunter no inventará una recomendación.</small></section>`;
   const allView=`<div class="oh-picks-view oh-picks-all"><h2>Todos los picks</h2>${groups||allWaiting}<small class="oh-picks-note">Las estimaciones se identifican como “Est. desde Bet365”; una cuota real siempre tiene prioridad. — indica que no existe un ancla suficiente.</small></div>`;
@@ -805,6 +823,10 @@ function renderPicks(){
   document.querySelectorAll("[data-picks-tab]").forEach(button=>button.addEventListener("click",()=>{
     const next=button.dataset.picksTab;
     if(next!==ohPicksSubTab){ohPicksSubTab=next;renderPicks()}
+  }));
+  document.querySelectorAll("[data-final-results-tab]").forEach(button=>button.addEventListener("click",()=>{
+    const next=button.dataset.finalResultsTab;
+    if(next!==ohFinalResultsTab){ohFinalResultsTab=next;renderPicks()}
   }));
 }
 

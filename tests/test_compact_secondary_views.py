@@ -33,7 +33,7 @@ def test_deployment_requires_the_compact_secondary_marker():
     ).read_text(encoding="utf-8")
 
     assert 'COMPACT_SECONDARY_MARKER = "OH_COMPACT_SECONDARY_VIEWS_V20"' in recovery
-    assert "1.28.0-scored-final-picks" in recovery
+    assert "1.29.0-complete-fixtures-results" in recovery
     assert workflow.count("OH_COMPACT_SECONDARY_VIEWS_V20") >= 3
 
 
@@ -48,7 +48,7 @@ def test_match_summary_uses_the_compact_centered_reference():
     assert '.summary-lead{width:100%;margin:6px 0 2px;color:var(--muted)' in styles
     assert '.summary-primary-value{width:100%;margin:0' in styles
     assert 'MATCH_SUMMARY_COMPACT_MARKER = "OH_MATCH_SUMMARY_COMPACT_REFERENCE_V21"' in recovery
-    assert "1.28.0-scored-final-picks" in recovery
+    assert "1.29.0-complete-fixtures-results" in recovery
 
 
 def test_match_view_honors_dark_theme_and_compacts_section_titles():
@@ -69,7 +69,7 @@ def test_match_view_honors_dark_theme_and_compacts_section_titles():
     assert 'getPropertyValue("--text")' in script
     assert 'getPropertyValue("--muted")' in script
     assert 'MATCH_THEME_MARKER = "OH_MATCH_THEME_AND_TITLES_V22"' in recovery
-    assert "1.28.0-scored-final-picks" in recovery
+    assert "1.29.0-complete-fixtures-results" in recovery
 
 
 def test_picks_read_persisted_current_odds_and_all_picks_schema():
@@ -79,12 +79,12 @@ def test_picks_read_persisted_current_odds_and_all_picks_schema():
     assert "price?.current_odds??price?.source_odds??price?.estimated_odds??price?.odds" in script
     assert "Array.isArray(value.all_picks)?value.all_picks:[]" in script
     assert "pick?.current_odds??pick?.source_odds??pick?.estimated_odds??pick?.odds" in script
-    assert "app.js?v=1.28.0-scored-final-picks" in recovery
-    assert "app.css?v=1.28.0-scored-final-picks" in recovery
-    assert "oh-mobile-v1-28-0-scored-final-picks" in recovery
-    assert 'sw.js?v=1.28.0-scored-final-picks' in recovery
-    assert 'name="oddshunter-build" content="1.28.0-scored-final-picks"' in recovery
-    assert 'dataset.oddshunterBuild="1.28.0-scored-final-picks"' in script
+    assert "app.js?v=1.29.0-complete-fixtures-results" in recovery
+    assert "app.css?v=1.29.0-complete-fixtures-results" in recovery
+    assert "oh-mobile-v1-29-0-complete-fixtures-results" in recovery
+    assert 'sw.js?v=1.29.0-complete-fixtures-results' in recovery
+    assert 'name="oddshunter-build" content="1.29.0-complete-fixtures-results"' in recovery
+    assert 'dataset.oddshunterBuild="1.29.0-complete-fixtures-results"' in script
     assert 'ohPickGroup("Ambos marcan"' in script
     assert 'ohPickGroup("Gol en primera mitad"' in script
     assert 'const exact=n.toFixed(3);return exact.endsWith("0")?n.toFixed(2):exact' in script
@@ -121,11 +121,24 @@ def test_v28_mobile_orders_corners_and_renders_original_final_pick_values():
     assert "probability_at_recommendation" in script
     assert "odds_at_recommendation" in script
     assert "ev_at_recommendation" in script
-    assert "Resultado de los picks recomendados" in script
+    assert "Resultados de los picks recomendados" in script
     assert ".oh-final-pick-results" in styles
     assert workflow.count("OH_TOP_PICK_SCORE_V28") >= 2
     assert workflow.count("OH_FINAL_PICK_RESULTS_V28") >= 2
     assert workflow.count("OH_CORNERS_VISUAL_ORDER_V28") >= 2
+
+
+def test_v29_hides_corner_5_5_and_separates_probability_from_ev():
+    script = (ROOT / "vercel_assets" / "match_summary_v2.js").read_text(encoding="utf-8")
+    styles = (ROOT / "vercel_assets" / "match_summary_v2.css").read_text(encoding="utf-8")
+    assert "OH_COMPLETE_FIXTURES_RESULTS_V29" in script
+    assert '^corners_(?:over|under)_5_5$' in script
+    assert 'function ohProbabilityClass(value)' in script
+    assert '.oh-probability-high' in styles
+    assert 'data-final-results-tab="recommended"' in script
+    assert 'data-final-results-tab="high"' in script
+    assert "Resultados de los picks de mayor probabilidad" in script
+    assert "Probabilidad ≥ 60% (sin importar EV ni cuota)" in script
 
 
 def test_vercel_backend_ships_asian_engine_inside_backend_package():

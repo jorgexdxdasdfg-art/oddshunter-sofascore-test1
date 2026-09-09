@@ -5,13 +5,9 @@ on:
   push:
     branches: [main]
     paths:
-      - cloud_live_status_sync.py
-      - cloud_schedule_refresh.py
-      - mobile_schedule_seed_builder.py
       - deploy/oddshunter-schedule-refresh.service
       - deploy/oddshunter-schedule-refresh.timer
       - deploy/mobile_schedule_catalog_seed.json.gz
-      - .github/workflows/oddshunter-schedule-catalog-deploy-v2.yml
 
 permissions:
   contents: read
