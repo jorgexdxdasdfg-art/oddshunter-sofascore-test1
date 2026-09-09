@@ -37,7 +37,22 @@ def has_visible_characteristics(analysis_root: Path, competition_key: str, event
         return False
     status = str(analysis.get("status") or analysis.get("analysis_status") or "").upper()
     models = goals.get("models") if isinstance(goals, dict) else None
-    return status in VISIBLE_ANALYSIS_STATES and isinstance(models, dict) and bool(models)
+    if status not in VISIBLE_ANALYSIS_STATES or not isinstance(models, dict):
+        return False
+    # Placeholder bundles can contain a named but empty model.  Mobile only has
+    # usable characteristics once a model exposes the complete 1X2 outcome.
+    for name in ("MODELO_APRENDIDO", "MODELO_GOLES", "MODELO_XG"):
+        model = models.get(name)
+        outcome = model.get("outcome_probabilities") if isinstance(model, dict) else None
+        if not isinstance(outcome, dict):
+            continue
+        try:
+            values = [float(outcome[key]) for key in ("home_win", "draw", "away_win")]
+        except (KeyError, TypeError, ValueError):
+            continue
+        if all(value >= 0 for value in values):
+            return True
+    return False
 
 
 def select_pending_fixture_analyses(

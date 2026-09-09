@@ -36,7 +36,10 @@ def test_completed_bundle_is_skipped_but_ready_placeholder_is_not(tmp_path: Path
     completed = tmp_path / "mls" / "1"
     completed.mkdir(parents=True)
     (completed / "analysis.json").write_text('{"status":"FULL"}', encoding="utf-8")
-    (completed / "goals.json").write_text('{"models":{"MODELO_GOLES":{}}}', encoding="utf-8")
+    (completed / "goals.json").write_text(
+        '{"models":{"MODELO_GOLES":{"outcome_probabilities":{"home_win":0.5,"draw":0.25,"away_win":0.25}}}}',
+        encoding="utf-8",
+    )
     selected = select_pending_fixture_analyses(
         [row(1, 10, "2026-09-09T20:00:00Z"), row(2, 10, "2026-09-09T21:00:00Z")],
         {10: {"key": "mls"}},
@@ -45,6 +48,21 @@ def test_completed_bundle_is_skipped_but_ready_placeholder_is_not(tmp_path: Path
         limit=64,
     )
     assert [item["event_id"] for item in selected] == [2]
+
+
+def test_named_but_empty_model_remains_pending(tmp_path: Path) -> None:
+    placeholder = tmp_path / "mls" / "1"
+    placeholder.mkdir(parents=True)
+    (placeholder / "analysis.json").write_text('{"status":"FULL"}', encoding="utf-8")
+    (placeholder / "goals.json").write_text('{"models":{"MODELO_GOLES":{}}}', encoding="utf-8")
+    selected = select_pending_fixture_analyses(
+        [row(1, 10, "2026-09-09T20:00:00Z")],
+        {10: {"key": "mls"}},
+        tmp_path,
+        now=datetime(2026, 9, 9, 12, tzinfo=timezone.utc),
+        limit=64,
+    )
+    assert [item["event_id"] for item in selected] == [1]
 
 
 def test_accepts_sqlite_rows_used_by_stage5(tmp_path: Path) -> None:
