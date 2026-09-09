@@ -53,7 +53,8 @@ jobs:
           SSH=(ssh -i ~/.ssh/oddshunter_analysis -p "$VPS_PORT" -o BatchMode=yes -o StrictHostKeyChecking=yes "$VPS_USER@$VPS_HOST")
           "${SCP[@]}" fixture_analysis_queue.py stage5_complete_fixture_analysis_patch.py "$VPS_USER@$VPS_HOST:/tmp/"
           "${SSH[@]}" 'bash -s' <<'REMOTE'
-          set -euo pipefail
+          set -eEuo pipefail
+          trap 'echo "REMOTE_FAILURE_LINE=$LINENO COMMAND=$BASH_COMMAND"' ERR
           if [ "$(id -u)" -eq 0 ]; then SUDO=""; else SUDO="sudo -n"; fi
           CUR="$(readlink -f /opt/oddshunter/current)"
           PY="$CUR/.venv-cloud/bin/python"

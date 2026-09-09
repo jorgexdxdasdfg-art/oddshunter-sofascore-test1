@@ -3,6 +3,7 @@ from __future__ import annotations
 """Mechanical patch for the deployed Stage5 analysis queue."""
 
 import argparse
+import re
 from pathlib import Path
 
 
@@ -47,15 +48,17 @@ def patch_source(source: str) -> str:
     if start < 0 or end < 0:
         raise RuntimeError("STAGE5_ANALYSIS_QUEUE_ANCHOR_NOT_FOUND")
     patched = source[:start] + REPLACEMENT + source[end + 1 :]
-    old_call = "analysis_targets = future_analysis_targets(con, by_league, 2)"
     new_call = (
         'analysis_targets = future_analysis_targets(\n'
         '            con, by_league,\n'
         '            int(os.environ.get("ODDSHUNTER_ANALYSIS_TARGET_LIMIT", "64")),\n'
         '        )'
     )
-    if old_call in patched:
-        patched = patched.replace(old_call, new_call, 1)
+    call_pattern = re.compile(
+        r"analysis_targets\s*=\s*future_analysis_targets\(\s*con\s*,\s*by_league\s*,\s*\d+\s*\)"
+    )
+    if call_pattern.search(patched):
+        patched = call_pattern.sub(new_call, patched, count=1)
     elif "ODDSHUNTER_ANALYSIS_TARGET_LIMIT" not in patched:
         raise RuntimeError("STAGE5_ANALYSIS_LIMIT_CALL_NOT_FOUND")
     return patched
