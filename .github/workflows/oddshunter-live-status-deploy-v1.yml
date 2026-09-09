@@ -12,6 +12,7 @@ on:
       - "sofascore_event_client.py"
       - "mobile_schedule_seed_builder.py"
       - "deploy/mobile_schedule_catalog_seed.json.gz"
+      - "deploy/mobile_schedule_bootstrap.json.gz"
       - "deploy/oddshunter-live-sync.*"
       - "deploy/oddshunter-schedule-refresh.*"
       - ".github/workflows/oddshunter-live-status-deploy-v1.yml"
@@ -141,6 +142,10 @@ jobs:
             -o BatchMode=yes -o StrictHostKeyChecking=yes \
             deploy/mobile_schedule_catalog_seed.json.gz \
             "$VPS_USER@$VPS_HOST:/tmp/mobile_schedule_catalog_seed.json.gz"
+          scp -i ~/.ssh/oddshunter_live -P "$VPS_PORT" \
+            -o BatchMode=yes -o StrictHostKeyChecking=yes \
+            deploy/mobile_schedule_bootstrap.json.gz \
+            "$VPS_USER@$VPS_HOST:/tmp/mobile_schedule_bootstrap.json.gz"
 
       - name: Instalar, ejecutar y verificar
         env:
@@ -215,6 +220,8 @@ jobs:
             /tmp/exact_final_actuals.json /var/lib/oddshunter/data/exact_final_actuals.json
           $SUDO install -o oddshunter -g oddshunter -m 0640 \
             /tmp/mobile_schedule_catalog_seed.json.gz /var/lib/oddshunter/data/mobile_schedule_catalog_seed.json.gz
+          $SUDO install -o oddshunter -g oddshunter -m 0640 \
+            /tmp/mobile_schedule_bootstrap.json.gz /var/lib/oddshunter/data/mobile_schedule_bootstrap.json.gz
 
           $SUDO -u oddshunter "$PY" - "$CUR/cloud_live_status_sync.py" <<'PY'
           from pathlib import Path

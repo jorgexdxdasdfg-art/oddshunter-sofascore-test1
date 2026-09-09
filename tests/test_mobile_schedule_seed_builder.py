@@ -1,4 +1,8 @@
-from mobile_schedule_seed_builder import preserve_previous_coverage
+import gzip
+import json
+from datetime import datetime, timezone
+
+from mobile_schedule_seed_builder import load_schedule_bootstrap, preserve_previous_coverage
 
 
 def event(event_id: int, day: str, status: str = "NS") -> dict:
@@ -49,3 +53,25 @@ def test_refresh_discards_days_outside_the_rolling_window() -> None:
 
     assert {row["event_id"] for row in merged["events"]} == {2, 5}
     assert set(merged["counts_by_day"]) == {"2026-09-08", "2026-09-09"}
+
+
+def test_season_bootstrap_is_filtered_to_active_three_day_window(tmp_path) -> None:
+    path = tmp_path / "bootstrap.json.gz"
+    document = {
+        "events": [
+            {"event_id": 10, "league_id": 1, "kickoff": "2026-09-09T18:00:00Z"},
+            {"event_id": 11, "league_id": 2, "kickoff": "2026-09-09T18:00:00Z"},
+            {"event_id": 12, "league_id": 1, "kickoff": "2026-09-15T18:00:00Z"},
+        ]
+    }
+    with gzip.open(path, "wt", encoding="utf-8") as handle:
+        json.dump(document, handle)
+
+    rows = load_schedule_bootstrap(
+        path,
+        {1: {"key": "league"}},
+        datetime(2026, 9, 8, tzinfo=timezone.utc),
+        datetime(2026, 9, 11, tzinfo=timezone.utc),
+    )
+
+    assert [row["event_id"] for row in rows] == [10]

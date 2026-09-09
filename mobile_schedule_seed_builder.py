@@ -100,6 +100,55 @@ def read_documents(folder: Path) -> tuple[dict[str, dict[str, Any]], list[dict[s
     return parsed, rows
 
 
+def load_schedule_bootstrap(
+    path: Path | None,
+    competitions: dict[int, dict[str, Any]],
+    start: datetime,
+    end: datetime,
+) -> list[dict[str, Any]]:
+    """Load the season calendar shipped to the VPS by the Desktop release.
+
+    This is fixture metadata only. It lets the cloud select each rolling
+    yesterday/today/tomorrow window without depending on the user's PC or on a
+    successful tournament-cursor request during that specific refresh.
+    """
+
+    if path is None or not path.is_file():
+        return []
+    try:
+        with gzip.open(path, "rt", encoding="utf-8-sig") as handle:
+            document = json.load(handle)
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        return []
+    source = document.get("events", []) if isinstance(document, dict) else document
+    if not isinstance(source, list):
+        return []
+    rows: list[dict[str, Any]] = []
+    for raw in source:
+        if not isinstance(raw, dict):
+            continue
+        kickoff = parse_dt(raw.get("kickoff"))
+        try:
+            league_id = int(raw.get("league_id") or 0)
+            event_id = int(raw.get("event_id") or 0)
+        except (TypeError, ValueError):
+            continue
+        if (
+            event_id <= 0
+            or league_id not in competitions
+            or kickoff is None
+            or kickoff < start
+            or kickoff >= end
+        ):
+            continue
+        row = dict(raw)
+        row["event_id"] = event_id
+        row["league_id"] = league_id
+        row["kickoff"] = kickoff.isoformat()
+        rows.append(row)
+    return rows
+
+
 def provider_event(event_id: int) -> dict[str, Any] | None:
     url = f"https://api.sofascore.com/api/v1/event/{event_id}"
     for attempt in range(3):
@@ -284,6 +333,18 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
     ).fetchall() if int(row["league_id"]) in competitions]
     con.close()
 
+    # The bootstrap contains the complete season schedule already known by
+    # Desktop. SQLite remains authoritative for rows it has; bootstrap rows
+    # only fill fixtures absent from the incremental VPS working database.
+    known_db_ids = {int(row["event_id"]) for row in db_rows}
+    bootstrap_rows = load_schedule_bootstrap(
+        args.bootstrap, competitions, start, end
+    )
+    for row in bootstrap_rows:
+        if int(row["event_id"]) not in known_db_ids:
+            db_rows.append(row)
+            known_db_ids.add(int(row["event_id"]))
+
     exact: dict[int, dict[str, Any] | None] = {}
     errors: dict[int, str] = {}
     if not args.skip_provider:
@@ -440,7 +501,13 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
         "counts_by_day": counts_by_day,
         "leagues_by_day": {day: sorted(keys) for day, keys in leagues_by_day.items()},
         "event_ids_by_day": {day: sorted(ids) for day, ids in event_ids_by_day.items()},
-        "validation": {"input_events": len(db_rows), "corrected_event_ids": sorted(corrected), "excluded": excluded, "provider_errors": errors},
+        "validation": {
+            "input_events": len(db_rows),
+            "bootstrap_events_in_window": len(bootstrap_rows),
+            "corrected_event_ids": sorted(corrected),
+            "excluded": excluded,
+            "provider_errors": errors,
+        },
     }
 
 
@@ -453,6 +520,7 @@ def main() -> int:
     parser.add_argument("--now")
     parser.add_argument("--workers", type=int, default=6)
     parser.add_argument("--skip-provider", action="store_true")
+    parser.add_argument("--bootstrap", type=Path)
     args = parser.parse_args()
     previous: dict[str, Any] = {}
     if args.output.is_file():

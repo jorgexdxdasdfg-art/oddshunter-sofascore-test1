@@ -17,12 +17,12 @@ ROOT = Path(__file__).resolve().parent
 DATA = ROOT / "data"
 DB = Path(os.environ.get("ODDSHUNTER_WORK_DB", "/var/lib/oddshunter/data/oddshunter.db"))
 SEED = Path(os.environ.get("ODDSHUNTER_SCHEDULE_CATALOG_SEED", "/var/lib/oddshunter/data/mobile_schedule_catalog_seed.json.gz"))
+BOOTSTRAP = Path(os.environ.get("ODDSHUNTER_SCHEDULE_BOOTSTRAP", "/var/lib/oddshunter/data/mobile_schedule_bootstrap.json.gz"))
 REPORT = DATA / "automation" / "cloud_schedule_refresh" / "last.json"
 
 
 def run() -> dict[str, Any]:
-    build = subprocess.run(
-        [
+    command = [
             sys.executable,
             "-u",
             str(ROOT / "mobile_schedule_seed_builder.py"),
@@ -36,7 +36,11 @@ def run() -> dict[str, Any]:
             str(SEED),
             "--workers",
             "6",
-        ],
+        ]
+    if BOOTSTRAP.is_file():
+        command.extend(["--bootstrap", str(BOOTSTRAP)])
+    build = subprocess.run(
+        command,
         cwd=ROOT,
         check=True,
         text=True,
