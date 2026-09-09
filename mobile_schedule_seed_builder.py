@@ -143,8 +143,11 @@ def provider_competition_events(competition: dict[str, Any]) -> list[dict[str, A
     season_id = int(competition["season_id"])
     found: dict[int, dict[str, Any]] = {}
     for direction in ("last", "next"):
+        # The bare API host rejects tournament cursors from the cloud runtime
+        # (HTTP 403), while SofaScore's public web API host serves the same
+        # fixture document and is already used by the live-status pipeline.
         url = (
-            f"https://api.sofascore.com/api/v1/unique-tournament/{tournament_id}/"
+            f"https://www.sofascore.com/api/v1/unique-tournament/{tournament_id}/"
             f"season/{season_id}/events/{direction}/0"
         )
         completed = subprocess.run(

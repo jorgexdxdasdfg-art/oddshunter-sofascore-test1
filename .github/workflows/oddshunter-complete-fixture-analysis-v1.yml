@@ -8,6 +8,7 @@ on:
       - stage5_complete_fixture_analysis_patch.py
       - tests/test_fixture_analysis_queue.py
       - .github/workflows/oddshunter-complete-fixture-analysis-v1.yml
+      - mobile_schedule_seed_builder.py
   workflow_dispatch:
 
 permissions:
