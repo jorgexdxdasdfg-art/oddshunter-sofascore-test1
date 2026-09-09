@@ -1,4 +1,5 @@
 name: OddsHunter Complete Fixture Analysis V1
+# Publishes the provider-complete calendar before draining analysis work.
 
 on:
   push:
