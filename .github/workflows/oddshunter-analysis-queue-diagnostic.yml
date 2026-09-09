@@ -1,5 +1,5 @@
 name: OddsHunter Analysis Queue Diagnostic
-# Read-only probe for the complete-fixture analysis rollout (queue check).
+# Read-only probe for the complete-fixture analysis rollout (coverage check).
 
 on:
   push:

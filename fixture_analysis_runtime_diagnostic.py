@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import sqlite3
 import sys
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 
@@ -36,24 +36,33 @@ def main() -> int:
     con.close()
     now = datetime.now(timezone.utc)
     pending = select_pending_fixture_analyses(rows, by_league, root / "data" / "analisis", now=now, limit=64)
+    ecuador = timezone(timedelta(hours=-5))
+    local_today = now.astimezone(ecuador).date()
+    operational_days = {local_today - timedelta(days=1), local_today, local_today + timedelta(days=1)}
     nearby = []
+    counts_all: dict[str, int] = {}
+    counts_registry: dict[str, int] = {}
     for raw in rows:
         row = dict(raw)
         dt = _parse_dt(row.get("kickoff"))
-        if dt and abs((dt - now).total_seconds()) <= 60 * 60 * 48:
+        if dt and dt.astimezone(ecuador).date() in operational_days:
             comp = by_league.get(int(row.get("league_id") or 0))
             key = str((comp or {}).get("key") or "")
+            day = dt.astimezone(ecuador).date().isoformat()
+            counts_all[day] = counts_all.get(day, 0) + 1
+            if comp:
+                counts_registry[day] = counts_registry.get(day, 0) + 1
             nearby.append({
                 "event_id": row.get("sofascore_id"),
-                "kickoff_raw": row.get("kickoff"),
-                "kickoff_parsed": dt.isoformat(),
+                "day": day,
+                "kickoff": dt.isoformat(),
                 "league_id": row.get("league_id"),
                 "registry_match": bool(comp),
-                "competition_key": key,
-                "visible_bundle": has_visible_characteristics(root / "data" / "analisis", key, int(row.get("sofascore_id") or 0)) if key else None,
+                "key": key,
+                "visible": has_visible_characteristics(root / "data" / "analisis", key, int(row.get("sofascore_id") or 0)) if key else None,
                 "match": f'{row.get("home_team")} vs {row.get("away_team")}',
             })
-    print(json.dumps({"now": now.isoformat(), "active_leagues": len(by_league), "rows": len(rows), "pending": pending, "nearby": nearby}, ensure_ascii=False))
+    print(json.dumps({"now": now.isoformat(), "active_leagues": len(by_league), "rows": len(rows), "counts_all": counts_all, "counts_registry": counts_registry, "pending_count": len(pending), "operational": nearby}, ensure_ascii=False))
     return 0
 
 
