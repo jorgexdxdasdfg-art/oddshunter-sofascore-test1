@@ -364,6 +364,7 @@ def test_high_probability_results_ignore_odds_ev_and_use_display_selection():
         {"key": "goals_under_3_5", "probability": 75.4, "odds": 1.36, "ev": -19.0, "display_line": 3.5},
         {"key": "btts_yes", "probability": 59.9, "odds": 2.0, "ev": 19.8},
         {"key": "corners_over_5_5", "probability": 99.0, "odds": 1.01, "ev": 0.0, "display_line": 5.5},
+        {"key": "cards_over_0_5", "probability": 98.0, "odds": None, "ev": None, "display_line": 0.5},
     ], "2026-09-08T20:00:00Z")
     result = high_probability_pick_results(
         snapshot,

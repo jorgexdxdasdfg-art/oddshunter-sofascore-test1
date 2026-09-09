@@ -39,6 +39,11 @@ TOTAL_MARKETS = {
     "corner_line": ("corners", "Córners", {5.5, 6.5, 7.5, 8.5, 9.5, 10.5, 11.5}),
 }
 
+HIDDEN_VISUAL_PICK_KEYS = {
+    "cards_over_0_5", "cards_under_0_5",
+    "corners_over_5_5", "corners_under_5_5",
+}
+
 
 def number(value: Any) -> float | None:
     try:
@@ -723,7 +728,7 @@ def rank_value_picks(
     rows: list[dict[str, Any]] = []
     for quote in preferred_visual_prices(prices):
         key = str(quote.get("key"))
-        if key in {"corners_over_5_5", "corners_under_5_5"}:
+        if key in HIDDEN_VISUAL_PICK_KEYS:
             continue
         model_probability = probabilities.get(key)
         odds = number(quote.get("current_odds", quote.get("source_odds", quote.get("odds"))))
@@ -923,7 +928,7 @@ def final_pick_results(
     rows = []
     for original in snapshot:
         row = dict(original)
-        if str(row.get("key") or row.get("pick_id") or "") in {"corners_over_5_5", "corners_under_5_5"}:
+        if str(row.get("key") or row.get("pick_id") or "") in HIDDEN_VISUAL_PICK_KEYS:
             continue
         row["result"] = _settle_recommended_pick(row, event, actual or {})
         rows.append(row)
@@ -970,7 +975,7 @@ def high_probability_pick_results(
     for original in snapshot:
         row = dict(original)
         key = str(row.get("key") or row.get("pick_id") or "")
-        if key in {"corners_over_5_5", "corners_under_5_5"}:
+        if key in HIDDEN_VISUAL_PICK_KEYS:
             continue
         model_probability = number(row.get("probability_at_recommendation", row.get("probability")))
         if model_probability is None or model_probability < threshold:
