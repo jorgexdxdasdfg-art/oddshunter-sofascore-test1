@@ -57,11 +57,12 @@ def select_pending_fixture_analyses(
     seen_events: set[int] = set()
 
     for row in rows:
-        kickoff = _parse_dt(row.get("kickoff"))
+        record = dict(row)
+        kickoff = _parse_dt(record.get("kickoff"))
         if kickoff is None or kickoff < now or kickoff >= end:
             continue
-        event_id = int(row.get("sofascore_id") or 0)
-        competition = by_league.get(int(row.get("league_id") or 0))
+        event_id = int(record.get("sofascore_id") or 0)
+        competition = by_league.get(int(record.get("league_id") or 0))
         if event_id <= 0 or competition is None or event_id in seen_events:
             continue
         key = str(competition.get("key") or "").strip()
@@ -73,11 +74,11 @@ def select_pending_fixture_analyses(
             "event_id": event_id,
             "kickoff": kickoff.isoformat(),
             "start_timestamp": int(kickoff.timestamp()),
-            "home_team_id": int(row.get("home_team_id") or 0),
-            "home_team": str(row.get("home_team") or ""),
-            "away_team_id": int(row.get("away_team_id") or 0),
-            "away_team": str(row.get("away_team") or ""),
-            "season": row.get("season"),
+            "home_team_id": int(record.get("home_team_id") or 0),
+            "home_team": str(record.get("home_team") or ""),
+            "away_team_id": int(record.get("away_team_id") or 0),
+            "away_team": str(record.get("away_team") or ""),
+            "season": record.get("season"),
         })
         seen_events.add(event_id)
         if len(selected) >= max(1, int(limit)):

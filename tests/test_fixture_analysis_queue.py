@@ -1,5 +1,6 @@
 from datetime import datetime, timezone
 from pathlib import Path
+import sqlite3
 
 from fixture_analysis_queue import select_pending_fixture_analyses
 from stage5_complete_fixture_analysis_patch import patch_source
@@ -44,6 +45,24 @@ def test_completed_bundle_is_skipped_but_ready_placeholder_is_not(tmp_path: Path
         limit=64,
     )
     assert [item["event_id"] for item in selected] == [2]
+
+
+def test_accepts_sqlite_rows_used_by_stage5(tmp_path: Path) -> None:
+    connection = sqlite3.connect(":memory:")
+    connection.row_factory = sqlite3.Row
+    connection.executescript(
+        "CREATE TABLE q(sofascore_id,league_id,kickoff,season,home_team_id,home_team,away_team_id,away_team);"
+        "INSERT INTO q VALUES(99,10,'2026-09-09T20:00:00Z','2026',1,'Home',2,'Away');"
+    )
+    rows = connection.execute("SELECT * FROM q").fetchall()
+    selected = select_pending_fixture_analyses(
+        rows,
+        {10: {"key": "mls"}},
+        tmp_path,
+        now=datetime(2026, 9, 9, 12, tzinfo=timezone.utc),
+        limit=64,
+    )
+    assert [item["event_id"] for item in selected] == [99]
 
 
 def test_patch_removes_two_match_and_one_per_competition_contract() -> None:
