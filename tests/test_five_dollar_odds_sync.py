@@ -12,6 +12,7 @@ from five_dollar_odds_sync import (
     _schedule_documents,
     _target_events,
     match_fixture,
+    resolve_fixture,
 )
 
 
@@ -31,6 +32,45 @@ def test_exact_kickoff_accepts_provider_team_suffixes():
     }
     assert match_fixture(event, [fixture]) == fixture
 
+
+def test_psv_eindhoven_resolves_psv_alias_only_for_exact_fixture():
+    event = {
+        "competition_key": "uefa-champions-league",
+        "event_id": 16938896,
+        "kickoff": "2026-09-10T16:45:00+00:00",
+        "home_team": "PSV Eindhoven",
+        "away_team": "Shakhtar Donetsk",
+    }
+    fixture = {
+        "id": 1,
+        "kickoff_utc": "2026-09-10T16:45:00+00:00",
+        "teams": {
+            "home": {"name": "PSV"},
+            "away": {"name": "Shakhtar Donetsk"},
+        },
+    }
+
+    resolved, classification, score, _reason = resolve_fixture(event, [fixture])
+    assert resolved == fixture
+    assert classification == "RESOLVED_ALIAS"
+    assert score == 0.7
+
+    wrong_opponent = {
+        **fixture,
+        "id": 2,
+        "teams": {
+            "home": {"name": "PSV"},
+            "away": {"name": "Ajax"},
+        },
+    }
+    assert resolve_fixture(event, [wrong_opponent])[0] is None
+
+    wrong_kickoff = {
+        **fixture,
+        "id": 3,
+        "kickoff_utc": "2026-09-10T17:45:00+00:00",
+    }
+    assert resolve_fixture(event, [wrong_kickoff])[0] is None
 
 def test_similar_team_names_do_not_override_wrong_kickoff():
     event = {

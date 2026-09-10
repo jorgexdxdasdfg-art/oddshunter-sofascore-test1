@@ -39,6 +39,7 @@ TEAM_ALIASES = {
     "al ettifaq": "al ittifaq dammam",
     "al faisaly": "al faisaly harmah",
     "nec nijmegen": "nec",
+    "psv eindhoven": "psv",
     "al qadsiah": "al qadisiya al khubar",
     "al ahli": "al ahli jeddah",
     "bolton wanderers": "bolton",
