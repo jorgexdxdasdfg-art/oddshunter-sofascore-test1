@@ -700,7 +700,8 @@ document.body.classList.toggle("oh-home-mode",!document.querySelector('[data-vie
 /* OH_CORNERS_VISUAL_ORDER_V28 */
 /* OH_COMPLETE_FIXTURES_RESULTS_V29 */
 /* OH_COMPLETE_EV_TOP60_V30 */
-document.documentElement.dataset.oddshunterBuild="1.30.0-complete-ev-top60";
+/* OH_CORNERS_55_VISIBLE_V31 */
+document.documentElement.dataset.oddshunterBuild="1.30.1-complete-ev-top60";
 const ohPickLabels={
   result_home:"Gana local",result_draw:"Empate",result_away:"Gana visitante",
   double_home_draw:"Local o empate",double_away_draw:"Empate o visitante",double_home_away:"Local o visitante",
@@ -798,7 +799,7 @@ function renderPicks(){
     const x=parts(a),y=parts(b);return x[0]-y[0]||x[1]-y[1];
   });
   const resultKeys=["result_home","result_draw","result_away","double_home_draw","double_away_draw","double_home_away"].filter(key=>probabilities[key]!==undefined);
-  const goalsKeys=halfLineKeys("goals"),cardsKeys=halfLineKeys("cards").filter(key=>!/_0_5$/.test(key)),cornerKeys=halfLineKeys("corners").filter(key=>!/^corners_(?:over|under)_5_5$/.test(key)).sort((a,b)=>{
+  const goalsKeys=halfLineKeys("goals"),cardsKeys=halfLineKeys("cards").filter(key=>!/_0_5$/.test(key)),cornerKeys=halfLineKeys("corners").sort((a,b)=>{
     const parse=key=>{const match=key.match(/_(over|under)_(\d+)_5$/);return match?{side:match[1],line:Number(`${match[2]}.5`)}:{side:"over",line:0}};
     const left=parse(a),right=parse(b),leftGroup=left.side==="over"?0:1,rightGroup=right.side==="over"?0:1;
     return leftGroup-rightGroup||(left.side==="over"?left.line-right.line:right.line-left.line);
@@ -813,7 +814,7 @@ function renderPicks(){
     ohPickGroup("Tarjetas","🟨",cardsKeys,probabilities,prices),
     ohPickGroup("Córners","🚩",cornerKeys,probabilities,prices)
   ].join("");
-  const hiddenVisualPicks=new Set(["cards_over_0_5","cards_under_0_5","corners_over_5_5","corners_under_5_5"]);
+  const hiddenVisualPicks=new Set(["cards_over_0_5","cards_under_0_5"]);
   const visibleTop=top.filter(pick=>!hiddenVisualPicks.has(String(pick?.key||pick?.pick_id||"")));
   const best=visibleTop.map((pick,index)=>{const odds=pick?.current_odds??pick?.source_odds??pick?.estimated_odds??pick?.odds;return `<article class="oh-best-pick"><b>${index+1}</b><div><span>${esc(pick.market||"")} · ${esc(pick.selection||"")}</span>${ohSourceBetTag(pick)}<small>Prob. <strong class="${ohProbabilityClass(pick.probability)}">${esc(String(pick.probability))}%</strong> · Cuota ${esc(ohPickOdds(odds))}</small></div><div><strong>EV/ROI ${Number(pick.ev)>0?"+":""}${esc(String(pick.ev))}%</strong><small>Apostar ${esc(String(pick.recommended_bankroll_pct))}% del bank</small></div></article>`}).join("");
   const allWaiting=`<div class="panel oh-picks-wait"><h3>Picks en preparación</h3><p>Las probabilidades aparecerán cuando el análisis del partido esté disponible.</p></div>`;
