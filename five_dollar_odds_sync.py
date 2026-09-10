@@ -38,12 +38,18 @@ BET365_SLUG = "bet365"
 TEAM_ALIASES = {
     "al ettifaq": "al ittifaq dammam",
     "al faisaly": "al faisaly harmah",
+    "az alkmaar": "az",
+    "manchester united": "man utd",
     "nec nijmegen": "nec",
+    "olympique de marseille": "marseille",
     "psv eindhoven": "psv",
+    "sabah fk": "sabah",
+    "stade rennais": "rennes",
     "al qadsiah": "al qadisiya al khubar",
     "al ahli": "al ahli jeddah",
     "bolton wanderers": "bolton",
     "west ham united": "west ham",
+    "willem ii tilburg": "willem ii",
 }
 
 

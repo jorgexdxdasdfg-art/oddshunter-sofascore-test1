@@ -72,6 +72,84 @@ def test_psv_eindhoven_resolves_psv_alias_only_for_exact_fixture():
     }
     assert resolve_fixture(event, [wrong_kickoff])[0] is None
 
+
+def test_remaining_short_provider_names_resolve_only_exact_fixtures():
+    cases = [
+        {
+            "competition_key": "uefa-champions-league",
+            "event_id": 16938880,
+            "kickoff": "2026-09-10T19:00:00+00:00",
+            "wrong_kickoff": "2026-09-10T20:00:00+00:00",
+            "app_home": "Manchester United",
+            "app_away": "Sabah FK",
+            "provider_home": "Man Utd",
+            "provider_away": "Sabah",
+            "score": 0.7083,
+        },
+        {
+            "competition_key": "ligue-1",
+            "event_id": 16310954,
+            "kickoff": "2026-09-11T18:45:00+00:00",
+            "wrong_kickoff": "2026-09-11T19:45:00+00:00",
+            "app_home": "Stade Rennais",
+            "app_away": "Olympique de Marseille",
+            "provider_home": "Rennes",
+            "provider_away": "Marseille",
+            "score": 0.5881,
+        },
+        {
+            "competition_key": "eredivisie",
+            "event_id": 16316810,
+            "kickoff": "2026-09-11T18:00:00+00:00",
+            "wrong_kickoff": "2026-09-11T19:00:00+00:00",
+            "app_home": "AZ Alkmaar",
+            "app_away": "Willem II Tilburg",
+            "provider_home": "AZ",
+            "provider_away": "Willem II",
+            "score": 0.5296,
+        },
+    ]
+
+    for index, case in enumerate(cases, start=10):
+        event = {
+            "competition_key": case["competition_key"],
+            "event_id": case["event_id"],
+            "kickoff": case["kickoff"],
+            "home_team": case["app_home"],
+            "away_team": case["app_away"],
+        }
+        fixture = {
+            "id": index,
+            "kickoff_utc": case["kickoff"],
+            "teams": {
+                "home": {"name": case["provider_home"]},
+                "away": {"name": case["provider_away"]},
+            },
+        }
+
+        resolved, classification, score, _reason = resolve_fixture(event, [fixture])
+        assert resolved == fixture
+        assert classification == "RESOLVED_ALIAS"
+        assert round(score, 4) == case["score"]
+
+        wrong_opponent = {
+            **fixture,
+            "id": index + 100,
+            "teams": {
+                "home": {"name": case["provider_home"]},
+                "away": {"name": "Wrong Opponent"},
+            },
+        }
+        assert resolve_fixture(event, [wrong_opponent])[0] is None
+
+        wrong_kickoff = {
+            **fixture,
+            "id": index + 200,
+            "kickoff_utc": case["wrong_kickoff"],
+        }
+        assert resolve_fixture(event, [wrong_kickoff])[0] is None
+
+
 def test_similar_team_names_do_not_override_wrong_kickoff():
     event = {
         "kickoff": "2026-09-08T18:00:00+00:00",
