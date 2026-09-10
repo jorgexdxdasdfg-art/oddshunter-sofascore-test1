@@ -699,7 +699,8 @@ document.body.classList.toggle("oh-home-mode",!document.querySelector('[data-vie
 /* OH_FINAL_PICK_RESULTS_V28 */
 /* OH_CORNERS_VISUAL_ORDER_V28 */
 /* OH_COMPLETE_FIXTURES_RESULTS_V29 */
-document.documentElement.dataset.oddshunterBuild="1.29.1-complete-fixtures-results";
+/* OH_COMPLETE_EV_TOP60_V30 */
+document.documentElement.dataset.oddshunterBuild="1.30.0-complete-ev-top60";
 const ohPickLabels={
   result_home:"Gana local",result_draw:"Empate",result_away:"Gana visitante",
   double_home_draw:"Local o empate",double_away_draw:"Empate o visitante",double_home_away:"Local o visitante",
@@ -816,10 +817,10 @@ function renderPicks(){
   const visibleTop=top.filter(pick=>!hiddenVisualPicks.has(String(pick?.key||pick?.pick_id||"")));
   const best=visibleTop.map((pick,index)=>{const odds=pick?.current_odds??pick?.source_odds??pick?.estimated_odds??pick?.odds;return `<article class="oh-best-pick"><b>${index+1}</b><div><span>${esc(pick.market||"")} · ${esc(pick.selection||"")}</span>${ohSourceBetTag(pick)}<small>Prob. <strong class="${ohProbabilityClass(pick.probability)}">${esc(String(pick.probability))}%</strong> · Cuota ${esc(ohPickOdds(odds))}</small></div><div><strong>EV/ROI ${Number(pick.ev)>0?"+":""}${esc(String(pick.ev))}%</strong><small>Apostar ${esc(String(pick.recommended_bankroll_pct))}% del bank</small></div></article>`}).join("");
   const allWaiting=`<div class="panel oh-picks-wait"><h3>Picks en preparación</h3><p>Las probabilidades aparecerán cuando el análisis del partido esté disponible.</p></div>`;
-  const bestWaiting=`<section class="panel oh-best-picks"><h2>4 mejores picks</h2><p>Solo valor esperado positivo · Kelly ¼ limitado al 5% del bank</p><small>Todavía no hay una cuota con EV positivo; OddsHunter no inventará una recomendación.</small></section>`;
+  const bestWaiting=`<section class="panel oh-best-picks"><h2>4 mejores picks</h2><p>Probabilidad superior al 60% y EV positivo · Kelly ¼ limitado al 5% del bank</p><small>No hay suficientes selecciones que cumplan ambos requisitos; no se completará con picks débiles.</small></section>`;
   const allView=`<div class="oh-picks-view oh-picks-all"><h2>Todos los picks</h2>${groups||allWaiting}<small class="oh-picks-note">Las estimaciones se identifican como “Est. desde Bet365”; una cuota real siempre tiene prioridad. — indica que no existe un ancla suficiente.</small></div>`;
   const finalResults=ohFinalPicksSection(value);
-  const bestView=`<div class="oh-picks-view oh-picks-best">${best?`<section class="panel oh-best-picks"><h2>4 mejores picks</h2><p>Probabilidad, EV, coherencia y tendencia · Kelly ¼ limitado al 5% del bank</p>${best}</section>`:bestWaiting}${finalResults}</div>`;
+  const bestView=`<div class="oh-picks-view oh-picks-best">${best?`<section class="panel oh-best-picks"><h2>4 mejores picks</h2><p>Probabilidad superior al 60% y EV alto · Kelly ¼ limitado al 5% del bank</p>${best}</section>`:bestWaiting}${finalResults}</div>`;
   $("matchContent").innerHTML=`<div class="oh-picks-shell"><div class="oh-picks-subtabs" role="tablist" aria-label="Vistas de picks"><button type="button" data-picks-tab="all" class="${ohPicksSubTab==="all"?"active":""}">Todos los picks</button><button type="button" data-picks-tab="best" class="${ohPicksSubTab==="best"?"active":""}">4 mejores picks</button></div>${ohPicksSubTab==="best"?bestView:allView}</div>`;
   document.querySelectorAll("[data-picks-tab]").forEach(button=>button.addEventListener("click",()=>{
     const next=button.dataset.picksTab;

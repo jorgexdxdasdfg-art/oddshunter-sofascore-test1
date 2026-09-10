@@ -83,7 +83,59 @@ def test_only_exact_positive_ev_lines_reach_top_four():
     picks = rank_value_picks(probabilities, provider_prices(markets))
     assert len(picks) <= 4
     assert picks and all(pick["ev"] > 0 for pick in picks)
+    assert all(pick["probability"] > 60 for pick in picks)
     assert all(0 <= pick["recommended_bankroll_pct"] <= 5 for pick in picks)
+
+
+def test_line_only_bet365_anchor_fills_goals_and_first_half_with_estimates():
+    value = bundle()
+    context = {
+        "derived": {
+            "home_relevant": {"first_half_over_0_5": .75},
+            "away_relevant": {"first_half_over_0_5": .65},
+        },
+        "comparison": {
+            "home": {"matches": [
+                {"home_goals_1h": 1, "away_goals_1h": 0, "venue": "HOME"},
+                {"home_goals_1h": 0, "away_goals_1h": 0, "venue": "AWAY"},
+            ]},
+            "away": {"matches": [
+                {"home_goals_1h": 1, "away_goals_1h": 1, "venue": "AWAY"},
+                {"home_goals_1h": 0, "away_goals_1h": 1, "venue": "HOME"},
+            ]},
+        },
+    }
+    probabilities = model_probabilities(value, context)
+    prices = provider_prices({"btts": {"closing": {"yes": 1.91, "no": 1.91}}})
+    display = {row["key"]: row for row in market_anchored_prices(
+        value,
+        probabilities,
+        prices,
+        context,
+        {
+            "goal_line": {"closing": 4.5},
+            "goal_line_half": {"closing": 2.0},
+        },
+    )}
+
+    assert all(f"goals_{side}_{line}_5" in display for side in ("over", "under") for line in (1, 2, 3))
+    assert {"first_half_over_0_5", "first_half_under_0_5"} <= display.keys()
+    assert display["goals_over_1_5"]["price_origin"] == "BET365_ANCHORED_ESTIMATE"
+    assert "4.5 BET365 + margen Bet365" in display["goals_over_1_5"]["anchor_market"]
+    assert display["first_half_over_0_5"]["estimated_odds"] > 1
+
+
+def test_extreme_favorite_still_gets_valid_double_chance_estimate():
+    probabilities = {
+        "double_home_draw": .883,
+        "double_away_draw": .233,
+        "double_home_away": .885,
+    }
+    real = provider_prices({"1x2": {"closing": {"home": 1.062, "draw": 12, "away": 26}}})
+    display = {row["key"]: row for row in market_anchored_prices(bundle(), probabilities, real)}
+
+    assert {"double_home_draw", "double_away_draw", "double_home_away"} <= display.keys()
+    assert all(display[key]["estimated_odds"] > 1 for key in probabilities)
 
 
 def test_quarter_line_keeps_source_identity_when_mapped_to_visual_half_line():
@@ -222,13 +274,13 @@ def test_real_market_examples_preserve_source_ev_after_visual_mapping():
 
 
 def test_top_four_uses_source_ev_not_display_probability_formula():
-    probabilities = {"goals_over_2_5": .10}
+    probabilities = {"goals_over_2_5": .61}
     quote = {
         "key": "goals_over_2_5", "market": "Goles", "selection": "Más de 2.5",
         "odds": 2.0, "source_odds": 2.0, "source_line": 2.25,
         "source_ev": .15, "price_origin": "ASIAN_MAPPED",
     }
-    assert probabilities["goals_over_2_5"] * quote["odds"] - 1 == -.8
+    assert probabilities["goals_over_2_5"] * quote["odds"] - 1 == pytest.approx(.22)
     picks = rank_value_picks(probabilities, [quote])
     assert len(picks) == 1
     assert picks[0]["ev"] == 15.0
@@ -372,10 +424,10 @@ def test_high_probability_results_ignore_odds_ev_and_use_display_selection():
         {"home_corners": 5, "away_corners": 5, "home_yellow_cards": 1, "away_yellow_cards": 1},
     )
     assert [row["key"] for row in result["picks"]] == [
-        "cards_over_1_5", "corners_over_8_5", "goals_under_3_5",
+        "corners_over_5_5", "cards_over_1_5", "corners_over_8_5", "goals_under_3_5",
     ]
-    assert [row["result"] for row in result["picks"]] == ["ACERTADO", "ACERTADO", "ACERTADO"]
-    assert result["summary"] == {"ACERTADO": 3, "FALLADO": 0, "PENDIENTE": 0, "precision": 100.0}
+    assert [row["result"] for row in result["picks"]] == ["ACERTADO", "ACERTADO", "ACERTADO", "ACERTADO"]
+    assert result["summary"] == {"ACERTADO": 4, "FALLADO": 0, "PENDIENTE": 0, "precision": 100.0}
 
 
 def test_high_probability_pending_stats_are_not_assumed_zero():
@@ -394,10 +446,12 @@ def test_all_pick_snapshot_is_immutable_and_not_created_after_final():
     assert immutable_all_picks({}, [{"key": "result_home", "probability": 61.0}], "after", {"status": "FT"}) == []
 
 
-def test_corner_5_5_never_competes_for_top_four():
+def test_corner_5_5_is_available_to_top_four_when_it_passes_policy():
     probabilities = {"corners_over_5_5": .99, "goals_over_1_5": .70}
     prices = [
         {"key": "corners_over_5_5", "odds": 2.0},
         {"key": "goals_over_1_5", "odds": 2.0},
     ]
-    assert [row["key"] for row in rank_value_picks(probabilities, prices)] == ["goals_over_1_5"]
+    assert [row["key"] for row in rank_value_picks(probabilities, prices)] == [
+        "corners_over_5_5", "goals_over_1_5",
+    ]

@@ -50,7 +50,20 @@ def test_extreme_distant_estimate_does_not_automatically_beat_strong_exact_pick(
     assert ranked[0]["ev"] == 28.8
 
 
-def test_snapshot_preserves_original_values_and_is_immutable_on_refresh():
+def test_top_four_rejects_positive_ev_below_mandatory_probability_gate():
+    probabilities = {"result_away": .10, "btts_yes": .65}
+    prices = [
+        {"key": "result_away", "selection": "Visitante", "odds": 20.0},
+        {"key": "btts_yes", "selection": "Sí", "odds": 1.8},
+    ]
+
+    ranked = rank_value_picks(probabilities, prices)
+
+    assert [row["key"] for row in ranked] == ["btts_yes"]
+    assert ranked[0]["probability"] == 65.0
+
+
+def test_old_snapshot_below_probability_policy_is_replaced_on_refresh():
     ranked = [{
         "key": "goals_over_3_5", "market": "Goles", "selection": "Más de 3.5",
         "display_line": 3.5, "source_line": 2.75, "source_side": "over",
@@ -62,11 +75,10 @@ def test_snapshot_preserves_original_values_and_is_immutable_on_refresh():
 
     preserved = immutable_top_picks({"top_picks_snapshot": frozen}, replacement, "later")
 
-    assert preserved[0]["probability_at_recommendation"] == 45.7
-    assert preserved[0]["odds_at_recommendation"] == 1.90
-    assert preserved[0]["ev_at_recommendation"] == 6.3
-    assert preserved[0]["top_pick_score_at_recommendation"] == 54.2
-    assert preserved[0]["recommended_at"] == "2026-09-08T10:00:00Z"
+    assert preserved[0]["probability_at_recommendation"] == 99.0
+    assert preserved[0]["odds_at_recommendation"] == 9.9
+    assert preserved[0]["ev_at_recommendation"] == 99.0
+    assert preserved[0]["recommended_at"] == "later"
 
 
 def test_finished_match_without_prematch_snapshot_does_not_create_new_top_four():

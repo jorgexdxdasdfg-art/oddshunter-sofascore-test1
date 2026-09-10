@@ -787,7 +787,10 @@ def sync(
                     **refreshed_probabilities,
                 }
                 preserved_prices = attach_asian_source_values(bundle, preserved_prices)
-                display_prices = market_anchored_prices(bundle, probabilities, preserved_prices)
+                display_prices = market_anchored_prices(
+                    bundle, probabilities, preserved_prices, context,
+                    existing.get("provider_markets") or {},
+                )
                 all_picks = build_all_picks(probabilities, display_prices)
                 ranked = rank_value_picks(probabilities, display_prices, 4, bundle, context)
                 top_picks = immutable_top_picks(existing, ranked, checked_at, event)
@@ -969,7 +972,10 @@ def sync(
             context = {}
         context = {**context, "event": event}
         probabilities = model_probabilities(bundle, context)
-        display_prices = market_anchored_prices(bundle, probabilities, available)
+        display_prices = market_anchored_prices(
+            bundle, probabilities, available, context,
+            {**(existing.get("provider_markets") or {}), **markets},
+        )
         all_picks = build_all_picks(probabilities, display_prices)
         ranked = rank_value_picks(probabilities, display_prices, 4, bundle, context)
         top_picks = immutable_top_picks(existing, ranked, checked_at, event)

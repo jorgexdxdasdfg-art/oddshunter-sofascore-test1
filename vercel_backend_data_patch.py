@@ -37,18 +37,9 @@ def mobile_model_picks(
                 derived[side + "_general"] = {"first_half_over_0_5": value / 100}
         context["derived"] = derived
     value = refresh_model_picks(bundle, stored, context)
-    raw_snapshot = stored.get("top_picks_snapshot")
-    snapshot = raw_snapshot if isinstance(raw_snapshot, list) else []
-    raw_legacy = stored.get("top_picks")
-    legacy = raw_legacy if isinstance(raw_legacy, list) else []
-    if not snapshot and legacy:
-        snapshot = freeze_top_picks(
-            legacy,
-            str(stored.get("generated_at") or stored.get("last_checked_at") or ""),
-        )
+    snapshot = value.get("top_picks") if isinstance(value.get("top_picks"), list) else []
     if snapshot:
         value["top_picks_snapshot"] = snapshot
-        value["top_picks"] = snapshot
     raw_all_snapshot = stored.get("all_picks_snapshot")
     all_snapshot = raw_all_snapshot if isinstance(raw_all_snapshot, list) else []
     raw_all_legacy = stored.get("all_picks")
