@@ -8,6 +8,7 @@ import json
 import os
 import subprocess
 import sys
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -51,16 +52,30 @@ def run() -> dict[str, Any]:
 
     env = dict(os.environ)
     env["ODDSHUNTER_FORCE_SCHEDULE_CATALOG"] = "1"
-    publish = subprocess.run(
-        [sys.executable, "-u", str(ROOT / "cloud_live_status_sync.py"), "--catalog-only"],
-        cwd=ROOT,
-        env=env,
-        check=True,
-        text=True,
-        capture_output=True,
-        timeout=10 * 60,
-    )
-    print(publish.stdout, flush=True)
+    publish: subprocess.CompletedProcess[str] | None = None
+    for attempt in range(1, 4):
+        publish = subprocess.run(
+            [sys.executable, "-u", str(ROOT / "cloud_live_status_sync.py"), "--catalog-only"],
+            cwd=ROOT,
+            env=env,
+            check=False,
+            text=True,
+            capture_output=True,
+            timeout=10 * 60,
+        )
+        print(publish.stdout, flush=True)
+        if publish.stderr:
+            print(publish.stderr, file=sys.stderr, flush=True)
+        if publish.returncode == 0:
+            break
+        print(f"SCHEDULE_CATALOG_PUBLISH_RETRY={attempt}/3 rc={publish.returncode}", flush=True)
+        if attempt < 3:
+            time.sleep(2 * attempt)
+    if publish is None or publish.returncode != 0:
+        raise RuntimeError(
+            "No se pudo publicar el catálogo después de 3 intentos; "
+            f"returncode={getattr(publish, 'returncode', None)}"
+        )
 
     with gzip.open(SEED, "rt", encoding="utf-8") as handle:
         catalog = json.load(handle)

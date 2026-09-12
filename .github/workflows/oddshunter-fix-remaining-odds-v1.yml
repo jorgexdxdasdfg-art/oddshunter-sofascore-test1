@@ -75,7 +75,8 @@ jobs:
               -p Environment=ODDSHUNTER_ALLOW_WORK_DB_WRITE=1 \
               -p Environment=ODDSHUNTER_STAGE6_ALLOW_TURSO_WRITE=1 \
               -p Environment=ODDSHUNTER_FORCE_SCHEDULE_CATALOG=1 \
-              \"\$CUR/.venv-cloud/bin/python\" -u \"\$CUR/cloud_schedule_refresh.py\"
+              \"\$CUR/.venv-cloud/bin/python\" -u \"\$CUR/cloud_schedule_refresh.py\" || \
+              echo 'SCHEDULE_REFRESH_NONFATAL=odds_backfill_continues_against_published_catalog'
             \$SUDO systemd-run --quiet --wait --pipe --collect \
               --unit=oddshunter-odds-fix-${GITHUB_RUN_ID} \
               -p User=oddshunter -p Group=oddshunter \
