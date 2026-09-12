@@ -50,6 +50,13 @@ TEAM_ALIASES = {
     "bolton wanderers": "bolton",
     "west ham united": "west ham",
     "willem ii tilburg": "willem ii",
+    "real racing": "racing santander",
+    "alaves": "cd alaves",
+    "al taawoun": "al taawon buraidah",
+    "al hilal": "al hilal riyadh",
+    "1 koln": "cologne",
+    "sv werder bremen": "werder bremen",
+    "sc jacksonville": "sporting jax",
 }
 
 
