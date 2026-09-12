@@ -3,6 +3,7 @@ name: OddsHunter Analysis Queue Diagnostic
 # LOG_DIAG_TRIGGER=20260912T051743Z
 # HISTORY_DIAG_TRIGGER=20260912T052307Z
 # RATINGS_SOURCE_TRIGGER=20260912T052807Z
+# HISTORY_QUERY_TRIGGER=20260912T054406Z
 # Read-only probe for the complete-fixture analysis rollout (post-refresh check).
 
 on:
@@ -412,6 +413,104 @@ jobs:
                 sed -n "${start},${end}p"
             done <<< "$MATCHES"
           fi
+
+          echo "========== HISTORY QUERY SOURCE =========="
+
+          RATINGS="$CUR/ratings.py"
+
+          if [ -f "$RATINGS" ]; then
+            LINE="$(
+              grep -n '^def obtener_ultimos_partidos' "$RATINGS" |
+              head -n 1 |
+              cut -d: -f1
+            )"
+
+            if [ -n "$LINE" ]; then
+              END=$((LINE+220))
+              nl -ba "$RATINGS" | sed -n "${LINE},${END}p"
+            else
+              echo "OBTENER_ULTIMOS_PARTIDOS_NOT_FOUND"
+            fi
+          else
+            echo "RATINGS_PY_MISSING"
+          fi
+
+          echo "========== TARGET HISTORY STATS BY LEAGUE =========="
+
+          $SUDO -u oddshunter "$PY" - "$CUR/data/oddshunter.db" <<'PY'
+          import sqlite3,sys
+
+          con=sqlite3.connect(sys.argv[1])
+          con.row_factory=sqlite3.Row
+
+          targets={
+              197065:"Colorado Springs Switchbacks FC",
+              217134:"San Antonio FC",
+              310531:"New Mexico United",
+              148992:"Indy Eleven",
+              36525:"Club Tijuana",
+              1951:"Quer?taro FC",
+          }
+
+          for sid,name in targets.items():
+              team=con.execute(
+                  "SELECT team_id FROM teams WHERE sofascore_id=?",
+                  (sid,),
+              ).fetchone()
+
+              print("HISTORY_TEAM",sid,name)
+
+              if not team:
+                  print("TEAM_MISSING")
+                  continue
+
+              tid=int(team["team_id"])
+
+              rows=con.execute(
+                  """
+                  SELECT
+                      m.league_id,
+                      COUNT(DISTINCT m.match_id) AS matches,
+                      COUNT(DISTINCT s.match_id) AS stats_matches,
+                      MIN(m.kickoff) AS first_kickoff,
+                      MAX(m.kickoff) AS last_kickoff
+                  FROM matches m
+                  LEFT JOIN team_match_stats s
+                    ON s.match_id=m.match_id
+                   AND s.team_id=?
+                  WHERE m.home_team_id=? OR m.away_team_id=?
+                  GROUP BY m.league_id
+                  ORDER BY m.league_id
+                  """,
+                  (tid,tid,tid),
+              ).fetchall()
+
+              for row in rows:
+                  print(
+                      "HISTORY_SCOPE",
+                      dict(row),
+                  )
+
+          con.close()
+          PY
+
+          echo "========== TARGET INPUT MATCH JSON =========="
+
+          for spec in \
+            "usa-usl-championship/15285834" \
+            "usa-usl-championship/15285843" \
+            "ligamx-apertura/16317939"
+          do
+            F="$CUR/data/analisis/$spec/input_match.json"
+            echo "INPUT_TARGET=$spec"
+
+            if [ -f "$F" ]; then
+              cat "$F"
+              echo
+            else
+              echo "INPUT_MATCH_MISSING"
+            fi
+          done
 
           echo "========== TEAM_MATCH_STATS SCHEMA =========="
 
