@@ -408,6 +408,78 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
             db_rows.append(row)
             known_db_ids.add(int(row["event_id"]))
 
+    # Provider-independent recovery for fixtures independently confirmed
+    # in the active Ecuador rolling window while SofaScore blocks the VPS.
+    # These use the canonical SofaScore event IDs, so Mobile identity remains
+    # compatible with /api/match and later status/analysis reconciliation.
+    provider_blocked_backfill = (
+        {
+            "event_id": 15285834,
+            "league_id": 17680,
+            "kickoff": "2026-09-12T02:00:00+00:00",
+            "home_team": "Colorado Springs Switchbacks FC",
+            "away_team": "San Antonio FC",
+        },
+        {
+            "event_id": 15285843,
+            "league_id": 17680,
+            "kickoff": "2026-09-12T01:30:00+00:00",
+            "home_team": "New Mexico United",
+            "away_team": "Indy Eleven",
+        },
+        {
+            "event_id": 16317939,
+            "league_id": 407,
+            "kickoff": "2026-09-12T03:10:00+00:00",
+            "home_team": "Club Tijuana",
+            "away_team": "Quer?taro FC",
+        },
+        {
+            "event_id": 16361914,
+            "league_id": 1815,
+            "kickoff": "2026-09-11T18:45:00+00:00",
+            "home_team": "KV Mechelen",
+            "away_team": "RSC Anderlecht",
+        },
+        {
+            "event_id": 16483673,
+            "league_id": 3283,
+            "kickoff": "2026-09-11T17:00:00+00:00",
+            "home_team": "Be?ikta? JK",
+            "away_team": "Erzurumspor FK",
+        },
+    )
+
+    for fallback in provider_blocked_backfill:
+        event_id = int(fallback["event_id"])
+        league_id = int(fallback["league_id"])
+        kickoff = parse_dt(fallback["kickoff"])
+
+        if (
+            event_id in known_db_ids
+            or league_id not in competitions
+            or kickoff is None
+            or kickoff.astimezone(ECUADOR_TZ).date() not in allowed_days
+        ):
+            continue
+
+        competition = competitions[league_id]
+        db_rows.append({
+            "event_id": event_id,
+            "league_id": league_id,
+            "kickoff": kickoff.isoformat(),
+            "status": "NS",
+            "home_goals": None,
+            "away_goals": None,
+            "season_name": competition.get("season_name"),
+            "competition_name": competition.get("name") or competition.get("key"),
+            "home_team_id": None,
+            "home_team": fallback["home_team"],
+            "away_team_id": None,
+            "away_team": fallback["away_team"],
+        })
+        known_db_ids.add(event_id)
+
     exact: dict[int, dict[str, Any] | None] = {}
     errors: dict[int, str] = {}
     if not args.skip_provider:
