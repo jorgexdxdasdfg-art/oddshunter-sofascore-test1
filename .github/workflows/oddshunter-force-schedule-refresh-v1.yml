@@ -1,0 +1,78 @@
+﻿name: OddsHunter FORCE SCHEDULE REFRESH V1
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/oddshunter-force-schedule-refresh-v1.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - name: Preparar SSH
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_SSH_PRIVATE_KEY: ${{ secrets.VPS_SSH_PRIVATE_KEY }}
+          VPS_PORT_SECRET: ${{ secrets.VPS_PORT }}
+        run: |
+          set -eEuo pipefail
+          test -n "${VPS_HOST:-}"
+          test -n "${VPS_SSH_PRIVATE_KEY:-}"
+          PORT="${VPS_PORT_SECRET:-22}"
+          echo "VPS_PORT=$PORT" >> "$GITHUB_ENV"
+          install -d -m 0700 ~/.ssh
+          printf '%s\n' "$VPS_SSH_PRIVATE_KEY" > ~/.ssh/oddshunter_schedule
+          chmod 0600 ~/.ssh/oddshunter_schedule
+          ssh-keyscan -p "$PORT" -H "$VPS_HOST" > ~/.ssh/known_hosts
+
+      - name: Forzar refresh real
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+        run: |
+          set -eEuo pipefail
+          ssh -i ~/.ssh/oddshunter_schedule -p "$VPS_PORT" \
+            -o BatchMode=yes -o StrictHostKeyChecking=yes \
+            "$VPS_USER@$VPS_HOST" 'bash -s' <<'REMOTE'
+          set -eEuo pipefail
+          if [ "$(id -u)" -eq 0 ]; then SUDO=""; else SUDO="sudo -n"; fi
+          $SUDO true
+
+          CUR="$(readlink -f /opt/oddshunter/current)"
+          $SUDO systemctl daemon-reload
+
+          $SUDO systemctl stop oddshunter-schedule-refresh.service || true
+
+          if ! $SUDO systemctl start oddshunter-schedule-refresh.service; then
+            $SUDO journalctl -u oddshunter-schedule-refresh.service -n 250 --no-pager
+            exit 51
+          fi
+
+          $SUDO journalctl -u oddshunter-schedule-refresh.service -n 200 --no-pager
+
+          REPORT="$CUR/data/automation/cloud_schedule_refresh/last.json"
+
+          $SUDO -u oddshunter "$CUR/.venv-cloud/bin/python" - "$REPORT" <<'PY'
+          import json,sys
+
+          with open(sys.argv[1], encoding="utf-8") as handle:
+              report=json.load(handle)
+
+          print("FORCE_REFRESH_REPORT="+json.dumps(report,ensure_ascii=False,separators=(",",":")))
+
+          if report.get("result") != "PUBLISHED":
+              raise SystemExit("FORCE_REFRESH_NOT_PUBLISHED")
+          PY
+
+          test "$($SUDO systemctl is-enabled oddshunter-schedule-refresh.timer)" = "enabled"
+          test "$($SUDO systemctl is-active oddshunter-schedule-refresh.timer)" = "active"
+
+          echo "FORCE_SCHEDULE_REFRESH=PASS"
+          REMOTE
