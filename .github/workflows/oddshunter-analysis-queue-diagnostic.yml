@@ -56,3 +56,253 @@ jobs:
           STATUS="${STATUS//$'\n'/'%0A'}"
           STATUS="${STATUS//$'\r'/'%0D'}"
           echo "::notice title=Analysis queue runtime::$STATUS"
+
+          echo "========== DEEP STAGE5 DIAGNOSTIC =========="
+
+          "${SSH[@]}" 'bash -s' <<'REMOTE'
+          set -euo pipefail
+
+          if [ "$(id -u)" -eq 0 ]; then
+            SUDO=""
+          else
+            SUDO="sudo -n"
+          fi
+
+          CUR="$(readlink -f /opt/oddshunter/current)"
+          PY="$CUR/.venv-cloud/bin/python"
+          EPOCH="$(cat /tmp/oddshunter_complete_analysis_epoch 2>/dev/null || echo 0)"
+
+          echo "========== STAGE5 REPORT =========="
+          if [ -f "$CUR/artifacts/cloud_stage5_cycle.json" ]; then
+            $SUDO -u oddshunter "$PY" - "$CUR/artifacts/cloud_stage5_cycle.json" <<'PY'
+          import json,sys
+
+          path=sys.argv[1]
+          d=json.load(open(path,encoding="utf-8"))
+
+          for key in (
+              "stage5_pass",
+              "analysis_target_count",
+              "analysis_result_counts",
+              "criteria",
+              "result",
+              "error",
+              "errors",
+          ):
+              print(key,"=",d.get(key))
+
+          for key in (
+              "analysis_targets",
+              "selected_analysis_targets",
+              "analysis_results",
+          ):
+              value=d.get(key)
+              if value is not None:
+                  print(
+                      key+"=",
+                      json.dumps(
+                          value,
+                          ensure_ascii=False,
+                          default=str,
+                      )[:30000],
+                  )
+          PY
+          else
+            echo "STAGE5_REPORT_MISSING=YES"
+          fi
+
+          echo "========== TARGET FILE STATE =========="
+
+          $SUDO -u oddshunter "$PY" - "$CUR" <<'PY'
+          import json
+          import sqlite3
+          import sys
+          from pathlib import Path
+
+          root=Path(sys.argv[1])
+          sys.path.insert(0,str(root))
+
+          from fixture_analysis_queue import (
+              has_visible_characteristics,
+              load_schedule_seed_fixture_rows,
+          )
+
+          target_ids={
+              15285834,
+              15285843,
+              16317939,
+              16361914,
+              16483673,
+          }
+
+          registry=json.loads(
+              (root/"data"/"competitions.json").read_text(
+                  encoding="utf-8-sig"
+              )
+          )
+
+          active=[
+              x for x in registry.get("competitions",[])
+              if isinstance(x,dict) and x.get("active")
+          ]
+
+          by_league={
+              int(x["league_id"]):x
+              for x in active
+              if x.get("league_id") is not None
+          }
+
+          seed_rows=load_schedule_seed_fixture_rows(
+              Path(
+                  "/var/lib/oddshunter/data/"
+                  "mobile_schedule_catalog_seed.json.gz"
+              ),
+              by_league,
+          )
+
+          seed_by_id={}
+          for raw in seed_rows:
+              row=dict(raw)
+              try:
+                  event_id=int(row.get("sofascore_id") or 0)
+              except Exception:
+                  continue
+              if event_id in target_ids:
+                  seed_by_id[event_id]=row
+
+          db=root/"data"/"oddshunter.db"
+          con=sqlite3.connect(db)
+          con.row_factory=sqlite3.Row
+
+          db_rows={}
+          placeholders=",".join("?" for _ in target_ids)
+
+          for row in con.execute(
+              f"""
+              SELECT
+                  m.sofascore_id,
+                  m.league_id,
+                  m.kickoff,
+                  m.status,
+                  m.season,
+                  h.sofascore_id AS home_team_id,
+                  h.name AS home_team,
+                  a.sofascore_id AS away_team_id,
+                  a.name AS away_team
+              FROM matches m
+              JOIN teams h ON h.team_id=m.home_team_id
+              JOIN teams a ON a.team_id=m.away_team_id
+              WHERE m.sofascore_id IN ({placeholders})
+              """,
+              tuple(sorted(target_ids)),
+          ):
+              db_rows[int(row["sofascore_id"])]=dict(row)
+
+          con.close()
+
+          analysis_root=root/"data"/"analisis"
+
+          for event_id in sorted(target_ids):
+              row=db_rows.get(event_id) or seed_by_id.get(event_id) or {}
+
+              league_id=int(row.get("league_id") or 0)
+              comp=by_league.get(league_id) or {}
+              key=str(comp.get("key") or "")
+
+              folder=(
+                  analysis_root/key/str(event_id)
+                  if key
+                  else None
+              )
+
+              print(
+                  "TARGET_ROW=",
+                  json.dumps(
+                      {
+                          "event_id":event_id,
+                          "source":"db" if event_id in db_rows else "seed",
+                          "competition_key":key,
+                          "league_id":league_id,
+                          "home_team_id":row.get("home_team_id"),
+                          "home_team":row.get("home_team"),
+                          "away_team_id":row.get("away_team_id"),
+                          "away_team":row.get("away_team"),
+                          "kickoff":row.get("kickoff"),
+                          "status":row.get("status"),
+                          "visible":(
+                              has_visible_characteristics(
+                                  analysis_root,
+                                  key,
+                                  event_id,
+                              )
+                              if key else False
+                          ),
+                      },
+                      ensure_ascii=False,
+                  )
+              )
+
+              if not folder or not folder.is_dir():
+                  print("TARGET_FOLDER_MISSING=",event_id)
+                  continue
+
+              print(
+                  "TARGET_FILES=",
+                  event_id,
+                  sorted(p.name for p in folder.iterdir()),
+              )
+
+              for name in (
+                  "status.json",
+                  "analysis.json",
+                  "goals.json",
+              ):
+                  path=folder/name
+
+                  if not path.is_file():
+                      continue
+
+                  try:
+                      doc=json.loads(
+                          path.read_text(encoding="utf-8-sig")
+                      )
+                  except Exception as exc:
+                      print(
+                          "TARGET_DOC_ERROR=",
+                          event_id,
+                          name,
+                          type(exc).__name__,
+                          str(exc),
+                      )
+                      continue
+
+                  if isinstance(doc,dict):
+                      print(
+                          "TARGET_DOC=",
+                          event_id,
+                          name,
+                          json.dumps(
+                              {
+                                  "status":doc.get("status"),
+                                  "analysis_status":doc.get(
+                                      "analysis_status"
+                                  ),
+                                  "error":doc.get("error"),
+                                  "reason":doc.get("reason"),
+                              },
+                              ensure_ascii=False,
+                          ),
+                      )
+          PY
+
+          echo "========== STAGE5 JOURNAL =========="
+
+          $SUDO journalctl \
+            -u oddshunter.service \
+            --since "@$EPOCH" \
+            --no-pager 2>/dev/null |
+            grep -Eia \
+              'STAGE5>|15285834|15285843|16317939|16361914|16483673|Traceback|Exception|ERROR|CYCLE=' |
+            tail -n 800 || true
+
+          REMOTE
