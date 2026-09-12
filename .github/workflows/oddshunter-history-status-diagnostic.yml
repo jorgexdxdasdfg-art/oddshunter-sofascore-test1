@@ -1,4 +1,4 @@
-﻿name: OddsHunter HISTORY STATUS DIAGNOSTIC
+name: OddsHunter HISTORY STATUS DIAGNOSTIC
 
 on:
   push:
@@ -64,46 +64,101 @@ jobs:
           CUR="$(readlink -f /opt/oddshunter/current)"
           PY="$CUR/.venv-cloud/bin/python"
 
-          $SUDO -u oddshunter "$PY" - "$CUR/data/oddshunter.db" <<'PY'
+          $SUDO -u oddshunter "$PY" - "$CUR" <<'PY'
           import sqlite3
           import sys
+          from datetime import datetime, timedelta
+          from pathlib import Path
 
-          con=sqlite3.connect(sys.argv[1])
+          root = Path(sys.argv[1])
+          sys.path.insert(0, str(root))
 
-          targets=(
-              (197065,17680,"Colorado Springs"),
-              (217134,17680,"San Antonio"),
-              (310531,17680,"New Mexico"),
-              (148992,17680,"Indy Eleven"),
-              (36525,407,"Tijuana"),
-              (1951,407,"Queretaro"),
+          import ratings
+
+          db = root / "data" / "oddshunter.db"
+
+          con = sqlite3.connect(db)
+          con.row_factory = sqlite3.Row
+
+          targets = (
+              (197065, "Colorado Springs", "2026-09-12T02:00:00+00:00"),
+              (217134, "San Antonio",      "2026-09-12T02:00:00+00:00"),
+              (310531, "New Mexico",       "2026-09-12T01:30:00+00:00"),
+              (148992, "Indy Eleven",      "2026-09-12T01:30:00+00:00"),
+              (36525,  "Tijuana",          "2026-09-12T03:10:00+00:00"),
+              (1951,   "Queretaro",        "2026-09-12T03:10:00+00:00"),
           )
 
-          for sid,league_id,name in targets:
-              rows=con.execute(
+          for sid, name, kickoff_before in targets:
+              before = datetime.fromisoformat(kickoff_before)
+              kickoff_from = (
+                  before - timedelta(days=365)
+              ).isoformat()
+
+              scope = ratings.domestic_history_scope(
+                  con,
+                  sid,
+              )
+
+              no_scope = ratings.obtener_ultimos_partidos(
+                  con,
+                  sofascore_id=sid,
+                  limite=100,
+                  league_ids=None,
+                  kickoff_before=kickoff_before,
+              )
+
+              scope_only = ratings.obtener_ultimos_partidos(
+                  con,
+                  sofascore_id=sid,
+                  limite=100,
+                  league_ids=scope,
+                  kickoff_before=kickoff_before,
+              )
+
+              scope_year = ratings.obtener_ultimos_partidos(
+                  con,
+                  sofascore_id=sid,
+                  limite=100,
+                  league_ids=scope,
+                  kickoff_from=kickoff_from,
+                  kickoff_before=kickoff_before,
+              )
+
+              memberships = con.execute(
                   """
                   SELECT
-                      COALESCE(m.status,'<NULL>'),
-                      COUNT(DISTINCT m.match_id)
-                  FROM team_match_stats s
+                      m.league_id,
+                      l.name,
+                      l.competition_family,
+                      l.source_tournament_id
+                  FROM team_competition_memberships m
                   JOIN teams t
-                    ON t.team_id=s.team_id
-                  JOIN matches m
-                    ON m.match_id=s.match_id
+                    ON t.team_id=m.team_id
+                  JOIN leagues l
+                    ON l.league_id=m.league_id
                   WHERE t.sofascore_id=?
-                    AND m.league_id=?
-                  GROUP BY COALESCE(m.status,'<NULL>')
-                  ORDER BY 2 DESC
+                  ORDER BY m.league_id
                   """,
-                  (sid,league_id),
+                  (sid,),
               ).fetchall()
 
               print(
-                  "STATUS_SCOPE",
-                  sid,
-                  name,
-                  league_id,
-                  rows,
+                  "RATINGS_SCOPE_DIAG",
+                  {
+                      "sid": sid,
+                      "name": name,
+                      "scope": scope,
+                      "no_scope_count": len(no_scope),
+                      "scope_count": len(scope_only),
+                      "scope_365d_count": len(scope_year),
+                      "kickoff_from": kickoff_from,
+                      "kickoff_before": kickoff_before,
+                      "memberships": [
+                          tuple(row)
+                          for row in memberships
+                      ],
+                  },
               )
 
           con.close()
