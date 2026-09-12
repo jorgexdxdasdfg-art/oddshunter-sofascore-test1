@@ -207,29 +207,65 @@ def provider_event(event_id: int) -> dict[str, Any] | None:
 
 
 def provider_competition_events(competition: dict[str, Any]) -> list[dict[str, Any]]:
-    """Read both sides of the current fixture cursor for one active league."""
+    """Read both fixture cursors without letting one blocked side kill the league."""
     tournament_id = int(competition["source_competition_id"])
     season_id = int(competition["season_id"])
     found: dict[int, dict[str, Any]] = {}
+    errors: list[str] = []
+
     for direction in ("last", "next"):
-        # The bare API host rejects tournament cursors from the cloud runtime
-        # (HTTP 403), while SofaScore's public web API host serves the same
-        # fixture document and is already used by the live-status pipeline.
-        url = (
-            f"https://www.sofascore.com/api/v1/unique-tournament/{tournament_id}/"
-            f"season/{season_id}/events/{direction}/0"
+        direction_loaded = False
+
+        for host in ("www.sofascore.com", "api.sofascore.com"):
+            url = (
+                f"https://{host}/api/v1/unique-tournament/{tournament_id}/"
+                f"season/{season_id}/events/{direction}/0"
+            )
+
+            try:
+                completed = subprocess.run(
+                    [
+                        "curl",
+                        "-fsSL",
+                        "--max-time", "25",
+                        "-H", "Accept: application/json",
+                        "-H", "Referer: https://www.sofascore.com/",
+                        "-H", "User-Agent: Mozilla/5.0",
+                        url,
+                    ],
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                    timeout=30,
+                )
+                payload = json.loads(completed.stdout)
+
+                for event in payload.get("events", []):
+                    if isinstance(event, dict) and event.get("id") is not None:
+                        found[int(event["id"])] = event
+
+                direction_loaded = True
+                break
+
+            except (
+                subprocess.CalledProcessError,
+                subprocess.TimeoutExpired,
+                json.JSONDecodeError,
+            ) as exc:
+                errors.append(
+                    f"{direction}/{host}: {type(exc).__name__}: {exc}"
+                )
+
+        # IMPORTANT: a blocked `last` cursor must never prevent `next`
+        # from being attempted, and vice versa.
+        if not direction_loaded:
+            continue
+
+    if not found and errors:
+        raise RuntimeError(
+            "SofaScore tournament cursors unavailable: " + " | ".join(errors)
         )
-        completed = subprocess.run(
-            ["curl", "-fsSL", "--max-time", "25", "-H", "User-Agent: Mozilla/5.0", url],
-            check=True,
-            capture_output=True,
-            text=True,
-            timeout=30,
-        )
-        payload = json.loads(completed.stdout)
-        for event in payload.get("events", []):
-            if isinstance(event, dict) and event.get("id") is not None:
-                found[int(event["id"])] = event
+
     return list(found.values())
 
 
