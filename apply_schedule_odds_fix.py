@@ -13,6 +13,18 @@ def replace_once(text: str, old: str, new: str, label: str) -> str:
     return text.replace(old, new, 1)
 
 
+def replace_once_after(text: str, anchor: str, old: str, new: str, label: str) -> str:
+    start = text.find(anchor)
+    if start < 0:
+        raise RuntimeError(f'anchor not found: {label}')
+    pos = text.find(old, start)
+    if pos < 0:
+        if text.find(new, start) >= 0:
+            return text
+        raise RuntimeError(f'patch target not found after anchor: {label}')
+    return text[:pos] + new + text[pos + len(old):]
+
+
 def patch_builder(path: Path) -> None:
     text = path.read_text(encoding='utf-8')
 
@@ -28,7 +40,7 @@ def patch_builder(path: Path) -> None:
             event_map[identity] = row
 '''
     new = '''    # Fresh provider evidence can explicitly retire a previously published row
-    # after a reschedule moved it outside the rolling three-day window.  Such
+    # after a reschedule moved it outside the rolling three-day window. Such
     # rows are not discovery gaps and must never be resurrected from `previous`.
     excluded_event_ids: set[int] = set()
     validation = fresh.get("validation") if isinstance(fresh.get("validation"), dict) else {}
@@ -102,7 +114,7 @@ def patch_builder(path: Path) -> None:
 def patch_odds_sync(path: Path) -> None:
     text = path.read_text(encoding='utf-8')
 
-    anchor = '    "willem ii tilburg": "willem ii",\n'
+    alias_anchor = '    "willem ii tilburg": "willem ii",\n'
     aliases = '''    "willem ii tilburg": "willem ii",
     "real racing": "racing santander",
     "real racing club": "racing santander",
@@ -117,7 +129,6 @@ def patch_odds_sync(path: Path) -> None:
     "los angeles fc": "lafc",
     "alianza valledupar": "alianza",
     "junior barranquilla": "junior",
-    "academico viseu": "academico viseu",
     "vitoria sc": "guimaraes",
     "ldu": "ldu quito",
     "cs maritimo": "maritimo",
@@ -128,7 +139,7 @@ def patch_odds_sync(path: Path) -> None:
     "as roma": "roma",
 '''
     if '    "real racing club": "racing santander",\n' not in text:
-        text = replace_once(text, anchor, aliases, 'fixture aliases')
+        text = replace_once(text, alias_anchor, aliases, 'fixture aliases')
 
     old = '''    seed_paths = _schedule_seed_paths(root)
     seen_seed_paths: set[Path] = set()
@@ -163,17 +174,13 @@ def patch_odds_sync(path: Path) -> None:
                     continue
         for row in document.get("events", []):
 '''
-    # There are multiple JSON-load except blocks in this file; this target must
-    # refer to the seed loop after service_seed_resolved was introduced.
-    marker = '        if resolved_seed == service_seed_resolved:\n'
-    if marker not in text:
-        position = text.find('    service_seed = seed_paths[-1]')
-        tail = text[position:]
-        idx = tail.find(old)
-        if idx < 0:
-            raise RuntimeError('patch target not found: read service seed exclusions')
-        absolute = position + idx
-        text = text[:absolute] + tail[:idx].replace(old, new, 1) + tail[idx + len(old):]
+    text = replace_once_after(
+        text,
+        '    service_seed = seed_paths[-1]\n',
+        old,
+        new,
+        'read service seed exclusions',
+    )
 
     old = '''            if key and event_id and kickoff and start <= kickoff < end:
                 events[(key, event_id)] = {**events.get((key, event_id), {}), **row}
