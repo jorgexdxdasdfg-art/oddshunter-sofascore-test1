@@ -103,34 +103,82 @@ def select_pending_fixture_analyses(
     now: datetime,
     limit: int,
     grace_minutes: int = 0,
+    priority_event_ids: Iterable[int] = (),
 ) -> list[dict[str, Any]]:
-    """Return all pending fixtures, not one representative per competition."""
+    """Return missing real model bundles, including recently finished fixtures."""
 
     now = now.astimezone(timezone.utc)
     local_today = now.astimezone(ECUADOR_TZ).date()
-    end = datetime.combine(local_today + timedelta(days=2), datetime.min.time(), ECUADOR_TZ).astimezone(timezone.utc)
-    selected: list[dict[str, Any]] = []
-    seen_events: set[int] = set()
+
+    # Mobile keeps yesterday / today / tomorrow. A fixture inside that
+    # operational window can be recovered even if it already finished.
+    window_start = datetime.combine(
+        local_today - timedelta(days=1),
+        datetime.min.time(),
+        ECUADOR_TZ,
+    ).astimezone(timezone.utc)
+    end = datetime.combine(
+        local_today + timedelta(days=2),
+        datetime.min.time(),
+        ECUADOR_TZ,
+    ).astimezone(timezone.utc)
+
     grace_floor = now - timedelta(minutes=max(0, int(grace_minutes)))
-    final_states = {"FT", "AET", "PEN", "FINISHED", "FINAL", "ENDED"}
+    terminal_states = {"FT", "AET", "PEN", "FINISHED", "FINAL", "ENDED"}
+
+    priority_ids: set[int] = set()
+    for value in priority_event_ids:
+        try:
+            event_id = int(value)
+        except (TypeError, ValueError):
+            continue
+        if event_id > 0:
+            priority_ids.add(event_id)
+
+    ranked: list[
+        tuple[tuple[int, int, float, int], dict[str, Any]]
+    ] = []
+    seen_events: set[int] = set()
 
     for row in rows:
         record = dict(row)
-        kickoff = _parse_dt(record.get("kickoff"))
-        status = str(record.get("status") or "").upper()
-        if status in final_states:
-            continue
-        if kickoff is None or kickoff < grace_floor or kickoff >= end:
-            continue
-        event_id = int(record.get("sofascore_id") or 0)
-        competition = by_league.get(int(record.get("league_id") or 0))
-        if event_id <= 0 or competition is None or event_id in seen_events:
-            continue
-        key = str(competition.get("key") or "").strip()
-        if not key or has_visible_characteristics(analysis_root, key, event_id):
+
+        try:
+            event_id = int(record.get("sofascore_id") or 0)
+            league_id = int(record.get("league_id") or 0)
+        except (TypeError, ValueError):
             continue
 
-        selected.append({
+        if event_id <= 0 or event_id in seen_events:
+            continue
+
+        competition = by_league.get(league_id)
+        if competition is None:
+            continue
+
+        kickoff = _parse_dt(record.get("kickoff"))
+        if kickoff is None or kickoff < window_start or kickoff >= end:
+            continue
+
+        status = str(record.get("status") or "").upper()
+        is_terminal = status in terminal_states
+        is_priority = event_id in priority_ids
+
+        # Normal live/upcoming debt keeps the grace window. Explicit rescue
+        # targets bypass it, and genuine terminal fixtures may be completed
+        # from their original pre-match target timestamp.
+        if not is_priority and not is_terminal and kickoff < grace_floor:
+            continue
+
+        key = str(competition.get("key") or "").strip()
+        if not key:
+            continue
+
+        if has_visible_characteristics(analysis_root, key, event_id):
+            seen_events.add(event_id)
+            continue
+
+        item = {
             "competition": dict(competition),
             "event_id": event_id,
             "kickoff": kickoff.isoformat(),
@@ -140,9 +188,23 @@ def select_pending_fixture_analyses(
             "away_team_id": int(record.get("away_team_id") or 0),
             "away_team": str(record.get("away_team") or ""),
             "season": record.get("season"),
-        })
-        seen_events.add(event_id)
-        if len(selected) >= max(1, int(limit)):
-            break
+        }
 
-    return selected
+        # 1) explicit rescued IDs
+        # 2) live/upcoming missing bundles
+        # 3) final missing bundles
+        rank = (
+            0 if is_priority else 1,
+            1 if is_terminal else 0,
+            kickoff.timestamp(),
+            event_id,
+        )
+        ranked.append((rank, item))
+        seen_events.add(event_id)
+
+    ranked.sort(key=lambda pair: pair[0])
+    return [
+        item
+        for _rank, item in ranked[:max(1, int(limit))]
+    ]
+

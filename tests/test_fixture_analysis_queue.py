@@ -135,3 +135,53 @@ def test_patch_repairs_already_patched_call_that_depended_on_by_league() -> None
     assert "con, by_league" not in patched
     assert patched.count("analysis_registry, _analysis_active = active_registry()") == 1
     compile(patched, "cloud_stage5_cycle.py", "exec")
+
+
+def test_finished_missing_fixture_can_be_recovered(tmp_path: Path) -> None:
+    finished = row(700, 10, "2026-09-11T12:00:00Z")
+    finished["status"] = "FT"
+
+    selected = select_pending_fixture_analyses(
+        [finished],
+        {10: {"key": "turkey-super-lig"}},
+        tmp_path,
+        now=datetime(2026, 9, 11, 23, 0, tzinfo=timezone.utc),
+        limit=64,
+        grace_minutes=90,
+    )
+
+    assert [item["event_id"] for item in selected] == [700]
+
+
+def test_priority_fixture_bypasses_grace_and_wins_limit(tmp_path: Path) -> None:
+    recent = row(1, 10, "2026-09-11T22:30:00Z")
+    rescued = row(2, 10, "2026-09-11T14:00:00Z")
+
+    selected = select_pending_fixture_analyses(
+        [recent, rescued],
+        {10: {"key": "usa-usl-championship"}},
+        tmp_path,
+        now=datetime(2026, 9, 11, 23, 0, tzinfo=timezone.utc),
+        limit=1,
+        grace_minutes=90,
+        priority_event_ids=[2],
+    )
+
+    assert [item["event_id"] for item in selected] == [2]
+
+
+def test_stage5_patch_wires_priority_event_ids() -> None:
+    source = """def future_analysis_targets(
+    old
+):
+    return []
+
+def write_schedule(target):
+    pass
+
+def main():
+    analysis_targets = future_analysis_targets(con, by_league, 2)
+"""
+    patched = patch_source(source)
+    assert "ODDSHUNTER_ANALYSIS_PRIORITY_EVENT_IDS" in patched
+    assert "priority_event_ids=priority_event_ids" in patched

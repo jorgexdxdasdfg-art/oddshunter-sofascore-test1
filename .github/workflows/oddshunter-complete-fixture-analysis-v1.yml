@@ -110,6 +110,32 @@ jobs:
           if count <= 0:
               raise SystemExit("PROVIDER_SCHEDULE_TODAY_EMPTY=FAIL")
           PY
+          # Rescate temporal: solo los cinco fixtures recuperados.
+          # Se elimina autom?ticamente al terminar este workflow.
+          $SUDO install -d -m 0755 /run/systemd/system/oddshunter.service.d
+          $SUDO tee /run/systemd/system/oddshunter.service.d/mobile-analysis-rescue.conf >/dev/null <<'UNIT'
+          [Service]
+          Environment=ODDSHUNTER_ANALYSIS_TARGET_LIMIT=5
+          Environment=ODDSHUNTER_ANALYSIS_GRACE_MINUTES=4320
+          Environment=ODDSHUNTER_ANALYSIS_PRIORITY_EVENT_IDS=15285834,15285843,16317939,16361914,16483673
+          UNIT
+          $SUDO systemctl daemon-reload
+
+          # Evidencia de c?mo el VPS mapea las ligas recuperadas.
+          $SUDO -u oddshunter "$PY" - "$CUR/data/competitions.json" <<'PY'
+          import json,sys
+          document=json.load(open(sys.argv[1],encoding="utf-8-sig"))
+          wanted={17680,407,1815,3283}
+          for row in document.get("competitions",[]):
+              if isinstance(row,dict) and int(row.get("league_id") or 0) in wanted:
+                  print("RESCUE_REGISTRY =",{
+                      "league_id":row.get("league_id"),
+                      "key":row.get("key"),
+                      "name":row.get("name"),
+                      "active":row.get("active"),
+                  })
+          PY
+
           date -u +%s | $SUDO tee /tmp/oddshunter_complete_analysis_epoch >/dev/null
           $SUDO systemctl restart oddshunter.service
           $SUDO systemctl is-active --quiet oddshunter.service
@@ -117,65 +143,319 @@ jobs:
           echo BACKUP="$BACKUP"
           REMOTE
 
-      - name: Wait for complete analysis cycle
+      - name: Drain rescued fixture analysis and republish
         env:
           VPS_HOST: ${{ secrets.VPS_HOST }}
           VPS_USER: ${{ secrets.VPS_USER }}
         run: |
           set -euo pipefail
           SSH=(ssh -i ~/.ssh/oddshunter_analysis -p "$VPS_PORT" -o BatchMode=yes -o StrictHostKeyChecking=yes "$VPS_USER@$VPS_HOST")
-          complete=0
-          for attempt in $(seq 1 80); do
-            line="$("${SSH[@]}" '
-              EPOCH=$(cat /tmp/oddshunter_complete_analysis_epoch 2>/dev/null || echo 0)
-              if [ "$(id -u)" -eq 0 ]; then SUDO=""; else SUDO="sudo -n"; fi
-              $SUDO journalctl -u oddshunter.service --since "@$EPOCH" --no-pager 2>/dev/null |
-                grep -E "CYCLE=[0-9]+ PASS" | tail -n 1 || true
-            ')"
-            if [ -n "$line" ]; then
-              echo "$line"
-              complete=1
+
+          "${SSH[@]}" 'bash -s' <<'REMOTE'
+          set -eEuo pipefail
+
+          if [ "$(id -u)" -eq 0 ]; then SUDO=""; else SUDO="sudo -n"; fi
+          CUR="$(readlink -f /opt/oddshunter/current)"
+          PY="$CUR/.venv-cloud/bin/python"
+          TARGET_IDS="15285834,15285843,16317939,16361914,16483673"
+          DROPIN="/run/systemd/system/oddshunter.service.d/mobile-analysis-rescue.conf"
+
+          cleanup() {
+            echo "RESTORING_NORMAL_ANALYSIS_SERVICE=YES"
+            $SUDO rm -f "$DROPIN" || true
+            $SUDO systemctl daemon-reload || true
+            $SUDO systemctl restart oddshunter.service || true
+          }
+          trap cleanup EXIT
+
+          ready=0
+
+          for attempt in $(seq 1 72); do
+            if [ "$($SUDO systemctl is-active oddshunter.service 2>/dev/null || true)" != "active" ]; then
+              echo "ANALYSIS_SERVICE_INACTIVE=FAIL"
+              $SUDO journalctl -u oddshunter.service -n 300 --no-pager || true
+              exit 61
+            fi
+
+            STATUS="$(
+              $SUDO -u oddshunter "$PY" - "$CUR" "$TARGET_IDS" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+
+          root=Path(sys.argv[1])
+          targets=[int(value) for value in sys.argv[2].split(",") if value]
+          sys.path.insert(0,str(root))
+
+          from fixture_analysis_queue import has_visible_characteristics
+
+          analysis_root=root/"data"/"analisis"
+          ready={}
+
+          for event_id in targets:
+              keys=[]
+              for folder in analysis_root.glob(f"*/{event_id}"):
+                  key=folder.parent.name
+                  if has_visible_characteristics(
+                      analysis_root,key,event_id
+                  ):
+                      keys.append(key)
+              ready[event_id]=sorted(keys)
+
+          print(
+              "TARGET_ANALYSIS_STATUS="
+              + json.dumps(ready,ensure_ascii=False,sort_keys=True)
+          )
+
+          if all(ready[event_id] for event_id in targets):
+              print("TARGET_ANALYSIS_READY=PASS")
+          else:
+              print("TARGET_ANALYSIS_READY=WAIT")
+          PY
+            )"
+
+            echo "$STATUS"
+
+            if grep -q "TARGET_ANALYSIS_READY=PASS" <<<"$STATUS"; then
+              ready=1
               break
             fi
-            sleep 20
+
+            EPOCH="$(cat /tmp/oddshunter_complete_analysis_epoch 2>/dev/null || echo 0)"
+            FAIL_LINE="$(
+              $SUDO journalctl -u oddshunter.service --since "@$EPOCH" --no-pager 2>/dev/null |
+                grep -E "CYCLE=[0-9]+ FAIL" |
+                tail -n 1 || true
+            )"
+
+            if [ -n "$FAIL_LINE" ]; then
+              echo "ANALYSIS_CYCLE_FAIL=$FAIL_LINE"
+              echo "========== TARGET FAILURE JOURNAL =========="
+              $SUDO journalctl -u oddshunter.service --since "@$EPOCH" --no-pager -n 1200 |
+                grep -Eia "15285834|15285843|16317939|16361914|16483673|ERROR|Traceback|exception|CYCLE=" ||
+                true
+              exit 62
+            fi
+
+            sleep 10
           done
-          test "$complete" -eq 1
+
+          if [ "$ready" -ne 1 ]; then
+            echo "TARGET_ANALYSIS_TIMEOUT=FAIL"
+
+            echo "========== TARGET ANALYSIS FILE STATE =========="
+            $SUDO -u oddshunter "$PY" - "$CUR" "$TARGET_IDS" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+
+          root=Path(sys.argv[1])
+          targets=[int(value) for value in sys.argv[2].split(",") if value]
+          analysis_root=root/"data"/"analisis"
+
+          for event_id in targets:
+              folders=list(analysis_root.glob(f"*/{event_id}"))
+              print("TARGET",event_id,"FOLDERS",[str(x) for x in folders])
+              for folder in folders:
+                  for name in ("status.json","analysis.json"):
+                      path=folder/name
+                      if not path.is_file():
+                          continue
+                      try:
+                          doc=json.loads(path.read_text(encoding="utf-8-sig"))
+                          print(
+                              "TARGET_DOC",
+                              event_id,
+                              folder.parent.name,
+                              name,
+                              {
+                                  "status":doc.get("status"),
+                                  "analysis_status":doc.get("analysis_status"),
+                                  "error":doc.get("error"),
+                                  "reason":doc.get("reason"),
+                              },
+                          )
+                      except Exception as exc:
+                          print("TARGET_DOC_ERROR",event_id,name,type(exc).__name__,str(exc))
+          PY
+
+            echo "========== STAGE5 REPORT =========="
+            if [ -f "$CUR/artifacts/cloud_stage5_cycle.json" ]; then
+              $SUDO -u oddshunter "$PY" - "$CUR/artifacts/cloud_stage5_cycle.json" <<'PY'
+          import json,sys
+          d=json.load(open(sys.argv[1],encoding="utf-8"))
+          for key in (
+              "stage5_pass",
+              "analysis_target_count",
+              "analysis_result_counts",
+              "criteria",
+          ):
+              print(key,"=",d.get(key))
+          print(
+              "analysis_targets=",
+              json.dumps(
+                  d.get("analysis_targets") or d.get("selected_analysis_targets") or [],
+                  ensure_ascii=False,
+              )[:12000],
+          )
+          PY
+            fi
+
+            EPOCH="$(cat /tmp/oddshunter_complete_analysis_epoch 2>/dev/null || echo 0)"
+            echo "========== TARGET JOURNAL =========="
+            $SUDO journalctl -u oddshunter.service --since "@$EPOCH" --no-pager -n 1800 |
+              grep -Eia "15285834|15285843|16317939|16361914|16483673|ERROR|Traceback|exception|CYCLE=" ||
+              true
+
+            exit 63
+          fi
+
+          echo "TARGET_ANALYSIS_ALL=PASS"
+
+          # Los documentos nuevos ya existen. Reconstruir/republicar el seed
+          # para que Mobile deje de ver pending/ERROR.
+          $SUDO systemctl stop oddshunter-schedule-refresh.service || true
+
+          if ! $SUDO systemctl start oddshunter-schedule-refresh.service; then
+            echo "POST_ANALYSIS_SCHEDULE_REFRESH=FAIL"
+            $SUDO journalctl -u oddshunter-schedule-refresh.service -n 300 --no-pager || true
+            exit 64
+          fi
+
+          echo "POST_ANALYSIS_SCHEDULE_REFRESH=PASS"
+
+          $SUDO -u oddshunter "$PY" - "$CUR/data/automation/cloud_schedule_refresh/last.json" <<'PY'
+          import json,sys
+          report=json.load(open(sys.argv[1],encoding="utf-8"))
+          print(
+              "POST_ANALYSIS_REPORT="
+              + json.dumps(report,ensure_ascii=False,separators=(",",":"))
+          )
+          if report.get("result") != "PUBLISHED":
+              raise SystemExit("POST_ANALYSIS_PUBLICATION=FAIL")
+          PY
+          REMOTE
 
       - name: Verify every Mobile fixture has characteristics
         run: |
           set -euo pipefail
           python - <<'PY'
-          import json, time, urllib.request
+          import json
+          import time
+          import urllib.request
 
-          base = "https://oddshunter-mobile.vercel.app/api/day?offset={}&limit=1000&cb={}"
-          missing = []
-          totals = {}
-          for offset in (-1, 0, 1):
-              url = base.format(offset, time.time_ns())
-              request = urllib.request.Request(url, headers={"Cache-Control": "no-cache"})
-              with urllib.request.urlopen(request, timeout=45) as response:
-                  rows = json.load(response)
-              totals[offset] = len(rows)
-              if offset == 0 and not rows:
-                  raise SystemExit("TODAY_FIXTURE_COVERAGE_GATE=FAIL:EMPTY")
+          base="https://oddshunter-mobile.vercel.app/api/day?offset={}&limit=1000&cb={}"
+
+          rescued={
+              15285834:{
+                  "competition_name":"USL Championship",
+                  "home_team":"Colorado Springs Switchbacks FC",
+                  "away_team":"San Antonio FC",
+              },
+              15285843:{
+                  "competition_name":"USL Championship",
+                  "home_team":"New Mexico United",
+                  "away_team":"Indy Eleven",
+              },
+              16317939:{
+                  "competition_name":"Liga MX",
+                  "home_team":"Club Tijuana",
+                  "away_team":"Quer?taro FC",
+              },
+              16361914:{
+                  "competition_name":"Belgium Pro League",
+                  "home_team":"KV Mechelen",
+                  "away_team":"RSC Anderlecht",
+              },
+              16483673:{
+                  "competition_name":"Trendyol S?per Lig",
+                  "home_team":"Be?ikta? JK",
+                  "away_team":"Erzurumspor FK",
+              },
+          }
+
+          missing=[]
+          metadata_errors=[]
+          seen={}
+          totals={}
+
+          for offset in (-1,0,1):
+              request=urllib.request.Request(
+                  base.format(offset,time.time_ns()),
+                  headers={"Cache-Control":"no-cache","User-Agent":"Mozilla/5.0"},
+              )
+              with urllib.request.urlopen(request,timeout=45) as response:
+                  rows=json.load(response)
+
+              totals[offset]=len(rows)
+
               for row in rows:
-                  headline = row.get("headline") or {}
-                  values = (headline.get("home_win"), headline.get("draw"), headline.get("away_win"))
-                  status = str(row.get("status") or "").upper()
-                  finished = status in {"FT","AET","PEN","FINISHED","FINAL","ENDED"}
-                  # Finished fixtures are not given invented post-match predictions.
-                  # Scheduled/live recovered fixtures must expose the real model bundle.
-                  if offset >= 0 and not finished and not all(value is not None for value in values):
-                      missing.append({
-                          "event_id": row.get("event_id"),
-                          "competition": row.get("competition_key"),
-                          "home": row.get("home_team"),
-                          "away": row.get("away_team"),
-                          "analysis_status": row.get("analysis_status"),
-                      })
-          print("MOBILE_DAY_TOTALS=" + json.dumps(totals, sort_keys=True))
-          print("MISSING_CHARACTERISTICS=" + json.dumps(missing, ensure_ascii=False))
+                  event_id=int(row.get("event_id") or 0)
+                  headline=row.get("headline") or {}
+                  values=(
+                      headline.get("home_win"),
+                      headline.get("draw"),
+                      headline.get("away_win"),
+                  )
+                  status=str(row.get("status") or "").upper()
+                  finished=status in {
+                      "FT","AET","PEN","FINISHED","FINAL","ENDED"
+                  }
+
+                  if event_id in rescued:
+                      seen[event_id]=row
+
+                      if not all(value is not None for value in values):
+                          missing.append({
+                              "event_id":event_id,
+                              "competition":row.get("competition_key"),
+                              "home":row.get("home_team"),
+                              "away":row.get("away_team"),
+                              "status":row.get("status"),
+                              "analysis_status":row.get("analysis_status"),
+                          })
+
+                      expected=rescued[event_id]
+                      for field in (
+                          "competition_name",
+                          "home_team",
+                          "away_team",
+                      ):
+                          if row.get(field) != expected[field]:
+                              metadata_errors.append({
+                                  "event_id":event_id,
+                                  "field":field,
+                                  "expected":expected[field],
+                                  "actual":row.get(field),
+                              })
+
+                  elif offset >= 0 and not finished:
+                      if not all(value is not None for value in values):
+                          missing.append({
+                              "event_id":event_id,
+                              "competition":row.get("competition_key"),
+                              "home":row.get("home_team"),
+                              "away":row.get("away_team"),
+                              "status":row.get("status"),
+                              "analysis_status":row.get("analysis_status"),
+                          })
+
+          unseen=sorted(set(rescued)-set(seen))
+
+          print("MOBILE_DAY_TOTALS="+json.dumps(totals,sort_keys=True))
+          print("RESCUED_TARGETS="+json.dumps(seen,ensure_ascii=False,sort_keys=True))
+          print("MISSING_CHARACTERISTICS="+json.dumps(missing,ensure_ascii=False))
+          print("METADATA_ERRORS="+json.dumps(metadata_errors,ensure_ascii=False))
+          print("UNSEEN_RESCUED="+json.dumps(unseen))
+
+          if unseen:
+              raise SystemExit("RESCUED_EVENTS_MISSING=FAIL")
+          if metadata_errors:
+              raise SystemExit("RESCUED_METADATA_GATE=FAIL")
           if missing:
               raise SystemExit("COMPLETE_FIXTURE_CHARACTERISTICS_GATE=FAIL")
+
+          print("RECOVERED_FIXTURES_FULL=PASS")
           print("COMPLETE_FIXTURE_CHARACTERISTICS_GATE=PASS")
           PY
+

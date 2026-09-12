@@ -38,6 +38,18 @@ REPLACEMENT = '''def future_analysis_targets(
         )),
         by_league,
     ))
+    priority_event_ids = []
+    for token in os.environ.get(
+        "ODDSHUNTER_ANALYSIS_PRIORITY_EVENT_IDS", ""
+    ).split(","):
+        token = token.strip()
+        if not token:
+            continue
+        try:
+            priority_event_ids.append(int(token))
+        except ValueError:
+            continue
+
     return select_pending_fixture_analyses(
         rows,
         by_league,
@@ -47,6 +59,7 @@ REPLACEMENT = '''def future_analysis_targets(
         grace_minutes=int(
             os.environ.get("ODDSHUNTER_ANALYSIS_GRACE_MINUTES", "90")
         ),
+        priority_event_ids=priority_event_ids,
     )
 
 '''
