@@ -1,0 +1,131 @@
+name: OddsHunter Mobile Schedule Certified28 Hotfix
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - cloud_schedule_refresh.py
+      - .github/workflows/oddshunter-mobile-schedule-certified28-hotfix.yml
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      VPS_HOST: ${{ secrets.VPS_HOST }}
+      VPS_USER: ${{ secrets.VPS_USER }}
+      VPS_PORT_SECRET: ${{ secrets.VPS_PORT }}
+      VPS_SSH_PRIVATE_KEY: ${{ secrets.VPS_SSH_PRIVATE_KEY }}
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Validate source
+        run: |
+          set -euo pipefail
+          python -m py_compile cloud_schedule_refresh.py
+          grep -q 'MOBILE_CERTIFIED_KEYS' cloud_schedule_refresh.py
+          grep -q 'turkey-super-lig' cloud_schedule_refresh.py
+          echo SOURCE_GATE=PASS
+
+      - name: Prepare SSH
+        run: |
+          set -euo pipefail
+          test -n "${VPS_HOST:-}"
+          test -n "${VPS_USER:-}"
+          test -n "${VPS_SSH_PRIVATE_KEY:-}"
+          VPS_PORT="${VPS_PORT_SECRET:-22}"
+          echo "VPS_PORT=$VPS_PORT" >> "$GITHUB_ENV"
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "$VPS_SSH_PRIVATE_KEY" > ~/.ssh/oddshunter
+          chmod 600 ~/.ssh/oddshunter
+          ssh-keygen -y -f ~/.ssh/oddshunter >/dev/null
+          ssh-keyscan -p "$VPS_PORT" -H "$VPS_HOST" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+          echo SSH_GATE=PASS
+
+      - name: Deploy refresh guard and publish now
+        run: |
+          set -euo pipefail
+          REMOTE_DIR="/tmp/oddshunter-certified28-${GITHUB_RUN_ID}"
+          SSH=(ssh -i ~/.ssh/oddshunter -p "$VPS_PORT" -o BatchMode=yes -o StrictHostKeyChecking=yes "$VPS_USER@$VPS_HOST")
+          SCP=(scp -i ~/.ssh/oddshunter -P "$VPS_PORT" -o BatchMode=yes -o StrictHostKeyChecking=yes)
+
+          "${SSH[@]}" "mkdir -p '$REMOTE_DIR'"
+          "${SCP[@]}" cloud_schedule_refresh.py "$VPS_USER@$VPS_HOST:$REMOTE_DIR/cloud_schedule_refresh.py"
+
+          "${SSH[@]}" "set -euo pipefail
+            SUDO=''; if [ \"\$(id -u)\" -ne 0 ]; then SUDO='sudo -n'; fi
+            CUR=\$(readlink -f /opt/oddshunter/current)
+            test -n \"\$CUR\"
+            test -x \"\$CUR/.venv-cloud/bin/python\"
+            test -f \"\$CUR/mobile_schedule_seed_builder.py\"
+            test -f \"\$CUR/cloud_live_status_sync.py\"
+            test -f \"\$CUR/data/competitions.json\"
+            \$SUDO install -m 0644 '$REMOTE_DIR/cloud_schedule_refresh.py' \"\$CUR/cloud_schedule_refresh.py\"
+            \$SUDO -u oddshunter env \
+              ODDSHUNTER_RUNTIME_MODE=cloud \
+              ODDSHUNTER_WORK_DB=/var/lib/oddshunter/data/oddshunter.db \
+              ODDSHUNTER_ALLOW_WORK_DB_WRITE=1 \
+              ODDSHUNTER_STAGE6_ALLOW_TURSO_WRITE=1 \
+              \"\$CUR/.venv-cloud/bin/python\" -u \"\$CUR/cloud_schedule_refresh.py\" --self-test
+            \$SUDO systemctl start oddshunter-schedule-refresh.service
+            \$SUDO systemctl is-failed --quiet oddshunter-schedule-refresh.service && exit 1 || true
+            \$SUDO journalctl -u oddshunter-schedule-refresh.service -n 120 --no-pager
+            rm -rf '$REMOTE_DIR'
+            echo REMOTE_REFRESH_GATE=PASS"
+
+      - name: Verify Besiktas-Erzurumspor is published
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json,time,unicodedata
+          from urllib.request import Request,urlopen
+
+          def norm(value):
+              plain=unicodedata.normalize('NFKD',str(value or ''))
+              return ''.join(c for c in plain if not unicodedata.combining(c)).casefold()
+
+          found=None
+          snapshots=[]
+          for attempt in range(1,13):
+              for offset in (-1,0,1):
+                  url=f'https://oddshunter-mobile.vercel.app/api/day?offset={offset}&limit=1000&cb={time.time_ns()}'
+                  req=Request(url,headers={'Cache-Control':'no-cache','Pragma':'no-cache'})
+                  with urlopen(req,timeout=45) as response:
+                      rows=json.load(response)
+                  snapshots.append((attempt,offset,len(rows)))
+                  for row in rows:
+                      home=norm(row.get('home_team'))
+                      away=norm(row.get('away_team'))
+                      pair=' '.join((home,away))
+                      if 'besiktas' in pair and 'erzurumspor' in pair:
+                          found={'offset':offset,'row':row}
+                          break
+                  if found:
+                      break
+              if found:
+                  break
+              time.sleep(10)
+
+          print('VERIFY_SNAPSHOTS='+json.dumps(snapshots))
+          if not found:
+              raise SystemExit('BESIKTAS_ERZURUMSPOR_NOT_PUBLISHED')
+          print('BESIKTAS_ERZURUMSPOR_PUBLISHED='+json.dumps(found,ensure_ascii=False,sort_keys=True))
+          print('PUBLIC_MOBILE_GATE=PASS')
+          PY
+
+      - name: Final gate
+        if: always()
+        run: |
+          if [ "${{ job.status }}" = "success" ]; then
+            echo FINAL=PASS_MOBILE_SCHEDULE_CERTIFIED28_HOTFIX
+          else
+            echo FINAL=FAIL_MOBILE_SCHEDULE_CERTIFIED28_HOTFIX
+            exit 1
+          fi
