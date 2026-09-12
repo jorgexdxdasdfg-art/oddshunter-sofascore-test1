@@ -684,12 +684,22 @@ def publish_schedule_catalog(
             if day in allowed_days:
                 cloud_by_day.setdefault(day, []).append(row)
 
-        # A seed is an exact desktop snapshot for the days it contains.  For a
-        # newly entered day that the snapshot does not cover, use the refreshed
-        # cloud database instead of accidentally making the whole catalog empty.
+        # Seed and refreshed cloud coverage are complementary. Never choose
+        # one source and silently discard valid fixtures present in the other.
+        # Cloud fills gaps; the freshly generated seed wins on duplicate events.
         selected_events: list[dict[str, Any]] = []
         for day in sorted(allowed_days):
-            selected_events.extend(seeded_by_day.get(day) or cloud_by_day.get(day) or [])
+            merged_day: dict[tuple[str, int], dict[str, Any]] = {}
+
+            for row in cloud_by_day.get(day, []):
+                key = (str(row.get("competition_key")), int(row.get("event_id")))
+                merged_day[key] = row
+
+            for row in seeded_by_day.get(day, []):
+                key = (str(row.get("competition_key")), int(row.get("event_id")))
+                merged_day[key] = row
+
+            selected_events.extend(merged_day.values())
         allowed_ids = {
             (str(row.get("competition_key")), int(row.get("event_id")))
             for row in selected_events
