@@ -196,6 +196,16 @@ def resolve_fixture(
         elif exact_time and score >= 0.55:
             uncertain.append((score, fixture))
 
+    # The provider can repeat the same fixture in the date feed.  Repeated rows
+    # with the same provider id are one candidate, not an ambiguous matchup.
+    unique_accepted: dict[int | str, tuple[float, str, dict[str, Any]]] = {}
+    for row in accepted:
+        fixture_id = row[2].get("id")
+        key: int | str = int(fixture_id) if str(fixture_id or "").isdigit() else f"object:{id(row[2])}"
+        current = unique_accepted.get(key)
+        if current is None or row[0] > current[0]:
+            unique_accepted[key] = row
+    accepted = list(unique_accepted.values())
     accepted.sort(key=lambda row: row[0], reverse=True)
     if len(accepted) == 1 or (len(accepted) > 1 and accepted[0][0] - accepted[1][0] >= 0.15):
         score, method, fixture = accepted[0]

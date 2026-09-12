@@ -211,6 +211,27 @@ def test_similar_team_names_do_not_override_wrong_kickoff():
     assert match_fixture(event, [fixture]) is None
 
 
+def test_duplicate_provider_rows_with_same_id_are_one_alias_candidate():
+    event = {
+        "kickoff": "2026-09-12T15:50:00+00:00",
+        "home_team": "Al-Taawoun",
+        "away_team": "Al-Hilal",
+    }
+    fixture = {
+        "id": 1254469061,
+        "kickoff_utc": "2026-09-12T15:50:00+00:00",
+        "teams": {
+            "home": {"name": "Al Taawon Buraidah"},
+            "away": {"name": "Al Hilal Riyadh"},
+        },
+    }
+
+    resolved, classification, _score, _reason = resolve_fixture(event, [fixture, dict(fixture)])
+
+    assert resolved == fixture
+    assert classification == "RESOLVED_ALIAS"
+
+
 def test_captured_opening_is_immutable_and_current_moves():
     opening = [{"key": "result_home", "market": "Resultado 1X2", "selection": "Local", "odds": 2.5}]
     current = [{"key": "result_home", "market": "Resultado 1X2", "selection": "Local", "odds": 2.4}]
