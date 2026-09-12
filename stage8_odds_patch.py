@@ -13,6 +13,55 @@ def replace_once(text: str, old: str, new: str, label: str) -> str:
 def patch(root: Path) -> None:
     daemon = root / "stage8_daemon.py"
     installer = root / "stage8_install.sh"
+    sync_file = root / "five_dollar_odds_sync.py"
+
+    # ODDS_FULL_FIELDS_RECOVERY_V1
+    # The batch endpoint currently carries 1X2 for every provider fixture but
+    # can omit the detailed Bet365 markets. Force the already-existing detailed
+    # endpoint only when a fixture still lacks cached non-1X2 prices. Also allow
+    # a unique strong home/away pair to survive schedule-seed kickoff drift.
+    if sync_file.is_file():
+        sync_text = sync_file.read_text(encoding="utf-8")
+        if "ODDS_FULL_FIELDS_RECOVERY_V1_RUNTIME" not in sync_text:
+            sync_text = replace_once(
+                sync_text,
+                '    accepted: list[tuple[float, str, dict[str, Any]]] = []\n    uncertain: list[tuple[float, dict[str, Any]]] = []\n',
+                '    accepted: list[tuple[float, str, dict[str, Any]]] = []\n    uncertain: list[tuple[float, dict[str, Any]]] = []\n    wide: list[tuple[float, dict[str, Any]]] = []  # ODDS_FULL_FIELDS_RECOVERY_V1_RUNTIME\n',
+                "wide fixture candidates",
+            )
+            sync_text = replace_once(
+                sync_text,
+                '            if delta is not None and delta <= 5 * 60 and min(home_score, away_score) >= 0.50:\n                return saved, "RESOLVED_STABLE_ID", score, "persisted provider_fixture_id"\n',
+                '            if delta is not None and delta <= 18 * 3600 and min(home_score, away_score) >= 0.72:\n                return saved, "RESOLVED_STABLE_ID", score, "persisted provider_fixture_id"\n',
+                "saved fixture kickoff drift",
+            )
+            sync_text = replace_once(
+                sync_text,
+                '        if delta is None or delta > 6 * 3600:\n            continue\n',
+                '        if delta is None or delta > 18 * 3600:\n            continue\n',
+                "fixture search window",
+            )
+            sync_text = replace_once(
+                sync_text,
+                '        elif exact_time and score >= 0.55:\n            uncertain.append((score, fixture))\n\n    accepted.sort(key=lambda row: row[0], reverse=True)\n',
+                '        elif exact_time and score >= 0.55:\n            uncertain.append((score, fixture))\n        elif delta <= 18 * 3600 and (exact_names or alias_names or (score >= 0.82 and min(home_score, away_score) >= 0.72)):\n            wide.append((score, fixture))\n\n    accepted.sort(key=lambda row: row[0], reverse=True)\n',
+                "unique team pair candidates",
+            )
+            sync_text = replace_once(
+                sync_text,
+                '    if len(accepted) == 1 or (len(accepted) > 1 and accepted[0][0] - accepted[1][0] >= 0.15):\n        score, method, fixture = accepted[0]\n        return fixture, method, score, "kickoff + home + away"\n    if accepted or uncertain:\n',
+                '    if len(accepted) == 1 or (len(accepted) > 1 and accepted[0][0] - accepted[1][0] >= 0.15):\n        score, method, fixture = accepted[0]\n        return fixture, method, score, "kickoff + home + away"\n    wide.sort(key=lambda row: row[0], reverse=True)\n    if len(wide) == 1 or (len(wide) > 1 and wide[0][0] - wide[1][0] >= 0.15):\n        score, fixture = wide[0]\n        return fixture, "RESOLVED_OTHER", score, "unique home/away pair with kickoff drift"\n    uncertain.extend(wide)\n    if accepted or uncertain:\n',
+                "resolve unique team pair",
+            )
+            sync_text = replace_once(
+                sync_text,
+                '            last_extended = _datetime(existing.get("extended_last_checked_at"))\n            extended_due = last_extended is None or now - last_extended >= extended_ttl\n            needs_individual_1x2 = not batch_prices\n            needs_extended = bool(batch_prices) and extended_due\n',
+                '            last_extended = _datetime(existing.get("extended_last_checked_at"))\n            extended_due = last_extended is None or now - last_extended >= extended_ttl\n            needs_individual_1x2 = not batch_prices\n            existing_detail = any(\n                not str(row.get("key") or "").startswith("result_")\n                for row in (existing.get("available_prices") or [])\n                if isinstance(row, dict)\n            )\n            needs_extended = bool(batch_prices) and (extended_due or not existing_detail)\n',
+                "force missing detailed markets",
+            )
+            compile(sync_text, str(sync_file), "exec")
+            sync_file.write_text(sync_text, encoding="utf-8", newline="\n")
+
     daemon_text = daemon.read_text(encoding="utf-8")
     # Upgrade an already-patched runtime without duplicating the odds block.
     daemon_text = daemon_text.replace(
