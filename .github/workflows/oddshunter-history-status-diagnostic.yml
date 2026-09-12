@@ -1,0 +1,111 @@
+﻿name: OddsHunter HISTORY STATUS DIAGNOSTIC
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/oddshunter-history-status-diagnostic.yml
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Prepare SSH
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_SSH_PRIVATE_KEY: ${{ secrets.VPS_SSH_PRIVATE_KEY }}
+          VPS_PORT_SECRET: ${{ secrets.VPS_PORT }}
+        run: |
+          set -euo pipefail
+
+          test -n "${VPS_HOST:-}"
+          test -n "${VPS_SSH_PRIVATE_KEY:-}"
+
+          PORT="${VPS_PORT_SECRET:-22}"
+          echo "VPS_PORT=$PORT" >> "$GITHUB_ENV"
+
+          install -d -m 0700 ~/.ssh
+          printf '%s\n' "$VPS_SSH_PRIVATE_KEY" > ~/.ssh/oddshunter_history
+          chmod 0600 ~/.ssh/oddshunter_history
+          ssh-keyscan -p "$PORT" -H "$VPS_HOST" > ~/.ssh/known_hosts
+
+      - name: Inspect target history statuses
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+        run: |
+          set -euo pipefail
+
+          SSH=(
+            ssh
+            -i ~/.ssh/oddshunter_history
+            -p "$VPS_PORT"
+            -o BatchMode=yes
+            -o StrictHostKeyChecking=yes
+            "$VPS_USER@$VPS_HOST"
+          )
+
+          "${SSH[@]}" 'bash -s' <<'REMOTE'
+          set -euo pipefail
+
+          if [ "$(id -u)" -eq 0 ]; then
+            SUDO=""
+          else
+            SUDO="sudo -n"
+          fi
+
+          CUR="$(readlink -f /opt/oddshunter/current)"
+          PY="$CUR/.venv-cloud/bin/python"
+
+          $SUDO -u oddshunter "$PY" - "$CUR/data/oddshunter.db" <<'PY'
+          import sqlite3
+          import sys
+
+          con=sqlite3.connect(sys.argv[1])
+
+          targets=(
+              (197065,17680,"Colorado Springs"),
+              (217134,17680,"San Antonio"),
+              (310531,17680,"New Mexico"),
+              (148992,17680,"Indy Eleven"),
+              (36525,407,"Tijuana"),
+              (1951,407,"Queretaro"),
+          )
+
+          for sid,league_id,name in targets:
+              rows=con.execute(
+                  """
+                  SELECT
+                      COALESCE(m.status,'<NULL>'),
+                      COUNT(DISTINCT m.match_id)
+                  FROM team_match_stats s
+                  JOIN teams t
+                    ON t.team_id=s.team_id
+                  JOIN matches m
+                    ON m.match_id=s.match_id
+                  WHERE t.sofascore_id=?
+                    AND m.league_id=?
+                  GROUP BY COALESCE(m.status,'<NULL>')
+                  ORDER BY 2 DESC
+                  """,
+                  (sid,league_id),
+              ).fetchall()
+
+              print(
+                  "STATUS_SCOPE",
+                  sid,
+                  name,
+                  league_id,
+                  rows,
+              )
+
+          con.close()
+          PY
+          REMOTE
