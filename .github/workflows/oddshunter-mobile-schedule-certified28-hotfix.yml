@@ -6,6 +6,7 @@ on:
     branches: [main]
     paths:
       - cloud_schedule_refresh.py
+      - deploy/mobile_certified_competitions.json
       - .github/workflows/oddshunter-mobile-schedule-certified28-hotfix.yml
 
 permissions:
@@ -28,8 +29,19 @@ jobs:
         run: |
           set -euo pipefail
           python -m py_compile cloud_schedule_refresh.py
-          grep -q 'MOBILE_CERTIFIED_KEYS' cloud_schedule_refresh.py
-          grep -q 'turkey-super-lig' cloud_schedule_refresh.py
+          python - <<'PY'
+          import json
+          p='deploy/mobile_certified_competitions.json'
+          d=json.load(open(p,encoding='utf-8'))
+          rows=d.get('competitions') or []
+          keys={r.get('key') for r in rows if isinstance(r,dict)}
+          lids={int(r.get('league_id') or 0) for r in rows if isinstance(r,dict)}
+          assert len(rows)==28, len(rows)
+          assert len(keys)==28, len(keys)
+          assert len(lids)==28, len(lids)
+          assert 'turkey-super-lig' in keys
+          print('CERTIFIED28_FILE_GATE=PASS')
+          PY
           echo SOURCE_GATE=PASS
 
       - name: Prepare SSH
@@ -49,7 +61,7 @@ jobs:
           chmod 600 ~/.ssh/known_hosts
           echo SSH_GATE=PASS
 
-      - name: Deploy refresh guard and publish now
+      - name: Deploy registry and refresh schedule now
         run: |
           set -euo pipefail
           REMOTE_DIR="/tmp/oddshunter-certified28-${GITHUB_RUN_ID}"
@@ -57,7 +69,7 @@ jobs:
           SCP=(scp -i ~/.ssh/oddshunter -P "$VPS_PORT" -o BatchMode=yes -o StrictHostKeyChecking=yes)
 
           "${SSH[@]}" "mkdir -p '$REMOTE_DIR'"
-          "${SCP[@]}" cloud_schedule_refresh.py "$VPS_USER@$VPS_HOST:$REMOTE_DIR/cloud_schedule_refresh.py"
+          "${SCP[@]}" cloud_schedule_refresh.py deploy/mobile_certified_competitions.json "$VPS_USER@$VPS_HOST:$REMOTE_DIR/"
 
           "${SSH[@]}" "set -euo pipefail
             SUDO=''; if [ \"\$(id -u)\" -ne 0 ]; then SUDO='sudo -n'; fi
@@ -66,17 +78,22 @@ jobs:
             test -x \"\$CUR/.venv-cloud/bin/python\"
             test -f \"\$CUR/mobile_schedule_seed_builder.py\"
             test -f \"\$CUR/cloud_live_status_sync.py\"
-            test -f \"\$CUR/data/competitions.json\"
             \$SUDO install -m 0644 '$REMOTE_DIR/cloud_schedule_refresh.py' \"\$CUR/cloud_schedule_refresh.py\"
+            \$SUDO install -m 0640 -o oddshunter -g oddshunter '$REMOTE_DIR/mobile_certified_competitions.json' /var/lib/oddshunter/data/mobile_certified_competitions.json
             \$SUDO -u oddshunter env \
               ODDSHUNTER_RUNTIME_MODE=cloud \
               ODDSHUNTER_WORK_DB=/var/lib/oddshunter/data/oddshunter.db \
+              ODDSHUNTER_MOBILE_REGISTRY=/var/lib/oddshunter/data/mobile_certified_competitions.json \
               ODDSHUNTER_ALLOW_WORK_DB_WRITE=1 \
               ODDSHUNTER_STAGE6_ALLOW_TURSO_WRITE=1 \
               \"\$CUR/.venv-cloud/bin/python\" -u \"\$CUR/cloud_schedule_refresh.py\" --self-test
-            \$SUDO systemctl start oddshunter-schedule-refresh.service
-            \$SUDO systemctl is-failed --quiet oddshunter-schedule-refresh.service && exit 1 || true
-            \$SUDO journalctl -u oddshunter-schedule-refresh.service -n 120 --no-pager
+            \$SUDO -u oddshunter env \
+              ODDSHUNTER_RUNTIME_MODE=cloud \
+              ODDSHUNTER_WORK_DB=/var/lib/oddshunter/data/oddshunter.db \
+              ODDSHUNTER_MOBILE_REGISTRY=/var/lib/oddshunter/data/mobile_certified_competitions.json \
+              ODDSHUNTER_ALLOW_WORK_DB_WRITE=1 \
+              ODDSHUNTER_STAGE6_ALLOW_TURSO_WRITE=1 \
+              \"\$CUR/.venv-cloud/bin/python\" -u \"\$CUR/cloud_schedule_refresh.py\"
             rm -rf '$REMOTE_DIR'
             echo REMOTE_REFRESH_GATE=PASS"
 
