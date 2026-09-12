@@ -110,6 +110,171 @@ jobs:
           if count <= 0:
               raise SystemExit("PROVIDER_SCHEDULE_TODAY_EMPTY=FAIL")
           PY
+          # USL_FAMILY_REPAIR_V1
+          # Corrige exclusivamente metadata de competici?n.
+          # NO modifica ratings, probabilidades, pesos ni modelos.
+          $SUDO -u oddshunter "$PY" - "$CUR" <<'PY'
+          import json
+          import sqlite3
+          import sys
+          from pathlib import Path
+
+          root = Path(sys.argv[1])
+          sys.path.insert(0, str(root))
+
+          import ratings
+
+          db = root / "data" / "oddshunter.db"
+
+          con = sqlite3.connect(db, timeout=30)
+          con.row_factory = sqlite3.Row
+          con.execute("PRAGMA busy_timeout=30000")
+
+          expected_ids = {17677, 17678, 17679, 17680}
+
+          before = con.execute(
+              """
+              SELECT
+                  league_id,
+                  name,
+                  competition_family,
+                  source_tournament_id
+              FROM leagues
+              WHERE league_id IN (17677,17678,17679,17680)
+              ORDER BY league_id
+              """
+          ).fetchall()
+
+          print(
+              "USL_FAMILY_BEFORE="
+              + json.dumps(
+                  [dict(row) for row in before],
+                  ensure_ascii=False,
+              )
+          )
+
+          found_ids = {
+              int(row["league_id"])
+              for row in before
+          }
+
+          if found_ids != expected_ids:
+              raise SystemExit(
+                  "USL_FAMILY_ROWS_INCOMPLETE="
+                  + str(sorted(found_ids))
+              )
+
+          for row in before:
+              if int(row["source_tournament_id"] or 0) != 13363:
+                  raise SystemExit(
+                      "USL_SOURCE_TOURNAMENT_MISMATCH="
+                      + str(dict(row))
+                  )
+
+              if str(row["name"] or "") != "USL Championship":
+                  raise SystemExit(
+                      "USL_NAME_MISMATCH="
+                      + str(dict(row))
+                  )
+
+          con.execute(
+              """
+              UPDATE leagues
+              SET competition_family='DOMESTIC'
+              WHERE league_id IN (17677,17678,17679,17680)
+                AND source_tournament_id=13363
+                AND name='USL Championship'
+              """
+          )
+
+          con.commit()
+
+          after = con.execute(
+              """
+              SELECT
+                  league_id,
+                  name,
+                  competition_family,
+                  source_tournament_id
+              FROM leagues
+              WHERE league_id IN (17677,17678,17679,17680)
+              ORDER BY league_id
+              """
+          ).fetchall()
+
+          print(
+              "USL_FAMILY_AFTER="
+              + json.dumps(
+                  [dict(row) for row in after],
+                  ensure_ascii=False,
+              )
+          )
+
+          if len(after) != 4 or any(
+              str(row["competition_family"] or "").upper()
+              != "DOMESTIC"
+              for row in after
+          ):
+              raise SystemExit("USL_FAMILY_REPAIR_VERIFY=FAIL")
+
+          targets = (
+              (
+                  197065,
+                  "Colorado Springs Switchbacks FC",
+                  "2026-09-12T02:00:00+00:00",
+              ),
+              (
+                  217134,
+                  "San Antonio FC",
+                  "2026-09-12T02:00:00+00:00",
+              ),
+              (
+                  310531,
+                  "New Mexico United",
+                  "2026-09-12T01:30:00+00:00",
+              ),
+              (
+                  148992,
+                  "Indy Eleven",
+                  "2026-09-12T01:30:00+00:00",
+              ),
+          )
+
+          for sid, name, kickoff_before in targets:
+              scope = ratings.domestic_history_scope(
+                  con,
+                  sid,
+              )
+
+              history = ratings.obtener_ultimos_partidos(
+                  con,
+                  sofascore_id=sid,
+                  limite=100,
+                  league_ids=scope,
+                  kickoff_before=kickoff_before,
+              )
+
+              print(
+                  "USL_HISTORY_VERIFY",
+                  {
+                      "sid": sid,
+                      "name": name,
+                      "scope": scope,
+                      "history_count": len(history),
+                  },
+              )
+
+              if not history:
+                  raise SystemExit(
+                      "USL_HISTORY_STILL_EMPTY="
+                      + str(sid)
+                  )
+
+          con.close()
+
+          print("USL_FAMILY_REPAIR=PASS")
+          PY
+
           # Rescate temporal: solo los cinco fixtures recuperados.
           # Se elimina autom?ticamente al terminar este workflow.
           $SUDO install -d -m 0755 /run/systemd/system/oddshunter.service.d
