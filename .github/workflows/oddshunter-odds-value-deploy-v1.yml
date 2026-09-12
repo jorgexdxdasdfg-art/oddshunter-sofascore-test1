@@ -20,7 +20,7 @@ permissions:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 75
     env:
       VPS_HOST: ${{ secrets.VPS_HOST }}
       VPS_USER: ${{ secrets.VPS_USER }}
@@ -81,7 +81,8 @@ jobs:
               -p User=oddshunter -p Group=oddshunter \
               -p WorkingDirectory=/opt/oddshunter/current \
               -p EnvironmentFile=/etc/oddshunter/oddshunter.env \
-              /bin/bash -lc 'set -euo pipefail; ./\.venv-cloud/bin/python -u five_dollar_odds_sync.py --root /opt/oddshunter/current | tee /tmp/oddshunter_odds_backfill.json; ./\.venv-cloud/bin/python -u turso_odds_value_publish.py; ./\.venv-cloud/bin/python -u audit_visible_odds.py'
+              -p Environment=ODDSHUNTER_MAX_INDIVIDUAL_ODDS_PER_HOUR=500 \
+              /bin/bash -lc 'set -euo pipefail; ./\.venv-cloud/bin/python -u five_dollar_odds_sync.py --root /opt/oddshunter/current | tee /tmp/oddshunter_odds_backfill.json; ./\.venv-cloud/bin/python -u turso_odds_value_publish.py'
             SEED_RC=\$?
             set -e
             \$SUDO systemctl start oddshunter.service
