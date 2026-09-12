@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from pathlib import Path
 
 import five_dollar_odds_sync as syncmod
+from sofascore_event_client import SofaScoreEventClient
 
 ROOT = Path('/opt/oddshunter/current')
 TARGET_IDS = {
@@ -15,52 +16,30 @@ TARGET_IDS = {
 
 
 def main() -> int:
-    syncmod._load_env(ROOT)
-    import os
-    key = os.environ.get('FIVE_DOLLAR_FOOTBALL_API_KEY', '').strip()
-    if not key:
-        raise RuntimeError('missing FIVE_DOLLAR_FOOTBALL_API_KEY')
-    client = syncmod.Client(key)
     now = datetime.now(timezone.utc)
     today_start, _, end = syncmod._day_bounds(now)
     events = [row for row in syncmod._target_events(ROOT, today_start, end) if int(row.get('event_id') or 0) in TARGET_IDS]
-    start = today_start - timedelta(days=2)
-    stop = end + timedelta(days=2)
-    fixtures = syncmod.fetch_fixtures(client, start, stop, include_odds=False)
-    print('DIAG_WINDOW', start.isoformat(), stop.isoformat(), 'fixtures', len(fixtures), 'targets', len(events))
+    client = SofaScoreEventClient(timeout=12, retries=2)
+    print('SOFA_TARGETS', len(events))
     for event in events:
-        scored = []
-        for fixture in fixtures:
-            score, hs, aws, delta = syncmod._fixture_identity(event, fixture)
-            teams = fixture.get('teams') or {}
-            home = (teams.get('home') or {}).get('name')
-            away = (teams.get('away') or {}).get('name')
-            canonical_pair = (
-                syncmod._canonical_team(event.get('home_team')) == syncmod._canonical_team(home)
-                and syncmod._canonical_team(event.get('away_team')) == syncmod._canonical_team(away)
-            )
-            if score >= 0.38 or canonical_pair:
-                scored.append({
-                    'fixture_id': fixture.get('id'),
-                    'kickoff_utc': fixture.get('kickoff_utc'),
-                    'home': home,
-                    'away': away,
-                    'score': round(score, 4),
-                    'home_score': round(hs, 4),
-                    'away_score': round(aws, 4),
-                    'delta_h': None if delta is None else round(delta / 3600.0, 3),
-                    'canonical_pair': canonical_pair,
-                })
-        scored.sort(key=lambda r: (-float(r['score']), 9999 if r['delta_h'] is None else abs(float(r['delta_h']))))
-        print('DIAG_EVENT=' + json.dumps({
-            'event_id': event.get('event_id'),
+        payload = {
+            'event_id': int(event.get('event_id')),
             'competition_key': event.get('competition_key'),
             'home': event.get('home_team'),
             'away': event.get('away_team'),
-            'kickoff': event.get('kickoff'),
-            'candidates': scored[:10],
-        }, ensure_ascii=False, separators=(',', ':')))
-    print('DIAG_REQUESTS', client.request_count)
+            'seed_kickoff': event.get('kickoff'),
+        }
+        try:
+            snap = client.get_match_snapshot(event)
+            payload['sofa_kickoff'] = snap.get('kickoff')
+            payload['state'] = snap.get('state')
+            payload['provider_status'] = snap.get('provider_status')
+            seed_dt = syncmod._datetime(event.get('kickoff'))
+            sofa_dt = syncmod._datetime(snap.get('kickoff'))
+            payload['delta_h'] = None if not seed_dt or not sofa_dt else round((sofa_dt-seed_dt).total_seconds()/3600.0, 3)
+        except Exception as exc:
+            payload['error'] = str(exc)
+        print('SOFA_EVENT=' + json.dumps(payload, ensure_ascii=False, separators=(',', ':')))
     return 0
 
 
