@@ -78,21 +78,25 @@ jobs:
             test -x \"\$CUR/.venv-cloud/bin/python\"
             test -f \"\$CUR/mobile_schedule_seed_builder.py\"
             test -f \"\$CUR/cloud_live_status_sync.py\"
+            test -f /etc/oddshunter/oddshunter.env
             \$SUDO install -m 0644 '$REMOTE_DIR/cloud_schedule_refresh.py' \"\$CUR/cloud_schedule_refresh.py\"
             \$SUDO install -m 0640 -o oddshunter -g oddshunter '$REMOTE_DIR/mobile_certified_competitions.json' /var/lib/oddshunter/data/mobile_certified_competitions.json
             \$SUDO -u oddshunter env \
               ODDSHUNTER_RUNTIME_MODE=cloud \
               ODDSHUNTER_WORK_DB=/var/lib/oddshunter/data/oddshunter.db \
               ODDSHUNTER_MOBILE_REGISTRY=/var/lib/oddshunter/data/mobile_certified_competitions.json \
-              ODDSHUNTER_ALLOW_WORK_DB_WRITE=1 \
-              ODDSHUNTER_STAGE6_ALLOW_TURSO_WRITE=1 \
               \"\$CUR/.venv-cloud/bin/python\" -u \"\$CUR/cloud_schedule_refresh.py\" --self-test
-            \$SUDO -u oddshunter env \
-              ODDSHUNTER_RUNTIME_MODE=cloud \
-              ODDSHUNTER_WORK_DB=/var/lib/oddshunter/data/oddshunter.db \
-              ODDSHUNTER_MOBILE_REGISTRY=/var/lib/oddshunter/data/mobile_certified_competitions.json \
-              ODDSHUNTER_ALLOW_WORK_DB_WRITE=1 \
-              ODDSHUNTER_STAGE6_ALLOW_TURSO_WRITE=1 \
+            \$SUDO systemd-run --quiet --wait --pipe --collect \
+              --unit=oddshunter-certified28-${GITHUB_RUN_ID} \
+              -p User=oddshunter \
+              -p Group=oddshunter \
+              -p WorkingDirectory=\"\$CUR\" \
+              -p EnvironmentFile=/etc/oddshunter/oddshunter.env \
+              -p Environment=ODDSHUNTER_RUNTIME_MODE=cloud \
+              -p Environment=ODDSHUNTER_WORK_DB=/var/lib/oddshunter/data/oddshunter.db \
+              -p Environment=ODDSHUNTER_MOBILE_REGISTRY=/var/lib/oddshunter/data/mobile_certified_competitions.json \
+              -p Environment=ODDSHUNTER_ALLOW_WORK_DB_WRITE=1 \
+              -p Environment=ODDSHUNTER_STAGE6_ALLOW_TURSO_WRITE=1 \
               \"\$CUR/.venv-cloud/bin/python\" -u \"\$CUR/cloud_schedule_refresh.py\"
             rm -rf '$REMOTE_DIR'
             echo REMOTE_REFRESH_GATE=PASS"
