@@ -11,185 +11,117 @@ def replace_once(text: str, old: str, new: str, label: str) -> str:
 
 
 def patch(root: Path) -> None:
-    daemon = root / "stage8_daemon.py"
-    installer = root / "stage8_install.sh"
     sync_file = root / "five_dollar_odds_sync.py"
+    if not sync_file.is_file():
+        raise RuntimeError("five_dollar_odds_sync.py no existe")
 
-    # ODDS_FULL_FIELDS_RECOVERY_V1
-    # The batch endpoint currently carries 1X2 for every provider fixture but
-    # can omit the detailed Bet365 markets. Force the already-existing detailed
-    # endpoint only when a fixture still lacks cached non-1X2 prices. Also allow
-    # a unique strong home/away pair to survive schedule-seed kickoff drift.
-    if sync_file.is_file():
-        sync_text = sync_file.read_text(encoding="utf-8")
-        if "ODDS_FULL_FIELDS_RECOVERY_V1_RUNTIME" not in sync_text:
-            sync_text = replace_once(
-                sync_text,
-                '    accepted: list[tuple[float, str, dict[str, Any]]] = []\n    uncertain: list[tuple[float, dict[str, Any]]] = []\n',
-                '    accepted: list[tuple[float, str, dict[str, Any]]] = []\n    uncertain: list[tuple[float, dict[str, Any]]] = []\n    wide: list[tuple[float, dict[str, Any]]] = []  # ODDS_FULL_FIELDS_RECOVERY_V1_RUNTIME\n',
-                "wide fixture candidates",
-            )
-            sync_text = replace_once(
-                sync_text,
-                '            if delta is not None and delta <= 5 * 60 and min(home_score, away_score) >= 0.50:\n                return saved, "RESOLVED_STABLE_ID", score, "persisted provider_fixture_id"\n',
-                '            if delta is not None and delta <= 18 * 3600 and min(home_score, away_score) >= 0.72:\n                return saved, "RESOLVED_STABLE_ID", score, "persisted provider_fixture_id"\n',
-                "saved fixture kickoff drift",
-            )
-            sync_text = replace_once(
-                sync_text,
-                '        if delta is None or delta > 6 * 3600:\n            continue\n',
-                '        if delta is None or delta > 18 * 3600:\n            continue\n',
-                "fixture search window",
-            )
-            sync_text = replace_once(
-                sync_text,
-                '        elif exact_time and score >= 0.55:\n            uncertain.append((score, fixture))\n\n    accepted.sort(key=lambda row: row[0], reverse=True)\n',
-                '        elif exact_time and score >= 0.55:\n            uncertain.append((score, fixture))\n        elif delta <= 18 * 3600 and (exact_names or alias_names or (score >= 0.82 and min(home_score, away_score) >= 0.72)):\n            wide.append((score, fixture))\n\n    accepted.sort(key=lambda row: row[0], reverse=True)\n',
-                "unique team pair candidates",
-            )
-            sync_text = replace_once(
-                sync_text,
-                '    if len(accepted) == 1 or (len(accepted) > 1 and accepted[0][0] - accepted[1][0] >= 0.15):\n        score, method, fixture = accepted[0]\n        return fixture, method, score, "kickoff + home + away"\n    if accepted or uncertain:\n',
-                '    if len(accepted) == 1 or (len(accepted) > 1 and accepted[0][0] - accepted[1][0] >= 0.15):\n        score, method, fixture = accepted[0]\n        return fixture, method, score, "kickoff + home + away"\n    wide.sort(key=lambda row: row[0], reverse=True)\n    if len(wide) == 1 or (len(wide) > 1 and wide[0][0] - wide[1][0] >= 0.15):\n        score, fixture = wide[0]\n        return fixture, "RESOLVED_OTHER", score, "unique home/away pair with kickoff drift"\n    uncertain.extend(wide)\n    if accepted or uncertain:\n',
-                "resolve unique team pair",
-            )
-            sync_text = replace_once(
-                sync_text,
-                '            last_extended = _datetime(existing.get("extended_last_checked_at"))\n            extended_due = last_extended is None or now - last_extended >= extended_ttl\n            needs_individual_1x2 = not batch_prices\n            needs_extended = bool(batch_prices) and extended_due\n',
-                '            last_extended = _datetime(existing.get("extended_last_checked_at"))\n            extended_due = last_extended is None or now - last_extended >= extended_ttl\n            needs_individual_1x2 = not batch_prices\n            existing_detail = any(\n                not str(row.get("key") or "").startswith("result_")\n                for row in (existing.get("available_prices") or [])\n                if isinstance(row, dict)\n            )\n            needs_extended = bool(batch_prices) and (extended_due or not existing_detail)\n',
-                "force missing detailed markets",
-            )
-            compile(sync_text, str(sync_file), "exec")
-            sync_file.write_text(sync_text, encoding="utf-8", newline="\n")
-
-    daemon_text = daemon.read_text(encoding="utf-8")
-    # Upgrade an already-patched runtime without duplicating the odds block.
-    daemon_text = daemon_text.replace(
-        "ODDS_VALUE_SYNC_V2",
-        "ODDS_VALUE_TODAY_TOMORROW_V3",
-    )
-    daemon_text = daemon_text.replace(
-        '[py, "-u", str(ROOT / "five_dollar_odds_sync.py"), "--root", str(ROOT), "--days", "3", "--max-age-minutes", "45"]',
-        '[py, "-u", str(ROOT / "five_dollar_odds_sync.py"), "--root", str(ROOT)]',
-    )
-    if "ODDS_VALUE_SYNC_V1" in daemon_text and "ODDS_VALUE_TODAY_TOMORROW_V3" not in daemon_text:
-        daemon_text = daemon_text.replace("ODDS_VALUE_SYNC_V1", "ODDS_VALUE_TODAY_TOMORROW_V3", 1)
-        anchor = '''    if odds["returncode"] != 0:
-        raise RuntimeError(f"Odds value rc={odds['returncode']}")
-
-'''
-        daemon_text = replace_once(
-            daemon_text,
-            anchor,
-            anchor + '''    odds_publish = run_streamed(
-        "ODDS_VALUE_PUBLISH",
-        [py, "-u", str(ROOT / "turso_odds_value_publish.py")],
-        env,
-        300,
-    )
-    if odds_publish["returncode"] != 0:
-        raise RuntimeError(f"Odds value publish rc={odds_publish['returncode']}")
-
-''',
-            "publicación enfocada",
-        )
-        daemon_text = replace_once(
-            daemon_text,
-            '        "odds_value_process": odds,\n',
-            '        "odds_value_process": odds,\n        "odds_value_publish_process": odds_publish,\n',
-            "estado de publicación enfocada",
-        )
-    elif "ODDS_VALUE_TODAY_TOMORROW_V3" not in daemon_text:
-        daemon_text = replace_once(
-            daemon_text,
-            '    required_env = ["TURSO_DATABASE_URL", "TURSO_AUTH_TOKEN"]\n',
-            '    required_env = ["TURSO_DATABASE_URL", "TURSO_AUTH_TOKEN", "FIVE_DOLLAR_FOOTBALL_API_KEY"]\n',
-            "variables del proveedor",
-        )
-        anchor = '    env["ODDSHUNTER_STAGE6_ALLOW_TURSO_WRITE"] = "1"\n'
-        block = '''    # ODDS_VALUE_TODAY_TOMORROW_V3: backfill de HOY+MAÑANA en cada ciclo.
-    odds = run_streamed(
-        "ODDS_VALUE",
-        [py, "-u", str(ROOT / "five_dollar_odds_sync.py"), "--root", str(ROOT)],
-        env,
-        int(os.environ.get("ODDSHUNTER_ODDS_TIMEOUT_SECONDS", "900")),
-    )
-    if odds["returncode"] != 0:
-        raise RuntimeError(f"Odds value rc={odds['returncode']}")
-
-    odds_publish = run_streamed(
-        "ODDS_VALUE_PUBLISH",
-        [py, "-u", str(ROOT / "turso_odds_value_publish.py")],
-        env,
-        300,
-    )
-    if odds_publish["returncode"] != 0:
-        raise RuntimeError(f"Odds value publish rc={odds_publish['returncode']}")
-
-''' + anchor
-        daemon_text = replace_once(daemon_text, anchor, block, "ejecución antes de publicar")
-        daemon_text = replace_once(
-            daemon_text,
-            '        "stage6_process": s6,\n',
-            '        "stage6_process": s6,\n        "odds_value_process": odds,\n        "odds_value_publish_process": odds_publish,\n',
-            "estado del ciclo",
-        )
-    if "ODDS_VALUE_STARTUP_BACKFILL_V3" not in daemon_text:
-        startup_anchor = "    while not STOP:\n"
-        startup_block = '''    # ODDS_VALUE_STARTUP_BACKFILL_V3: no esperar al primer ciclo pesado.
-    startup_env = os.environ.copy()
-    startup_env["PYTHONUTF8"] = "1"
-    startup_env["PYTHONIOENCODING"] = "utf-8"
-    startup_env["ODDSHUNTER_STAGE6_ALLOW_TURSO_WRITE"] = "1"
-    startup_odds = run_streamed(
-        "ODDS_VALUE_STARTUP_BACKFILL",
-        [sys.executable, "-u", str(ROOT / "five_dollar_odds_sync.py"), "--root", str(ROOT)],
-        startup_env,
-        int(os.environ.get("ODDSHUNTER_ODDS_TIMEOUT_SECONDS", "900")),
-    )
-    if startup_odds["returncode"] == 0:
-        run_streamed(
-            "ODDS_VALUE_STARTUP_PUBLISH",
-            [sys.executable, "-u", str(ROOT / "turso_odds_value_publish.py")],
-            startup_env,
-            300,
-        )
-    else:
-        print(f"[{utc_now()}] ODDS_VALUE_STARTUP_BACKFILL=RETRY_NEXT_CYCLE", flush=True)
-
-'''
-        daemon_text = replace_once(
-            daemon_text,
-            startup_anchor,
-            startup_block + startup_anchor,
-            "backfill inmediato al iniciar",
-        )
-    compile(daemon_text, str(daemon), "exec")
-    daemon.write_text(daemon_text, encoding="utf-8", newline="\n")
-
-    if not installer.is_file():
+    text = sync_file.read_text(encoding="utf-8")
+    if "ODDS_FULL_FIELDS_RECOVERY_V2_RUNTIME" in text:
         return
-    install_text = installer.read_text(encoding="utf-8")
-    if "ODDS_VALUE_INSTALL_V1" not in install_text:
-        install_text = replace_once(
-            install_text,
-            '[[ -n "${TURSO_AUTH_TOKEN:-}" ]] || { echo "TURSO_AUTH_TOKEN_EMPTY" >&2; exit 1; }\n',
-            '[[ -n "${TURSO_AUTH_TOKEN:-}" ]] || { echo "TURSO_AUTH_TOKEN_EMPTY" >&2; exit 1; }\n[[ -n "${FIVE_DOLLAR_FOOTBALL_API_KEY:-}" ]] || { echo "FIVE_DOLLAR_FOOTBALL_API_KEY_EMPTY" >&2; exit 1; }\n',
-            "validación de clave",
-        )
-        install_text = replace_once(
-            install_text,
-            'cp -a "$PKG_DIR/README_CLOUD_STAGE8.md" "$RELEASE/"\n',
-            'cp -a "$PKG_DIR/README_CLOUD_STAGE8.md" "$RELEASE/"\n# ODDS_VALUE_INSTALL_V1\ncp -a "$BUNDLE_ROOT/asian_total_ev.py" "$RELEASE/"\ncp -a "$BUNDLE_ROOT/asian_lines.py" "$RELEASE/"\ncp -a "$BUNDLE_ROOT/odds_value_engine.py" "$RELEASE/"\ncp -a "$BUNDLE_ROOT/five_dollar_odds_sync.py" "$RELEASE/"\ncp -a "$BUNDLE_ROOT/turso_odds_value_publish.py" "$RELEASE/"\n',
-            "instalación de módulos",
-        )
-        install_text = replace_once(
-            install_text,
-            'python3 -m py_compile "$RELEASE/stage8_daemon.py" "$RELEASE/stage8_health.py" "$RELEASE/cloud_stage6_publish.py"\n',
-            'python3 -m py_compile "$RELEASE/stage8_daemon.py" "$RELEASE/stage8_health.py" "$RELEASE/cloud_stage6_publish.py" "$RELEASE/asian_total_ev.py" "$RELEASE/asian_lines.py" "$RELEASE/odds_value_engine.py" "$RELEASE/five_dollar_odds_sync.py" "$RELEASE/turso_odds_value_publish.py"\n',
-            "compilación de módulos",
-        )
-    installer.write_text(install_text, encoding="utf-8", newline="\n")
+
+    # Normalizaciones únicamente de identidad. No alteran probabilidades ni precios.
+    text = replace_once(
+        text,
+        '}\n\n\nclass ProviderDeferred',
+        '''}\nTEAM_ALIASES.update({
+    "cardiff city": "cardiff",
+    "deportivo alaves": "alaves",
+    "real racing club": "racing santander",
+    "al taawoun": "al taawoun buraidah",
+    "al hilal": "al hilal riyadh",
+    "1 fc koln": "koln",
+    "sv werder bremen": "werder bremen",
+    "paris fc": "paris fc",
+    "olympique lyonnais": "lyon",
+    "manchester city": "man city",
+    "coventry city": "coventry",
+    "brighton hove albion": "brighton",
+    "sporting kansas city": "sporting kansas city",
+    "los angeles fc": "lafc",
+    "stade brestois": "brest",
+    "ssc napoli": "napoli",
+    "as roma": "roma",
+    "ac milan": "milan",
+    "fc augsburg": "augsburg",
+    "1 fsv mainz 05": "mainz",
+    "borussia monchengladbach": "borussia mgladbach",
+})
+
+# ODDS_FULL_FIELDS_RECOVERY_V2_RUNTIME
+class ProviderDeferred''',
+        "aliases de identidad",
+    )
+
+    # Persisted provider ids can survive schedule-catalog kickoff drift when both
+    # teams still identify the same fixture strongly.
+    text = replace_once(
+        text,
+        '            if delta is not None and delta <= 5 * 60 and min(home_score, away_score) >= 0.50:\n                return saved, "RESOLVED_STABLE_ID", score, "persisted provider_fixture_id"\n',
+        '            if delta is not None and delta <= 18 * 3600 and min(home_score, away_score) >= 0.50:\n                return saved, "RESOLVED_STABLE_ID", score, "persisted provider_fixture_id"\n',
+        "persisted provider fixture",
+    )
+
+    text = replace_once(
+        text,
+        '    accepted: list[tuple[float, str, dict[str, Any]]] = []\n    uncertain: list[tuple[float, dict[str, Any]]] = []\n',
+        '    accepted: list[tuple[float, str, dict[str, Any]]] = []\n    uncertain: list[tuple[float, dict[str, Any]]] = []\n    wide: list[tuple[float, dict[str, Any]]] = []\n',
+        "wide candidates",
+    )
+    text = replace_once(
+        text,
+        '        if delta is None or delta > 6 * 3600:\n            continue\n',
+        '        if delta is None or delta > 18 * 3600:\n            continue\n',
+        "fixture search window",
+    )
+    text = replace_once(
+        text,
+        '        elif exact_time and score >= 0.55:\n            uncertain.append((score, fixture))\n\n    accepted.sort(key=lambda row: row[0], reverse=True)\n',
+        '''        elif exact_time and score >= 0.55:
+            uncertain.append((score, fixture))
+        elif delta <= 18 * 3600 and (
+            exact_names
+            or alias_names
+            or (score >= 0.65 and min(home_score, away_score) >= 0.55)
+        ):
+            wide.append((score, fixture))
+
+    accepted.sort(key=lambda row: row[0], reverse=True)
+''',
+        "wide identity candidates",
+    )
+    text = replace_once(
+        text,
+        '    if len(accepted) == 1 or (len(accepted) > 1 and accepted[0][0] - accepted[1][0] >= 0.15):\n        score, method, fixture = accepted[0]\n        return fixture, method, score, "kickoff + home + away"\n    if accepted or uncertain:\n',
+        '''    if len(accepted) == 1 or (len(accepted) > 1 and accepted[0][0] - accepted[1][0] >= 0.15):
+        score, method, fixture = accepted[0]
+        return fixture, method, score, "kickoff + home + away"
+    wide.sort(key=lambda row: row[0], reverse=True)
+    if len(wide) == 1 or (len(wide) > 1 and wide[0][0] - wide[1][0] >= 0.12):
+        score, fixture = wide[0]
+        return fixture, "RESOLVED_OTHER", score, "unique strong home/away pair with kickoff drift"
+    uncertain.extend(wide)
+    if accepted or uncertain:
+''',
+        "resolve wide identity",
+    )
+
+    # Critical recovery rule: the provider batch response currently exposes 1X2
+    # only. Read the detailed Bet365 endpoint for EVERY resolved Today/Tomorrow
+    # fixture so goals, BTTS, HT, corners and cards can be anchored when Bet365
+    # actually supplies them. Existing engine remains responsible for ladders/EV.
+    text = replace_once(
+        text,
+        '            last_extended = _datetime(existing.get("extended_last_checked_at"))\n            extended_due = last_extended is None or now - last_extended >= extended_ttl\n            needs_individual_1x2 = not batch_prices\n            needs_extended = bool(batch_prices) and extended_due\n',
+        '''            last_extended = _datetime(existing.get("extended_last_checked_at"))
+            extended_due = last_extended is None or now - last_extended >= extended_ttl
+            needs_individual_1x2 = not batch_prices
+            needs_extended = bool(batch_prices)
+''',
+        "force detailed Bet365 reads",
+    )
+
+    compile(text, str(sync_file), "exec")
+    sync_file.write_text(text, encoding="utf-8", newline="\n")
 
 
 if __name__ == "__main__":
