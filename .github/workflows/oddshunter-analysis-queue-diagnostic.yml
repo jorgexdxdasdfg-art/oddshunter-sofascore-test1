@@ -1,6 +1,7 @@
 name: OddsHunter Analysis Queue Diagnostic
 # DIAG_TRIGGER=20260912T042736Z
 # LOG_DIAG_TRIGGER=20260912T051743Z
+# HISTORY_DIAG_TRIGGER=20260912T052307Z
 # Read-only probe for the complete-fixture analysis rollout (post-refresh check).
 
 on:
@@ -294,6 +295,88 @@ jobs:
                               ensure_ascii=False,
                           ),
                       )
+          PY
+
+          echo "========== TARGET TEAM HISTORY COVERAGE =========="
+
+          $SUDO -u oddshunter "$PY" - "$CUR" <<'PY'
+          import sqlite3
+          import sys
+          from pathlib import Path
+
+          root = Path(sys.argv[1])
+          con = sqlite3.connect(root / "data" / "oddshunter.db")
+          con.row_factory = sqlite3.Row
+
+          targets = {
+              197065: "Colorado Springs Switchbacks FC",
+              217134: "San Antonio FC",
+              310531: "New Mexico United",
+              148992: "Indy Eleven",
+              36525: "Club Tijuana",
+              1951: "Quer?taro FC",
+              5044: "KV Mechelen",
+              2900: "RSC Anderlecht",
+              3050: "Be?ikta? JK",
+              55603: "Erzurumspor FK",
+          }
+
+          for sid, expected_name in targets.items():
+              rows = con.execute(
+                  """
+                  SELECT team_id,name,sofascore_id
+                  FROM teams
+                  WHERE sofascore_id=?
+                  """,
+                  (sid,),
+              ).fetchall()
+
+              print("TEAM_TARGET", sid, expected_name)
+
+              if not rows:
+                  print("TEAM_BY_SOFASCORE=MISSING")
+                  continue
+
+              for row in rows:
+                  team_id = int(row["team_id"])
+
+                  home = con.execute(
+                      "SELECT COUNT(*) FROM matches WHERE home_team_id=?",
+                      (team_id,),
+                  ).fetchone()[0]
+
+                  away = con.execute(
+                      "SELECT COUNT(*) FROM matches WHERE away_team_id=?",
+                      (team_id,),
+                  ).fetchone()[0]
+
+                  leagues = [
+                      x[0]
+                      for x in con.execute(
+                          """
+                          SELECT DISTINCT league_id
+                          FROM matches
+                          WHERE home_team_id=? OR away_team_id=?
+                          ORDER BY league_id
+                          """,
+                          (team_id, team_id),
+                      ).fetchall()
+                  ]
+
+                  print(
+                      "TEAM_DB=",
+                      {
+                          "team_id": team_id,
+                          "db_name": row["name"],
+                          "sofascore_id": row["sofascore_id"],
+                          "home_matches": home,
+                          "away_matches": away,
+                          "total_matches": home + away,
+                          "league_ids": leagues,
+                      },
+                  )
+
+          con.close()
           PY
 
           echo "========== TARGET ANALYSIS LOG FILES =========="
