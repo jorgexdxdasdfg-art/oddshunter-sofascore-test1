@@ -1,0 +1,84 @@
+name: OddsHunter Fix Remaining Odds V1
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/oddshunter-fix-remaining-odds-v1.yml
+
+permissions:
+  contents: read
+
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    env:
+      VPS_HOST: ${{ secrets.VPS_HOST }}
+      VPS_USER: ${{ secrets.VPS_USER }}
+      VPS_PORT_SECRET: ${{ secrets.VPS_PORT }}
+      VPS_SSH_PRIVATE_KEY: ${{ secrets.VPS_SSH_PRIVATE_KEY }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Preparar SSH
+        shell: bash
+        run: |
+          set -euo pipefail
+          VPS_PORT="${VPS_PORT_SECRET:-22}"
+          echo "VPS_PORT=$VPS_PORT" >> "$GITHUB_ENV"
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "$VPS_SSH_PRIVATE_KEY" > ~/.ssh/oddshunter
+          chmod 600 ~/.ssh/oddshunter
+          ssh-keyscan -p "$VPS_PORT" -H "$VPS_HOST" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+
+      - name: Corregir calendario vivo y recuperar cuotas EV
+        shell: bash
+        run: |
+          set -euo pipefail
+          REMOTE_DIR="/tmp/oddshunter-final-odds-${GITHUB_RUN_ID}"
+          SSH=(ssh -i ~/.ssh/oddshunter -p "$VPS_PORT" -o BatchMode=yes -o StrictHostKeyChecking=yes -o ServerAliveInterval=30 -o ServerAliveCountMax=30 -o TCPKeepAlive=yes "$VPS_USER@$VPS_HOST")
+          SCP=(scp -i ~/.ssh/oddshunter -P "$VPS_PORT" -o BatchMode=yes -o StrictHostKeyChecking=yes)
+          "${SSH[@]}" "rm -rf '$REMOTE_DIR' && mkdir -p '$REMOTE_DIR'"
+          "${SCP[@]}" apply_schedule_odds_fix.py verify_published_odds.py "$VPS_USER@$VPS_HOST:$REMOTE_DIR/"
+          "${SSH[@]}" "set -euo pipefail
+            SUDO=''; if [ \"\$(id -u)\" -ne 0 ]; then SUDO='sudo -n'; fi
+            CUR=\$(readlink -f /opt/oddshunter/current)
+            cp \"\$CUR/mobile_schedule_seed_builder.py\" '$REMOTE_DIR/mobile_schedule_seed_builder.py'
+            cp \"\$CUR/five_dollar_odds_sync.py\" '$REMOTE_DIR/five_dollar_odds_sync.py'
+            cd '$REMOTE_DIR'
+            python3 apply_schedule_odds_fix.py
+            python3 -m py_compile mobile_schedule_seed_builder.py five_dollar_odds_sync.py
+            \$SUDO install -m 0644 mobile_schedule_seed_builder.py \"\$CUR/mobile_schedule_seed_builder.py\"
+            \$SUDO install -m 0644 five_dollar_odds_sync.py \"\$CUR/five_dollar_odds_sync.py\"
+            \$SUDO install -m 0644 verify_published_odds.py \"\$CUR/verify_published_odds.py\"
+            cleanup() { \$SUDO systemctl start oddshunter.service >/dev/null 2>&1 || true; }
+            trap cleanup EXIT
+            \$SUDO systemctl stop oddshunter.service
+            \$SUDO systemd-run --quiet --wait --pipe --collect \
+              --unit=oddshunter-schedule-fix-${GITHUB_RUN_ID} \
+              -p User=oddshunter -p Group=oddshunter \
+              -p WorkingDirectory=\"\$CUR\" \
+              -p EnvironmentFile=/etc/oddshunter/oddshunter.env \
+              -p Environment=ODDSHUNTER_RUNTIME_MODE=cloud \
+              -p Environment=ODDSHUNTER_WORK_DB=/var/lib/oddshunter/data/oddshunter.db \
+              -p Environment=ODDSHUNTER_ALLOW_WORK_DB_WRITE=1 \
+              -p Environment=ODDSHUNTER_STAGE6_ALLOW_TURSO_WRITE=1 \
+              -p Environment=ODDSHUNTER_FORCE_SCHEDULE_CATALOG=1 \
+              \"\$CUR/.venv-cloud/bin/python\" -u \"\$CUR/cloud_schedule_refresh.py\"
+            \$SUDO systemd-run --quiet --wait --pipe --collect \
+              --unit=oddshunter-odds-fix-${GITHUB_RUN_ID} \
+              -p User=oddshunter -p Group=oddshunter \
+              -p WorkingDirectory=\"\$CUR\" \
+              -p EnvironmentFile=/etc/oddshunter/oddshunter.env \
+              -p Environment=ODDSHUNTER_MAX_INDIVIDUAL_ODDS_PER_HOUR=500 \
+              /bin/bash -lc './.venv-cloud/bin/python -u five_dollar_odds_sync.py --root /opt/oddshunter/current; ./.venv-cloud/bin/python -u turso_odds_value_publish.py'
+            \$SUDO systemctl start oddshunter.service
+            sleep 4
+            \$SUDO systemctl is-active --quiet oddshunter.service
+            \$SUDO bash -lc 'set -a; . /etc/oddshunter/oddshunter.env; set +a; cd /opt/oddshunter/current; PYTHONPATH=/opt/oddshunter/current ./.venv-cloud/bin/python -u verify_published_odds.py'
+            trap - EXIT
+            echo REMAINING_ODDS_RUNTIME_FIX=PASS"
