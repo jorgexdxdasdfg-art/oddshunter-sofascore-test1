@@ -78,7 +78,6 @@ jobs:
             test -x \"\$CUR/.venv-cloud/bin/python\"
             test -f \"\$CUR/mobile_schedule_seed_builder.py\"
             test -f \"\$CUR/cloud_live_status_sync.py\"
-            test -f /etc/oddshunter/oddshunter.env
             \$SUDO install -m 0644 '$REMOTE_DIR/cloud_schedule_refresh.py' \"\$CUR/cloud_schedule_refresh.py\"
             \$SUDO install -m 0640 -o oddshunter -g oddshunter '$REMOTE_DIR/mobile_certified_competitions.json' /var/lib/oddshunter/data/mobile_certified_competitions.json
             \$SUDO -u oddshunter env \
