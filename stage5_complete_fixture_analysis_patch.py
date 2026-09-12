@@ -44,6 +44,9 @@ REPLACEMENT = '''def future_analysis_targets(
         DATA / "analisis",
         now=datetime.now(timezone.utc),
         limit=limit,
+        grace_minutes=int(
+            os.environ.get("ODDSHUNTER_ANALYSIS_GRACE_MINUTES", "90")
+        ),
     )
 
 '''

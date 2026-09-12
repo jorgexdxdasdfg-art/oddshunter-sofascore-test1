@@ -102,6 +102,7 @@ def select_pending_fixture_analyses(
     *,
     now: datetime,
     limit: int,
+    grace_minutes: int = 0,
 ) -> list[dict[str, Any]]:
     """Return all pending fixtures, not one representative per competition."""
 
@@ -110,11 +111,16 @@ def select_pending_fixture_analyses(
     end = datetime.combine(local_today + timedelta(days=2), datetime.min.time(), ECUADOR_TZ).astimezone(timezone.utc)
     selected: list[dict[str, Any]] = []
     seen_events: set[int] = set()
+    grace_floor = now - timedelta(minutes=max(0, int(grace_minutes)))
+    final_states = {"FT", "AET", "PEN", "FINISHED", "FINAL", "ENDED"}
 
     for row in rows:
         record = dict(row)
         kickoff = _parse_dt(record.get("kickoff"))
-        if kickoff is None or kickoff < now or kickoff >= end:
+        status = str(record.get("status") or "").upper()
+        if status in final_states:
+            continue
+        if kickoff is None or kickoff < grace_floor or kickoff >= end:
             continue
         event_id = int(record.get("sofascore_id") or 0)
         competition = by_league.get(int(record.get("league_id") or 0))

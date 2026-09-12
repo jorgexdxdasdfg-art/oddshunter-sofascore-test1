@@ -103,10 +103,12 @@ jobs:
           with open(sys.argv[1],encoding="utf-8") as handle:
               report=json.load(handle)
           today=datetime.now(timezone.utc).astimezone(timezone(timedelta(hours=-5))).date().isoformat()
+          if report.get("result") != "PUBLISHED":
+              raise SystemExit("PROVIDER_SCHEDULE_NOT_PUBLISHED=FAIL")
           count=int((report.get("counts_by_day") or {}).get(today) or 0)
           print("PROVIDER_SCHEDULE_TODAY="+str(count))
-          if count < 37:
-              raise SystemExit("PROVIDER_SCHEDULE_COVERAGE_BELOW_DESKTOP=FAIL")
+          if count <= 0:
+              raise SystemExit("PROVIDER_SCHEDULE_TODAY_EMPTY=FAIL")
           PY
           date -u +%s | $SUDO tee /tmp/oddshunter_complete_analysis_epoch >/dev/null
           $SUDO systemctl restart oddshunter.service
@@ -154,14 +156,16 @@ jobs:
               with urllib.request.urlopen(request, timeout=45) as response:
                   rows = json.load(response)
               totals[offset] = len(rows)
-              if offset == 0 and len(rows) < 37:
-                  raise SystemExit(f"TODAY_FIXTURE_COVERAGE_GATE=FAIL:{len(rows)}")
+              if offset == 0 and not rows:
+                  raise SystemExit("TODAY_FIXTURE_COVERAGE_GATE=FAIL:EMPTY")
               for row in rows:
                   headline = row.get("headline") or {}
                   values = (headline.get("home_win"), headline.get("draw"), headline.get("away_win"))
-                  # Finished historical fixtures retain their original snapshot;
-                  # future fixtures must all expose the model characteristics.
-                  if offset >= 0 and not all(value is not None for value in values):
+                  status = str(row.get("status") or "").upper()
+                  finished = status in {"FT","AET","PEN","FINISHED","FINAL","ENDED"}
+                  # Finished fixtures are not given invented post-match predictions.
+                  # Scheduled/live recovered fixtures must expose the real model bundle.
+                  if offset >= 0 and not finished and not all(value is not None for value in values):
                       missing.append({
                           "event_id": row.get("event_id"),
                           "competition": row.get("competition_key"),

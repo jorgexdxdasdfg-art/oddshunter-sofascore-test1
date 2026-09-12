@@ -12,6 +12,10 @@ import gzip
 import json
 import os
 import sqlite3
+import re
+import unicodedata
+from difflib import SequenceMatcher
+from urllib.request import Request, urlopen
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterable
@@ -486,6 +490,220 @@ def verified_schedule_snapshot(row: dict[str, Any]) -> dict[str, Any] | None:
         "away_goals": None,
         "kickoff": correction["kickoff"],
     }
+
+
+
+ESPN_SCOREBOARD_LEAGUES = {
+    "ligamx-apertura": "mex.1",
+    "usa-usl-championship": "usa.usl.1",
+}
+
+_ESPN_GENERIC_TEAM_WORDS = {
+    "club", "fc", "cf", "sc", "fk", "afc", "de", "the",
+}
+_ESPN_SCOREBOARD_CACHE: dict[tuple[str, str], list[dict[str, Any]]] = {}
+
+
+def _espn_team_key(value: Any) -> str:
+    text = unicodedata.normalize("NFKD", str(value or "").casefold())
+    text = "".join(ch for ch in text if not unicodedata.combining(ch))
+    tokens = [
+        token
+        for token in re.findall(r"[a-z0-9]+", text)
+        if token not in _ESPN_GENERIC_TEAM_WORDS
+    ]
+    return " ".join(tokens)
+
+
+def _espn_team_matches(expected: Any, candidate: Any) -> bool:
+    left = _espn_team_key(expected)
+    right = _espn_team_key(candidate)
+    if not left or not right:
+        return False
+    if left == right:
+        return True
+    if left in right or right in left:
+        return True
+    return SequenceMatcher(None, left, right).ratio() >= 0.82
+
+
+def _espn_score(value: Any) -> int | None:
+    if isinstance(value, dict):
+        value = (
+            value.get("value")
+            if value.get("value") is not None
+            else value.get("displayValue")
+        )
+    try:
+        return int(float(str(value)))
+    except (TypeError, ValueError):
+        return None
+
+
+def _espn_scoreboard_events(
+    league: str,
+    date_key: str,
+    logger,
+) -> list[dict[str, Any]]:
+    cache_key = (league, date_key)
+    if cache_key in _ESPN_SCOREBOARD_CACHE:
+        return _ESPN_SCOREBOARD_CACHE[cache_key]
+
+    url = (
+        "https://site.api.espn.com/apis/site/v2/sports/"
+        f"soccer/{league}/scoreboard?dates={date_key}"
+    )
+    try:
+        request = Request(
+            url,
+            headers={
+                "Accept": "application/json",
+                "User-Agent": "Mozilla/5.0 OddsHunter/1.0",
+            },
+        )
+        with urlopen(request, timeout=15) as response:
+            document = json.load(response)
+        events = [
+            item
+            for item in document.get("events", [])
+            if isinstance(item, dict)
+        ]
+    except Exception as exc:
+        logger(
+            f"ESPN scoreboard no disponible league={league} "
+            f"date={date_key}: {type(exc).__name__}: {exc}"
+        )
+        events = []
+
+    _ESPN_SCOREBOARD_CACHE[cache_key] = events
+    return events
+
+
+def espn_scoreboard_snapshot(
+    row: dict[str, Any],
+    competition: dict[str, Any],
+    logger,
+) -> dict[str, Any] | None:
+    """Status/score fallback only; never supplies OddsHunter model values."""
+
+    competition_key = slugify(competition.get("key"))
+    league = ESPN_SCOREBOARD_LEAGUES.get(competition_key)
+    if not league:
+        return None
+
+    expected_kickoff = parse_dt(row.get("kickoff"))
+    if expected_kickoff is None:
+        return None
+
+    date_keys = {
+        expected_kickoff.astimezone(timezone.utc).strftime("%Y%m%d"),
+        expected_kickoff.astimezone(ECUADOR_TZ).strftime("%Y%m%d"),
+    }
+
+    for date_key in sorted(date_keys):
+        for event in _espn_scoreboard_events(league, date_key, logger):
+            actual_kickoff = parse_dt(event.get("date"))
+            if actual_kickoff is None:
+                continue
+            if abs(
+                (actual_kickoff - expected_kickoff).total_seconds()
+            ) > 6 * 3600:
+                continue
+
+            competitions = event.get("competitions")
+            if not isinstance(competitions, list) or not competitions:
+                continue
+
+            contest = competitions[0]
+            competitors = (
+                contest.get("competitors")
+                if isinstance(contest, dict)
+                else None
+            )
+            if not isinstance(competitors, list):
+                continue
+
+            home = next(
+                (
+                    item for item in competitors
+                    if isinstance(item, dict)
+                    and str(item.get("homeAway") or "").lower() == "home"
+                ),
+                None,
+            )
+            away = next(
+                (
+                    item for item in competitors
+                    if isinstance(item, dict)
+                    and str(item.get("homeAway") or "").lower() == "away"
+                ),
+                None,
+            )
+            if home is None or away is None:
+                continue
+
+            home_team = home.get("team") if isinstance(home.get("team"), dict) else {}
+            away_team = away.get("team") if isinstance(away.get("team"), dict) else {}
+
+            home_names = [
+                home_team.get("displayName"),
+                home_team.get("shortDisplayName"),
+                home_team.get("name"),
+            ]
+            away_names = [
+                away_team.get("displayName"),
+                away_team.get("shortDisplayName"),
+                away_team.get("name"),
+            ]
+
+            if not any(
+                _espn_team_matches(row.get("home_team"), name)
+                for name in home_names if name
+            ):
+                continue
+            if not any(
+                _espn_team_matches(row.get("away_team"), name)
+                for name in away_names if name
+            ):
+                continue
+
+            status_doc = event.get("status") if isinstance(event.get("status"), dict) else {}
+            type_doc = (
+                status_doc.get("type")
+                if isinstance(status_doc.get("type"), dict)
+                else {}
+            )
+            state = str(type_doc.get("state") or "").lower()
+
+            if bool(type_doc.get("completed")) or state == "post":
+                state_name = "finished"
+            elif state == "in":
+                state_name = "live"
+            elif state == "pre":
+                state_name = "scheduled"
+            else:
+                continue
+
+            provider_status = (
+                type_doc.get("shortDetail")
+                or type_doc.get("description")
+                or type_doc.get("name")
+                or state
+            )
+
+            return {
+                "source": "espn-scoreboard",
+                "state": state_name,
+                "provider_status": provider_status,
+                "home_goals": _espn_score(home.get("score")),
+                "away_goals": _espn_score(away.get("score")),
+                # Keep OddsHunter's canonical kickoff. ESPN is only
+                # authoritative here for live/final state and score.
+                "kickoff": row.get("kickoff"),
+            }
+
+    return None
+
 
 
 def turso_client() -> Any:
@@ -1410,9 +1628,31 @@ def run(
                         )
                         update = None
                     if update is None:
+                        espn_snapshot = espn_scoreboard_snapshot(
+                            row, competition, provider_logger
+                        )
+                        if isinstance(espn_snapshot, dict):
+                            snapshot = espn_snapshot
+                            update = normalized_update(snapshot)
+                            if stale_scheduled_snapshot(row, update, now):
+                                provider_logger(
+                                    f"ESPN devolvio scheduled vencido event_id={row['event_id']}; "
+                                    "continua respaldo Futbol24"
+                                )
+                                update = None
+                            else:
+                                item["source"] = "espn-scoreboard"
+
+                    if update is None:
                         snapshot = f24.get_match_snapshot(match_ref(row, competition))
                         update = normalized_update(snapshot) if isinstance(snapshot, dict) else None
                         item["source"] = "futbol24-name-fallback"
+                        if stale_scheduled_snapshot(row, update, now):
+                            provider_logger(
+                                f"Futbol24 devolvio scheduled vencido event_id={row['event_id']}; "
+                                "no se permite LIVE -> PRE"
+                            )
+                            update = None
                 if (
                     update is not None
                     and update.get("state") == "finished"
