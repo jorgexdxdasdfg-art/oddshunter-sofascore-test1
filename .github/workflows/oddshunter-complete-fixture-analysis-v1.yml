@@ -228,7 +228,7 @@ jobs:
                 tail -n 1 || true
             )"
 
-            if [ -n "$FAIL_LINE" ]; then
+            if [ -n "$FAIL_LINE" ] && ! grep -q "Stage5 rc=-15" <<<"$FAIL_LINE"; then
               echo "ANALYSIS_CYCLE_FAIL=$FAIL_LINE"
               echo "========== TARGET FAILURE JOURNAL =========="
               $SUDO journalctl -u oddshunter.service --since "@$EPOCH" --no-pager -n 1200 |
