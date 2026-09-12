@@ -27,7 +27,7 @@ def patch(root: Path) -> None:
     "cardiff city": "cardiff",
     "deportivo alaves": "alaves",
     "real racing club": "racing santander",
-    "al taawoun": "al taawoun buraidah",
+    "al taawoun": "al taawon buraidah",
     "al hilal": "al hilal riyadh",
     "1 fc koln": "koln",
     "sv werder bremen": "werder bremen",
@@ -75,7 +75,7 @@ class ProviderDeferred''',
     )
     text = replace_once(
         text,
-        '        elif exact_time and score >= 0.55:\n            uncertain.append((score, fixture))\n\n    accepted.sort(key=lambda row: row[0], reverse=True)\n',
+        '        elif exact_time and score >= 0.55:\n            uncertain.append((score, fixture))\n\n    # The provider can repeat the same fixture in the date feed.  Repeated rows\n',
         '''        elif exact_time and score >= 0.55:
             uncertain.append((score, fixture))
         elif delta <= 18 * 3600 and (
@@ -85,7 +85,7 @@ class ProviderDeferred''',
         ):
             wide.append((score, fixture))
 
-    accepted.sort(key=lambda row: row[0], reverse=True)
+    # The provider can repeat the same fixture in the date feed.  Repeated rows
 ''',
         "wide identity candidates",
     )
