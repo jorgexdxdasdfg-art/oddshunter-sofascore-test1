@@ -43,4 +43,4 @@ jobs:
         run: |
           set -euo pipefail
           scp -i ~/.ssh/oddshunter -P "$VPS_PORT" -o BatchMode=yes -o StrictHostKeyChecking=yes verify_published_odds.py "$VPS_USER@$VPS_HOST:/tmp/verify_published_odds.py"
-          ssh -i ~/.ssh/oddshunter -p "$VPS_PORT" -o BatchMode=yes -o StrictHostKeyChecking=yes "$VPS_USER@$VPS_HOST" "cd /opt/oddshunter/current && set -a && . /etc/oddshunter/oddshunter.env && set +a && PYTHONPATH=/opt/oddshunter/current ./.venv-cloud/bin/python /tmp/verify_published_odds.py"
+          ssh -i ~/.ssh/oddshunter -p "$VPS_PORT" -o BatchMode=yes -o StrictHostKeyChecking=yes "$VPS_USER@$VPS_HOST" "sudo -n bash -lc 'set -a; . /etc/oddshunter/oddshunter.env; set +a; cd /opt/oddshunter/current; PYTHONPATH=/opt/oddshunter/current ./.venv-cloud/bin/python /tmp/verify_published_odds.py'"
