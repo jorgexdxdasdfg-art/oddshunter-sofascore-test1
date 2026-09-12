@@ -1,0 +1,42 @@
+name: OddsHunter Diagnose Unresolved Odds V1
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - diagnose_unresolved_odds.py
+      - .github/workflows/oddshunter-diagnose-unresolved-odds-v1.yml
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      VPS_HOST: ${{ secrets.VPS_HOST }}
+      VPS_USER: ${{ secrets.VPS_USER }}
+      VPS_PORT_SECRET: ${{ secrets.VPS_PORT }}
+      VPS_SSH_PRIVATE_KEY: ${{ secrets.VPS_SSH_PRIVATE_KEY }}
+    steps:
+      - uses: actions/checkout@v6
+      - name: Preparar SSH
+        shell: bash
+        run: |
+          set -euo pipefail
+          VPS_PORT="${VPS_PORT_SECRET:-22}"
+          echo "VPS_PORT=$VPS_PORT" >> "$GITHUB_ENV"
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "$VPS_SSH_PRIVATE_KEY" > ~/.ssh/oddshunter
+          chmod 600 ~/.ssh/oddshunter
+          ssh-keyscan -p "$VPS_PORT" -H "$VPS_HOST" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+      - name: Diagnosticar fixtures no resueltos
+        shell: bash
+        run: |
+          set -euo pipefail
+          scp -i ~/.ssh/oddshunter -P "$VPS_PORT" -o BatchMode=yes -o StrictHostKeyChecking=yes diagnose_unresolved_odds.py "$VPS_USER@$VPS_HOST:/tmp/diagnose_unresolved_odds.py"
+          ssh -i ~/.ssh/oddshunter -p "$VPS_PORT" -o BatchMode=yes -o StrictHostKeyChecking=yes -o ServerAliveInterval=30 -o ServerAliveCountMax=20 "$VPS_USER@$VPS_HOST" "sudo -n bash -lc 'set -a; . /etc/oddshunter/oddshunter.env; set +a; cd /opt/oddshunter/current; PYTHONPATH=/opt/oddshunter/current ./.venv-cloud/bin/python -u /tmp/diagnose_unresolved_odds.py'"
