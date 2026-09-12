@@ -1,5 +1,6 @@
 name: OddsHunter Analysis Queue Diagnostic
 # DIAG_TRIGGER=20260912T042736Z
+# LOG_DIAG_TRIGGER=20260912T051743Z
 # Read-only probe for the complete-fixture analysis rollout (post-refresh check).
 
 on:
@@ -293,6 +294,62 @@ jobs:
                               ensure_ascii=False,
                           ),
                       )
+          PY
+
+          echo "========== TARGET ANALYSIS LOG FILES =========="
+
+          $SUDO -u oddshunter "$PY" - "$CUR" <<'PY'
+          import sys
+          from pathlib import Path
+
+          root=Path(sys.argv[1])
+
+          targets = {
+              ("usa-usl-championship",15285834),
+              ("usa-usl-championship",15285843),
+              ("ligamx-apertura",16317939),
+              ("belgium-pro-league",16361914),
+              ("turkey-super-lig",16483673),
+          }
+
+          for key,event_id in targets:
+              folder=root/"data"/"analisis"/key/str(event_id)/"logs"
+
+              print("LOG_TARGET",event_id,key)
+
+              if not folder.is_dir():
+                  print("LOG_DIR_MISSING",event_id)
+                  continue
+
+              files=sorted(
+                  [p for p in folder.rglob("*") if p.is_file()],
+                  key=lambda p: p.stat().st_mtime,
+              )
+
+              if not files:
+                  print("LOG_FILES_EMPTY",event_id)
+                  continue
+
+              for path in files[-10:]:
+                  print(
+                      "===== LOG_FILE",
+                      event_id,
+                      path.relative_to(folder),
+                      "====="
+                  )
+
+                  try:
+                      text=path.read_text(
+                          encoding="utf-8",
+                          errors="replace",
+                      )
+                  except Exception as exc:
+                      print("LOG_READ_ERROR",type(exc).__name__,str(exc))
+                      continue
+
+                  lines=text.splitlines()
+                  for line in lines[-250:]:
+                      print(line)
           PY
 
           echo "========== STAGE5 JOURNAL =========="
