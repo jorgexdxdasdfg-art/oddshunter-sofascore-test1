@@ -1,4 +1,5 @@
 name: OddsHunter Analysis Queue Diagnostic
+# DIAG_TRIGGER=20260912T042736Z
 # Read-only probe for the complete-fixture analysis rollout (post-refresh check).
 
 on:
