@@ -53,7 +53,7 @@ jobs:
         run: |
           set -euo pipefail
           REMOTE_DIR="/tmp/oddshunter-odds-${GITHUB_RUN_ID}"
-          SSH=(ssh -i ~/.ssh/oddshunter -p "$VPS_PORT" -o BatchMode=yes -o StrictHostKeyChecking=yes "$VPS_USER@$VPS_HOST")
+          SSH=(ssh -i ~/.ssh/oddshunter -p "$VPS_PORT" -o BatchMode=yes -o StrictHostKeyChecking=yes -o ServerAliveInterval=30 -o ServerAliveCountMax=20 -o TCPKeepAlive=yes "$VPS_USER@$VPS_HOST")
           SCP=(scp -i ~/.ssh/oddshunter -P "$VPS_PORT" -o BatchMode=yes -o StrictHostKeyChecking=yes)
           "${SSH[@]}" "rm -rf '$REMOTE_DIR' && mkdir -p '$REMOTE_DIR'"
           "${SCP[@]}" asian_total_ev.py asian_lines.py odds_value_engine.py five_dollar_odds_sync.py turso_odds_value_publish.py stage8_odds_patch.py audit_visible_odds.py deploy/provider.env "$VPS_USER@$VPS_HOST:$REMOTE_DIR/"
@@ -74,6 +74,14 @@ jobs:
             cat '$REMOTE_DIR/provider.env' >> \"\$TMP_ENV\"
             \$SUDO install -m 0600 -o root -g root \"\$TMP_ENV\" /etc/oddshunter/oddshunter.env
             rm -f \"\$TMP_ENV\"
+            cleanup() {
+              \$SUDO systemctl start oddshunter.service >/dev/null 2>&1 || true
+            }
+            trap cleanup EXIT
+            for unit in \$(\$SUDO systemctl list-units --all --plain --no-legend 'oddshunter-odds-seed-*' 2>/dev/null | awk '{print \$1}'); do
+              \$SUDO systemctl stop \"\$unit\" >/dev/null 2>&1 || true
+              \$SUDO systemctl reset-failed \"\$unit\" >/dev/null 2>&1 || true
+            done
             \$SUDO systemctl stop oddshunter.service
             set +e
             \$SUDO systemd-run --quiet --wait --pipe --collect \
@@ -91,5 +99,6 @@ jobs:
             \$SUDO systemctl is-active --quiet oddshunter.service
             \$SUDO grep -q 'ODDS_VALUE_TODAY_TOMORROW_V3' /opt/oddshunter/current/stage8_daemon.py
             \$SUDO grep -q 'ODDS_VALUE_STARTUP_BACKFILL_V3' /opt/oddshunter/current/stage8_daemon.py
+            trap - EXIT
             rm -rf '$REMOTE_DIR'
             echo ODDS_VALUE_RUNTIME_DEPLOY=PASS"
