@@ -1,6 +1,6 @@
 {
   "catalog": "OddsHunter Mobile Certified 28",
-  "version": "2026-09-12",
+  "version": "2026-09-15",
   "competitions": [
     {"key":"mls","name":"MLS","country":"USA","league_id":1,"source_competition_id":242,"season_id":86668,"active":true},
     {"key":"ligapro","name":"LigaPro Serie A","country":"Ecuador","league_id":239,"source_competition_id":240,"season_id":89674,"active":true},
@@ -14,7 +14,7 @@
     {"key":"bundesliga","name":"Bundesliga","country":"Germany","league_id":16607,"source_competition_id":35,"season_id":97464,"active":true},
     {"key":"premier-league","name":"Premier League","country":"England","league_id":16954,"source_competition_id":17,"season_id":96668,"active":true},
     {"key":"uefa-europa-league","name":"UEFA Europa League","country":"Europe","league_id":5089,"source_competition_id":679,"season_id":96522,"active":true},
-    {"key":"leagues-cup","name":"Leagues Cup","country":"North America","league_id":11368,"source_competition_id":13783,"season_id":91033,"active":true},
+    {"key":"afc-champions-league-elite","name":"AFC Champions League Elite","country":"Asia","league_id":19528,"source_competition_id":463,"season_id":99217,"active":true},
     {"key":"liga-portugal","name":"Liga Portugal","country":"Portugal","league_id":1870,"source_competition_id":238,"season_id":97436,"active":true},
     {"key":"j1-league","name":"J1 League","country":"Japan","league_id":12649,"source_competition_id":196,"season_id":96370,"active":true},
     {"key":"serie-a","name":"Serie A","country":"Italy","league_id":13620,"source_competition_id":23,"season_id":95836,"active":true},
