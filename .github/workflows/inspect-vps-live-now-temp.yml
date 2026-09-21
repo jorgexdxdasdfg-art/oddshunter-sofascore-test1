@@ -39,7 +39,7 @@ jobs:
             if [ "$(id -u)" -eq 0 ]; then SUDO=""; else SUDO="sudo -n"; fi
             echo "LIVE_ACTIVE=$($SUDO systemctl is-active oddshunter-live-sync.service 2>/dev/null || true)"
             echo "=== CERTIFIED REGISTRY ==="
-            cat /var/lib/oddshunter/data/mobile_certified_competitions.json || true
+            $SUDO cat /var/lib/oddshunter/data/mobile_certified_competitions.json || true
             echo "LIVE_TIMER=$($SUDO systemctl is-active oddshunter-live-sync.timer 2>/dev/null || true)"
             $SUDO systemctl show oddshunter-live-sync.service -p ExecStart -p EnvironmentFiles --no-pager || true
             echo "=== JOURNAL ==="
@@ -52,3 +52,4 @@ jobs:
             done'
 # inspect-fotmob-cycle
 # inspect-certified-registry
+# inspect-certified-registry-sudo
