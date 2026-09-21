@@ -1,0 +1,64 @@
+name: Inspect VPS LigaPro DB TEMP
+
+on:
+  push:
+    branches:
+      - codex/fix-autonomous-result-backlog
+    paths:
+      - .github/workflows/inspect-vps-db-ligapro-temp.yml
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Prepare SSH
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_SSH_PRIVATE_KEY: ${{ secrets.VPS_SSH_PRIVATE_KEY }}
+          VPS_PORT_SECRET: ${{ secrets.VPS_PORT }}
+        run: |
+          set -euo pipefail
+          PORT="${VPS_PORT_SECRET:-22}"
+          mkdir -p ~/.ssh
+          printf '%s\n' "$VPS_SSH_PRIVATE_KEY" > ~/.ssh/key
+          chmod 600 ~/.ssh/key
+          ssh-keyscan -p "$PORT" -H "$VPS_HOST" > ~/.ssh/known_hosts
+          echo "VPS_PORT=$PORT" >> "$GITHUB_ENV"
+
+      - name: Query LigaPro DB
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+        run: |
+          ssh -i ~/.ssh/key -p "$VPS_PORT" -o BatchMode=yes -o StrictHostKeyChecking=yes "$VPS_USER@$VPS_HOST" 'set -euo pipefail
+            CURRENT="$(readlink -f /opt/oddshunter/current)"
+            DB="/var/lib/oddshunter/data/oddshunter.db"
+            if [ "$(id -u)" -eq 0 ]; then SUDO=""; else SUDO="sudo -n"; fi
+            $SUDO -u oddshunter "$CURRENT/.venv-cloud/bin/python" - "$DB" <<'"'"'PY'"'"'
+          import sqlite3,sys,json
+          db=sys.argv[1]
+          con=sqlite3.connect(db); con.row_factory=sqlite3.Row
+          print("TEAMS")
+          for r in con.execute("""
+            SELECT team_id,sofascore_id,name,league_id
+            FROM teams
+            WHERE lower(name) LIKE '%manta%' OR lower(name) LIKE '%orense%'
+            ORDER BY name
+          """):
+              print(json.dumps(dict(r),ensure_ascii=False))
+          print("MATCHES")
+          for r in con.execute("""
+            SELECT m.match_id,m.sofascore_id,m.league_id,m.kickoff,m.status,
+                   h.name home,a.name away,h.sofascore_id home_sid,a.sofascore_id away_sid
+            FROM matches m JOIN teams h ON h.team_id=m.home_team_id
+            JOIN teams a ON a.team_id=m.away_team_id
+            WHERE m.league_id=239 AND datetime(m.kickoff)>=datetime('2026-09-18')
+              AND datetime(m.kickoff)<datetime('2026-09-25')
+            ORDER BY m.kickoff
+          """):
+              print(json.dumps(dict(r),ensure_ascii=False))
+          PY'
