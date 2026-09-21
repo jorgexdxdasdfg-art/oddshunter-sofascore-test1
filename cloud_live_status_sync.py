@@ -504,6 +504,8 @@ def verified_schedule_snapshot(row: dict[str, Any]) -> dict[str, Any] | None:
 ESPN_SCOREBOARD_LEAGUES = {
     "ligamx-apertura": "mex.1",
     "usa-usl-championship": "usa.usl.1",
+    "championship": "eng.2",
+    "brasil-serie-a": "bra.1",
 }
 
 _ESPN_GENERIC_TEAM_WORDS = {
@@ -712,6 +714,160 @@ def espn_scoreboard_snapshot(
 
     return None
 
+
+
+
+def _espn_stat_map(team: dict[str, Any]) -> dict[str, float | None]:
+    values: dict[str, float | None] = {}
+    for item in team.get("statistics") or []:
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("name") or "").strip()
+        raw = item.get("displayValue")
+        try:
+            values[name] = float(str(raw).replace("%", "").strip())
+        except (TypeError, ValueError):
+            values[name] = None
+    return values
+
+
+def espn_final_actuals_snapshot(
+    row: dict[str, Any],
+    competition: dict[str, Any],
+    logger,
+) -> dict[str, Any] | None:
+    """Verified final box-score fallback for leagues exposed by ESPN."""
+    competition_key = slugify(competition.get("key"))
+    league = ESPN_SCOREBOARD_LEAGUES.get(competition_key)
+    if not league:
+        return None
+
+    expected_kickoff = parse_dt(row.get("kickoff"))
+    if expected_kickoff is None:
+        return None
+
+    date_keys = {
+        expected_kickoff.astimezone(timezone.utc).strftime("%Y%m%d"),
+        expected_kickoff.astimezone(ECUADOR_TZ).strftime("%Y%m%d"),
+    }
+
+    for date_key in sorted(date_keys):
+        for event in _espn_scoreboard_events(league, date_key, logger):
+            actual_kickoff = parse_dt(event.get("date"))
+            if actual_kickoff is None:
+                continue
+            if abs((actual_kickoff - expected_kickoff).total_seconds()) > 6 * 3600:
+                continue
+
+            competitions = event.get("competitions")
+            if not isinstance(competitions, list) or not competitions:
+                continue
+            contest = competitions[0]
+            competitors = contest.get("competitors") if isinstance(contest, dict) else None
+            if not isinstance(competitors, list):
+                continue
+
+            home = next(
+                (item for item in competitors if isinstance(item, dict) and str(item.get("homeAway") or "").lower() == "home"),
+                None,
+            )
+            away = next(
+                (item for item in competitors if isinstance(item, dict) and str(item.get("homeAway") or "").lower() == "away"),
+                None,
+            )
+            if home is None or away is None:
+                continue
+            home_team = home.get("team") if isinstance(home.get("team"), dict) else {}
+            away_team = away.get("team") if isinstance(away.get("team"), dict) else {}
+            home_names = [home_team.get("displayName"), home_team.get("shortDisplayName"), home_team.get("name")]
+            away_names = [away_team.get("displayName"), away_team.get("shortDisplayName"), away_team.get("name")]
+            if not any(_espn_team_matches(row.get("home_team"), name) for name in home_names if name):
+                continue
+            if not any(_espn_team_matches(row.get("away_team"), name) for name in away_names if name):
+                continue
+
+            status_doc = event.get("status") if isinstance(event.get("status"), dict) else {}
+            type_doc = status_doc.get("type") if isinstance(status_doc.get("type"), dict) else {}
+            if not (bool(type_doc.get("completed")) or str(type_doc.get("state") or "").lower() == "post"):
+                continue
+
+            home_goals = _espn_score(home.get("score"))
+            away_goals = _espn_score(away.get("score"))
+            event_id = str(event.get("id") or "").strip()
+            if not event_id:
+                continue
+
+            url = (
+                "https://site.api.espn.com/apis/site/v2/sports/"
+                f"soccer/{league}/summary?event={event_id}"
+            )
+            try:
+                request = Request(
+                    url,
+                    headers={
+                        "Accept": "application/json",
+                        "User-Agent": "Mozilla/5.0 OddsHunter/1.0",
+                    },
+                )
+                with urlopen(request, timeout=15) as response:
+                    summary = json.load(response)
+            except Exception as exc:
+                logger(
+                    f"ESPN summary no disponible league={league} event={event_id}: "
+                    f"{type(exc).__name__}: {exc}"
+                )
+                continue
+
+            teams = (summary.get("boxscore") or {}).get("teams") or []
+            if not isinstance(teams, list):
+                continue
+            home_box = next(
+                (item for item in teams if isinstance(item, dict) and str(item.get("homeAway") or "").lower() == "home"),
+                None,
+            )
+            away_box = next(
+                (item for item in teams if isinstance(item, dict) and str(item.get("homeAway") or "").lower() == "away"),
+                None,
+            )
+            if home_box is None or away_box is None:
+                continue
+
+            hs = _espn_stat_map(home_box)
+            aw = _espn_stat_map(away_box)
+            real = {
+                "home_xg": None,
+                "away_xg": None,
+                "home_shots": hs.get("totalShots"),
+                "away_shots": aw.get("totalShots"),
+                "home_sot": hs.get("shotsOnTarget"),
+                "away_sot": aw.get("shotsOnTarget"),
+                "home_corners": hs.get("wonCorners"),
+                "away_corners": aw.get("wonCorners"),
+                "home_yellow_cards": hs.get("yellowCards"),
+                "away_yellow_cards": aw.get("yellowCards"),
+                "home_red_cards": hs.get("redCards"),
+                "away_red_cards": aw.get("redCards"),
+                "home_possession": hs.get("possessionPct"),
+                "away_possession": aw.get("possessionPct"),
+                "home_fouls": hs.get("foulsCommitted"),
+                "away_fouls": aw.get("foulsCommitted"),
+                "home_offsides": hs.get("offsides"),
+                "away_offsides": aw.get("offsides"),
+            }
+            payload = {"real": real, "source": "espn-summary"}
+            if not final_actuals_core_complete(payload):
+                continue
+            return {
+                "source": "espn-summary",
+                "state": "finished",
+                "provider_status": "finished",
+                "home_goals": home_goals,
+                "away_goals": away_goals,
+                "kickoff": row.get("kickoff"),
+                "final_actuals": payload,
+            }
+
+    return None
 
 
 def turso_client() -> Any:
@@ -1785,6 +1941,30 @@ def run(
                             "final_actuals": enrichment.get("final_actuals"),
                         }
                         item["source"] = f"{item.get('source')}+futbol24-final-actuals"
+                if (
+                    update is not None
+                    and update.get("state") == "finished"
+                    and isinstance(snapshot, dict)
+                    and not final_actuals_core_complete(snapshot.get("final_actuals"))
+                ):
+                    espn_enrichment = espn_final_actuals_snapshot(
+                        row, competition, provider_logger
+                    )
+                    if (
+                        isinstance(espn_enrichment, dict)
+                        and espn_enrichment.get("home_goals") == update.get("home_score")
+                        and espn_enrichment.get("away_goals") == update.get("away_score")
+                    ):
+                        snapshot = {
+                            **snapshot,
+                            "final_actuals": merge_final_actuals_payload(
+                                snapshot.get("final_actuals")
+                                if isinstance(snapshot.get("final_actuals"), dict)
+                                else {},
+                                espn_enrichment.get("final_actuals") or {},
+                            ),
+                        }
+                        item["source"] = f"{item.get('source')}+espn-final-actuals"
                 item["snapshot"] = snapshot
                 if not isinstance(snapshot, dict):
                     item["result"] = "SOURCE_UNAVAILABLE"
