@@ -1148,6 +1148,20 @@ def fotmob_final_actuals_snapshot(
     return None
 
 
+def recover_verified_final(row: dict[str, Any], competition: dict[str, Any], logger) -> dict[str, Any] | None:
+    """An overdue NS can finish even when its original provider never updates.
+
+    The fallback itself verifies both teams, kickoff, final status and any
+    already-known score; requiring FT before calling it made NS -> FT impossible.
+    """
+    snapshot = fotmob_final_actuals_snapshot(row, competition, logger)
+    if not isinstance(snapshot, dict) or snapshot.get("state") != "finished":
+        return None
+    if snapshot.get("home_goals") is None or snapshot.get("away_goals") is None:
+        return None
+    return snapshot
+
+
 def turso_client() -> Any:
     # The certified Stage6 publisher owns the Turso protocol implementation.
     # Import lazily so unit tests and dry-runs do not require the Stage6 archive.
@@ -2192,7 +2206,11 @@ def run(
                                 item["source"] = "espn-scoreboard"
 
                     if update is None:
-                        snapshot = f24.get_match_snapshot(match_ref(row, competition))
+                        try:
+                            snapshot = f24.get_match_snapshot(match_ref(row, competition))
+                        except Exception as exc:
+                            provider_logger(f"Futbol24 unavailable event_id={row['event_id']}: {exc}")
+                            snapshot = None
                         update = normalized_update(snapshot) if isinstance(snapshot, dict) else None
                         item["source"] = "futbol24-name-fallback"
                         if stale_scheduled_snapshot(row, update, now):
@@ -2201,23 +2219,11 @@ def run(
                                 "no se permite LIVE -> PRE"
                             )
                             update = None
-                    # If both live-status providers are unavailable but Mobile
-                    # already has a verified FT score, a stats provider may safely
-                    # rebuild the final snapshot after matching date, teams and score.
-                    if (
-                        update is None
-                        and str(row.get("status") or "").upper() in FINAL_STATUSES
-                        and row.get("home_goals") is not None
-                        and row.get("away_goals") is not None
-                    ):
-                        fotmob_snapshot = fotmob_final_actuals_snapshot(
+                    if update is None:
+                        fotmob_snapshot = recover_verified_final(
                             row, competition, provider_logger
                         )
-                        if (
-                            isinstance(fotmob_snapshot, dict)
-                            and fotmob_snapshot.get("home_goals") == int(float(row["home_goals"]))
-                            and fotmob_snapshot.get("away_goals") == int(float(row["away_goals"]))
-                        ):
+                        if fotmob_snapshot is not None:
                             snapshot = fotmob_snapshot
                             update = normalized_update(snapshot)
                             item["source"] = "fotmob-final-recovery"

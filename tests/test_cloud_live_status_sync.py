@@ -10,6 +10,18 @@ from datetime import datetime, timedelta, timezone
 from fixture_status import fixture_state, is_fixture_live
 
 
+def test_final_fallback_recovers_ns_without_previous_score(monkeypatch):
+    row = {"status": "NS", "home_goals": None, "away_goals": None}
+    snapshot = {"state": "finished", "home_goals": 1, "away_goals": 1}
+    monkeypatch.setattr(live, "fotmob_final_actuals_snapshot", lambda *args: snapshot)
+    assert live.recover_verified_final(row, {}, lambda text: None) == snapshot
+
+
+def test_final_fallback_never_converts_missing_scores_to_zero(monkeypatch):
+    monkeypatch.setattr(live, "fotmob_final_actuals_snapshot", lambda *args: {"state": "finished"})
+    assert live.recover_verified_final({"status": "NS"}, {}, lambda text: None) is None
+
+
 def test_fixture_live_status_contract_and_special_states() -> None:
     for status in ("1H", "HT", "2H", "ET", "BT", "P", "LIVE", "IN_PLAY", "inprogress"):
         assert is_fixture_live(status)
