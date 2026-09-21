@@ -661,6 +661,13 @@ def test_catalog_placeholder_cannot_erase_model_and_cards_recover_from_docs():
     con.close()
 
 
+def test_document_age_accepts_iso_seed_and_unix_publisher():
+    stamp = datetime(2026, 9, 21, 10, tzinfo=timezone.utc).timestamp()
+    assert live.document_timestamp("2026-09-21T10:00:00+00:00") == stamp
+    assert live.document_timestamp(str(stamp)) == stamp
+    assert live.document_timestamp(None) == 0
+
+
 def test_catalog_audit_accepts_concurrent_odds_refresh_but_rejects_regression():
     old = {"generated_at": "2026-09-07T21:00:00Z", "price_history": [{"key": "result_home", "opening": {"odds": 2.5}, "current": {"odds": 2.2, "updated_at": "2026-09-07T21:00:00Z"}}]}
     new = json.loads(json.dumps(old))

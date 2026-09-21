@@ -75,6 +75,14 @@ def parse_dt(value: Any) -> datetime | None:
     return parsed.astimezone(timezone.utc)
 
 
+def document_timestamp(value: Any) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        parsed = parse_dt(value)
+        return parsed.timestamp() if parsed is not None else 0.0
+
+
 def slugify(value: Any) -> str:
     import re
 
@@ -975,7 +983,7 @@ def publish_schedule_catalog(
         for doc in local_docs:
             identity = (key, event_id, doc["doc_name"])
             previous = doc_map.get(identity)
-            if previous is None or float(doc.get("source_mtime") or 0) >= float(previous.get("source_mtime") or 0):
+            if previous is None or document_timestamp(doc.get("source_mtime")) >= document_timestamp(previous.get("source_mtime")):
                 doc_map[identity] = {"competition_key": key, "event_id": event_id, **doc}
     docs = list(doc_map.values())
     if not events:
