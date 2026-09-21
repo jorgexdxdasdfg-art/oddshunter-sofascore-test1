@@ -1,0 +1,50 @@
+name: OddsHunter VPS Runtime Status
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  status:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Prepare SSH
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_SSH_PRIVATE_KEY: ${{ secrets.VPS_SSH_PRIVATE_KEY }}
+          VPS_PORT_SECRET: ${{ secrets.VPS_PORT }}
+        run: |
+          set -euo pipefail
+          PORT="${VPS_PORT_SECRET:-22}"
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "$VPS_SSH_PRIVATE_KEY" > ~/.ssh/oddshunter_status
+          chmod 600 ~/.ssh/oddshunter_status
+          ssh-keyscan -p "$PORT" -H "$VPS_HOST" > ~/.ssh/known_hosts
+          echo "VPS_PORT=$PORT" >> "$GITHUB_ENV"
+
+      - name: Read runtime status
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+        run: |
+          set -euo pipefail
+          ssh -i ~/.ssh/oddshunter_status -p "$VPS_PORT" -o BatchMode=yes -o StrictHostKeyChecking=yes "$VPS_USER@$VPS_HOST" 'set -euo pipefail
+            if [ "$(id -u)" -eq 0 ]; then SUDO=""; else SUDO="sudo -n"; fi
+            $SUDO systemctl is-active oddshunter.service
+            $SUDO systemctl --no-pager --full status oddshunter.service | sed -n "1,16p"
+            $SUDO journalctl -u oddshunter.service --since "15 minutes ago" --no-pager -n 160
+            if [ -f /var/lib/oddshunter/data/automation/last_run_selective.json ]; then
+              python3 - <<"PY"
+import json
+from pathlib import Path
+p = Path("/var/lib/oddshunter/data/automation/last_run_selective.json")
+d = json.loads(p.read_text(encoding="utf-8-sig"))
+print("LAST_RUN_GENERATED_AT=", d.get("generated_at"))
+print("LAST_RUN_STATUS=", d.get("status"))
+print("LAST_RUN_TOTALS=", d.get("totals"))
+PY
+            fi'
