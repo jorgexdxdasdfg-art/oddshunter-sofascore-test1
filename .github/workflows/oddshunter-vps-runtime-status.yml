@@ -38,13 +38,5 @@ jobs:
             $SUDO systemctl --no-pager --full status oddshunter.service | sed -n "1,16p"
             $SUDO journalctl -u oddshunter.service --since "15 minutes ago" --no-pager -n 160
             if [ -f /var/lib/oddshunter/data/automation/last_run_selective.json ]; then
-              python3 - <<"PY"
-import json
-from pathlib import Path
-p = Path("/var/lib/oddshunter/data/automation/last_run_selective.json")
-d = json.loads(p.read_text(encoding="utf-8-sig"))
-print("LAST_RUN_GENERATED_AT=", d.get("generated_at"))
-print("LAST_RUN_STATUS=", d.get("status"))
-print("LAST_RUN_TOTALS=", d.get("totals"))
-PY
+              tail -n 80 /var/lib/oddshunter/data/automation/last_run_selective.json
             fi'
