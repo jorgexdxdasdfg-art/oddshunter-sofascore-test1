@@ -1,0 +1,25 @@
+name: Inspect Stage8 Daemon TEMP
+
+on:
+  push:
+    branches:
+      - codex/fix-autonomous-result-backlog
+    paths:
+      - .github/workflows/inspect-stage8-daemon-temp.yml
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Inspect Stage5 validation
+        run: |
+          set -euo pipefail
+          unzip -p ODDSHUNTER_CLOUD_STAGE8_VPS_24X7_V1_3.zip stage8_daemon.py > /tmp/stage8_daemon.py
+          echo "===== STAGE5 VALIDATION ====="
+          grep -n -B 35 -A 35 -E "Stage5 report no PASS|stage5_pass|criteria" /tmp/stage8_daemon.py || true
+          echo "===== MAIN LOOP ====="
+          grep -n -B 20 -A 50 -E "CYCLE=|run_cycle|stage5" /tmp/stage8_daemon.py || true
