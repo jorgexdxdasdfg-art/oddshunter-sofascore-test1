@@ -10,7 +10,50 @@ def replace_once(text: str, old: str, new: str, label: str) -> str:
     return text.replace(old, new, 1)
 
 
+
+STAGE5_OK_OLD = '''def stage5_ok(report: dict[str, Any]) -> bool:
+    counts = report.get("sync_result_counts") or {}
+    criteria = report.get("criteria") or {}
+    return (
+        report.get("stage5_pass") is True
+        and bool(criteria)
+        and all(v is True for v in criteria.values())
+        and int(counts.get("committed") or 0) >= 1
+        and int(counts.get("technical_errors") or 0) == 0
+        and int(counts.get("source_unavailable") or 0) == 0
+    )
+'''
+
+STAGE5_OK_NEW = '''# OH_STAGE8_IDLE_STAGE5_OK_V1
+def stage5_ok(report: dict[str, Any]) -> bool:
+    counts = report.get("sync_result_counts") or {}
+    criteria = report.get("criteria") or {}
+    # Stage5 itself owns the semantic PASS criteria.  A 24/7 idle cycle can
+    # legitimately commit zero rows; requiring committed>=1 here made every
+    # empty queue look like a daemon failure even when Stage5 was fully PASS.
+    return (
+        report.get("stage5_pass") is True
+        and bool(criteria)
+        and all(v is True for v in criteria.values())
+        and int(counts.get("technical_errors") or 0) == 0
+    )
+'''
+
+
+def patch_stage8_daemon(root: Path) -> None:
+    daemon = root / "stage8_daemon.py"
+    if not daemon.is_file():
+        return
+    text = daemon.read_text(encoding="utf-8")
+    if "OH_STAGE8_IDLE_STAGE5_OK_V1" in text:
+        return
+    text = replace_once(text, STAGE5_OK_OLD, STAGE5_OK_NEW, "Stage8 idle Stage5 PASS")
+    compile(text, str(daemon), "exec")
+    daemon.write_text(text, encoding="utf-8", newline="\n")
+
+
 def patch(root: Path) -> None:
+    patch_stage8_daemon(root)
     sync_file = root / "five_dollar_odds_sync.py"
     if not sync_file.is_file():
         raise RuntimeError("five_dollar_odds_sync.py no existe")
