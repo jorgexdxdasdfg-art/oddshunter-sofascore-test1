@@ -1,0 +1,53 @@
+name: Inspect FotMob Today TEMP
+
+on:
+  push:
+    branches:
+      - codex/fix-autonomous-result-backlog
+    paths:
+      - .github/workflows/inspect-fotmob-today-temp.yml
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Inspect FotMob Sep 21 fixtures
+        run: |
+          python - <<'PY'
+          import json, urllib.request
+          url="https://www.fotmob.com/api/data/matches?date=20260921"
+          req=urllib.request.Request(url,headers={
+              "User-Agent":"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/130 Safari/537.36",
+              "Accept":"application/json,text/plain,*/*",
+              "Referer":"https://www.fotmob.com/",
+          })
+          with urllib.request.urlopen(req,timeout=30) as r:
+              doc=json.load(r)
+          leagues=doc.get("leagues") or []
+          print("LEAGUE_COUNT",len(leagues))
+          for league in leagues:
+              if not isinstance(league,dict): continue
+              matches=league.get("matches") or []
+              if not matches: continue
+              print("LEAGUE",json.dumps({
+                  "id":league.get("id"),
+                  "name":league.get("name"),
+                  "ccode":league.get("ccode"),
+                  "parentLeagueId":league.get("parentLeagueId"),
+                  "count":len(matches),
+              },ensure_ascii=False))
+              for m in matches:
+                  h=m.get("home") or {}; a=m.get("away") or {}; st=m.get("status") or {}
+                  print("MATCH",json.dumps({
+                      "id":m.get("id"),
+                      "utc":st.get("utcTime"),
+                      "home":h.get("name"),
+                      "away":a.get("name"),
+                      "score":[h.get("score"),a.get("score")],
+                      "finished":st.get("finished"),
+                  },ensure_ascii=False))
+          PY
