@@ -1063,7 +1063,7 @@ def schedule_event_upsert_sql() -> str:
     # cannot be rolled back by a catalog prepared before that update.
     keep = "UPPER(COALESCE(mobile_events.status,'')) IN ('FT','AET','PEN','FINISHED','FINAL','ENDED','LIVE','INPROGRESS','HT','POSTPONED','CANCELED','CANCELLED','ABANDONED')"
     keep_analysis = (
-        "UPPER(COALESCE(mobile_events.analysis_status,'')) IN ('FULL','PARTIAL_WITH_FALLBACK') "
+        "UPPER(COALESCE(mobile_events.analysis_status,'')) IN ('FULL','PARTIAL_WITH_FALLBACK','DATOS REALES') "
         "AND UPPER(COALESCE(excluded.analysis_status,'')) NOT IN ('FULL','PARTIAL_WITH_FALLBACK')"
     )
     return (
@@ -1353,6 +1353,17 @@ def publish_lineup_snapshot(
     event_id = int(row["event_id"])
     competition_key = slugify(competition.get("key"))
     encoded = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+    # OH_FINAL_ACTUALS_CARD_V1
+    # A finished match with verified real statistics is no longer "pending"
+    # even when no pre-match model bundle exists. Preserve FULL/PARTIAL model
+    # states when present; otherwise expose the actual-data state to Mobile.
+    client.execute(
+        "UPDATE mobile_events SET analysis_status=CASE "
+        "WHEN UPPER(COALESCE(analysis_status,'')) IN ('FULL','PARTIAL_WITH_FALLBACK') "
+        "THEN analysis_status ELSE 'DATOS REALES' END "
+        "WHERE competition_key=? AND event_id=?",
+        [competition_key, event_id],
+    )
     client.execute(
         "INSERT INTO mobile_analysis_docs "
         "(competition_key,event_id,doc_name,json_text,source_mtime) VALUES (?,?,?,?,?) "
