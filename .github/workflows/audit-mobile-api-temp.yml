@@ -49,4 +49,28 @@ jobs:
               js=r.read().decode("utf-8","replace")
           apis=sorted(set(re.findall(r"/api/[A-Za-z0-9_./?=&{}$:+-]+",js)))
           print("API_LITERALS",apis[:120])
+          pos=js.find("/api/match/")
+          if pos>=0:
+              print("MATCH_API_SNIPPET",js[max(0,pos-300):pos+500])
+          import urllib.parse,urllib.error
+          samples=(all_rows[1]+all_rows[-1][:4])
+          for x in samples:
+              ck=urllib.parse.quote(str(x.get("competition_key") or ""),safe="")
+              eid=int(x.get("event_id") or 0)
+              candidates=[
+                  f"/api/match/{ck}/{eid}",
+                  f"/api/match/{eid}?competition_key={ck}",
+              ]
+              for path in candidates:
+                  try:
+                      obj=get(path+("&" if "?" in path else "?")+f"cb={time.time_ns()}")
+                      print("MATCH_DETAIL_OK",path,json.dumps({
+                          "event_id":eid,
+                          "keys":sorted(obj.keys()) if isinstance(obj,dict) else None,
+                          "expected_real":obj.get("expected_real") if isinstance(obj,dict) else None,
+                          "value_picks":obj.get("value_picks") if isinstance(obj,dict) else None,
+                      },ensure_ascii=False,separators=(",",":"))[:12000])
+                      break
+                  except Exception as exc:
+                      print("MATCH_DETAIL_FAIL",path,type(exc).__name__,str(exc)[:180])
           PY
