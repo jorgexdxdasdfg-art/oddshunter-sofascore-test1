@@ -1353,17 +1353,6 @@ def publish_lineup_snapshot(
     event_id = int(row["event_id"])
     competition_key = slugify(competition.get("key"))
     encoded = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
-    # OH_FINAL_ACTUALS_CARD_V1
-    # A finished match with verified real statistics is no longer "pending"
-    # even when no pre-match model bundle exists. Preserve FULL/PARTIAL model
-    # states when present; otherwise expose the actual-data state to Mobile.
-    client.execute(
-        "UPDATE mobile_events SET analysis_status=CASE "
-        "WHEN UPPER(COALESCE(analysis_status,'')) IN ('FULL','PARTIAL_WITH_FALLBACK') "
-        "THEN analysis_status ELSE 'DATOS REALES' END "
-        "WHERE competition_key=? AND event_id=?",
-        [competition_key, event_id],
-    )
     client.execute(
         "INSERT INTO mobile_analysis_docs "
         "(competition_key,event_id,doc_name,json_text,source_mtime) VALUES (?,?,?,?,?) "
@@ -1444,6 +1433,18 @@ def publish_final_actuals(
             existing = {}
     payload = merge_final_actuals_payload(existing, payload)
     real = payload.get("real") or {}
+
+    # A verified final-statistics document is enough to clear the card's
+    # pending state. This belongs to the actuals publisher, not the lineup
+    # publisher: many competitions expose complete box scores without lineups.
+    if final_actuals_core_complete(payload):
+        client.execute(
+            "UPDATE mobile_events SET analysis_status=CASE "
+            "WHEN UPPER(COALESCE(analysis_status,'')) IN ('FULL','PARTIAL_WITH_FALLBACK') "
+            "THEN analysis_status ELSE 'DATOS REALES' END "
+            "WHERE competition_key=? AND event_id=?",
+            [competition_key, event_id],
+        )
     client.execute(
         "UPDATE matches SET home_goals_1h=COALESCE(?,home_goals_1h),"
         "away_goals_1h=COALESCE(?,away_goals_1h),"
@@ -1567,6 +1568,40 @@ def update_local(row: dict[str, Any], update: dict[str, Any], updated_at: str) -
         con.close()
 
 
+def reconcile_existing_final_actual_cards(
+    client: Any,
+    now: datetime,
+) -> int:
+    """Clear stale pending labels for finals that already have verified real stats."""
+    rows = client.query(
+        "SELECT e.competition_key,e.event_id,e.analysis_status,d.json_text "
+        "FROM mobile_events AS e "
+        "JOIN mobile_analysis_docs AS d "
+        "ON d.competition_key=e.competition_key AND d.event_id=e.event_id "
+        "AND d.doc_name='expected_real_actuals' "
+        "WHERE datetime(e.kickoff)>=datetime(?) AND datetime(e.kickoff)<datetime(?) "
+        "AND UPPER(COALESCE(e.status,'')) IN ('FT','AET','PEN','FINISHED','FINAL','ENDED')",
+        [iso_utc(now - timedelta(hours=72)), iso_utc(now + timedelta(minutes=5))],
+    )
+    updates: list[tuple[str, list[Any]]] = []
+    for row in rows:
+        if not final_actuals_core_complete(row.get("json_text")):
+            continue
+        status = str(row.get("analysis_status") or "").upper()
+        if status in {"FULL", "PARTIAL_WITH_FALLBACK", "DATOS REALES"}:
+            continue
+        updates.append(
+            (
+                "UPDATE mobile_events SET analysis_status='DATOS REALES' "
+                "WHERE competition_key=? AND event_id=?",
+                [str(row["competition_key"]), int(row["event_id"])],
+            )
+        )
+    if updates:
+        client.execute_many(updates, chunk=12)
+    return len(updates)
+
+
 def reconcile_local_finals(
     con: sqlite3.Connection,
     now: datetime,
@@ -1610,6 +1645,11 @@ def run(
         publish_exact_actuals_file(
             client, os.environ.get("ODDSHUNTER_EXACT_ACTUALS_FILE", "")
         )
+        if client is not None
+        else 0
+    )
+    final_cards_reconciled = (
+        reconcile_existing_final_actual_cards(client, now)
         if client is not None
         else 0
     )
@@ -1660,6 +1700,7 @@ def run(
         "candidate_count": len(candidates),
         "reconcile_count": len(local_finals),
         "exact_actuals_published": exact_actuals_published,
+        "final_cards_reconciled": final_cards_reconciled,
         "events": [],
     }
     provider_messages: list[str] = []
