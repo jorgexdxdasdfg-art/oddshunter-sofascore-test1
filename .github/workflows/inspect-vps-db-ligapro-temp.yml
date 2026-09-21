@@ -46,9 +46,9 @@ jobs:
           for r in con.execute("""
             SELECT team_id,sofascore_id,name,league_id
             FROM teams
-            WHERE lower(name) LIKE '%manta%' OR lower(name) LIKE '%orense%'
+            WHERE instr(lower(name), ?) > 0 OR instr(lower(name), ?) > 0
             ORDER BY name
-          """):
+          """, ("manta","orense")):
               print(json.dumps(dict(r),ensure_ascii=False))
           print("MATCHES")
           for r in con.execute("""
@@ -56,9 +56,10 @@ jobs:
                    h.name home,a.name away,h.sofascore_id home_sid,a.sofascore_id away_sid
             FROM matches m JOIN teams h ON h.team_id=m.home_team_id
             JOIN teams a ON a.team_id=m.away_team_id
-            WHERE m.league_id=239 AND datetime(m.kickoff)>=datetime('2026-09-18')
-              AND datetime(m.kickoff)<datetime('2026-09-25')
+            WHERE m.league_id=? AND datetime(m.kickoff)>=datetime(?)
+              AND datetime(m.kickoff)<datetime(?)
             ORDER BY m.kickoff
-          """):
+          """, (239,"2026-09-18","2026-09-25")):
               print(json.dumps(dict(r),ensure_ascii=False))
           PY'
+# retry-db-query
