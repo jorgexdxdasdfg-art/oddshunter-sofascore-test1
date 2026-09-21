@@ -185,3 +185,26 @@ def main():
     patched = patch_source(source)
     assert "ODDSHUNTER_ANALYSIS_PRIORITY_EVENT_IDS" in patched
     assert "priority_event_ids=priority_event_ids" in patched
+
+
+def test_today_all_states_then_tomorrow_then_yesterday(tmp_path: Path) -> None:
+    records = [
+        {**row(1, 10, "2026-09-20T16:00:00Z"), "status": "NS"},
+        {**row(2, 10, "2026-09-20T17:00:00Z"), "status": "FT"},
+        {**row(3, 10, "2026-09-21T10:00:00Z"), "status": "FT"},
+        {**row(4, 10, "2026-09-21T16:00:00Z"), "status": "LIVE"},
+        {**row(5, 10, "2026-09-21T20:00:00Z"), "status": "NS"},
+        {**row(6, 10, "2026-09-22T20:00:00Z"), "status": "NS"},
+        {**row(7, 10, "2026-09-21T09:00:00Z"), "status": "CANCELLED"},
+    ]
+    selected = select_pending_fixture_analyses(
+        records, {10: {"key": "mls"}}, tmp_path,
+        now=datetime(2026, 9, 21, 18, tzinfo=timezone.utc),
+        limit=8, grace_minutes=4320,
+    )
+    assert [item["event_id"] for item in selected] == [3, 4, 5, 6, 1, 2]
+    selected = select_pending_fixture_analyses(
+        records, {10: {"key": "mls"}}, tmp_path,
+        now=datetime(2026, 9, 21, 18, tzinfo=timezone.utc), limit=3,
+    )
+    assert [item["event_id"] for item in selected] == [3, 4, 5]

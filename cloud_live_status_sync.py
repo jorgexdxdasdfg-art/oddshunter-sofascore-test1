@@ -966,6 +966,18 @@ def publish_schedule_catalog(
         }
     events = catalog["events"]
     docs = catalog["docs"]
+    # Seed-only fixtures may have acquired a model since the hourly seed was
+    # built. Read those folders too; otherwise their new bundles never publish.
+    doc_map = {(row["competition_key"], int(row["event_id"]), row["doc_name"]): row for row in docs}
+    for event in events:
+        key, event_id = str(event["competition_key"]), int(event["event_id"])
+        _parsed, local_docs = _read_analysis_documents(DATA / "analisis" / key / str(event_id))
+        for doc in local_docs:
+            identity = (key, event_id, doc["doc_name"])
+            previous = doc_map.get(identity)
+            if previous is None or float(doc.get("source_mtime") or 0) >= float(previous.get("source_mtime") or 0):
+                doc_map[identity] = {"competition_key": key, "event_id": event_id, **doc}
+    docs = list(doc_map.values())
     if not events:
         raise RuntimeError("El catálogo PC de ayer/hoy/mañana quedó vacío")
 
@@ -1013,6 +1025,7 @@ def publish_schedule_catalog(
             ],
             chunk=12,
         )
+    repaired_analysis = reconcile_catalog_analysis(client, expected_ids)
     client.execute(
         "INSERT INTO mobile_sync_meta (key,value) VALUES (?,?) ON CONFLICT (key) DO UPDATE SET value=excluded.value",
         ["schedule_catalog_last_publish_at", iso_utc(now)],
@@ -1027,6 +1040,7 @@ def publish_schedule_catalog(
         "result": "PUBLISHED",
         "event_count": len(events),
         "doc_count": len(docs),
+        "analysis_cards_reconciled": repaired_analysis,
         "event_ids": expected_ids,
         "missing_analysis": catalog["missing_analysis"],
         "counts_by_day": catalog["counts_by_day"],
@@ -1040,6 +1054,10 @@ def schedule_event_upsert_sql() -> str:
     # condition is evaluated inside the upsert, so a concurrent live update
     # cannot be rolled back by a catalog prepared before that update.
     keep = "UPPER(COALESCE(mobile_events.status,'')) IN ('FT','AET','PEN','FINISHED','FINAL','ENDED','LIVE','INPROGRESS','HT','POSTPONED','CANCELED','CANCELLED','ABANDONED')"
+    keep_analysis = (
+        "UPPER(COALESCE(mobile_events.analysis_status,'')) IN ('FULL','PARTIAL_WITH_FALLBACK') "
+        "AND UPPER(COALESCE(excluded.analysis_status,'')) NOT IN ('FULL','PARTIAL_WITH_FALLBACK')"
+    )
     return (
         "INSERT INTO mobile_events (competition_key,event_id,competition_name,season_name,round_name,stage,"
         "kickoff,status,status_description,home_team_id,home_team,away_team_id,away_team,home_score,away_score,"
@@ -1053,9 +1071,45 @@ def schedule_event_upsert_sql() -> str:
         "home_team=excluded.home_team,away_team_id=excluded.away_team_id,away_team=excluded.away_team,"
         f"home_score=CASE WHEN {keep} THEN mobile_events.home_score ELSE COALESCE(excluded.home_score,mobile_events.home_score) END,"
         f"away_score=CASE WHEN {keep} THEN mobile_events.away_score ELSE COALESCE(excluded.away_score,mobile_events.away_score) END,"
-        "analysis_status=excluded.analysis_status,"
-        "headline_json=excluded.headline_json"
+        f"analysis_status=CASE WHEN {keep_analysis} THEN mobile_events.analysis_status ELSE excluded.analysis_status END,"
+        f"headline_json=CASE WHEN {keep_analysis} THEN mobile_events.headline_json ELSE excluded.headline_json END"
     )
+
+
+def reconcile_catalog_analysis(client: Any, event_ids: list[int]) -> int:
+    """Rebuild cards from the published model documents, independently of seed age."""
+    if not event_ids:
+        return 0
+    placeholders = ",".join("?" for _ in event_ids)
+    rows = client.query(
+        "SELECT competition_key,event_id,doc_name,json_text FROM mobile_analysis_docs "
+        f"WHERE event_id IN ({placeholders}) AND doc_name IN ('analysis','status','goals')",
+        event_ids,
+    )
+    bundles: dict[tuple[str, int], dict[str, Any]] = {}
+    for row in rows:
+        try:
+            doc = json.loads(row.get("json_text") or "{}")
+        except (ValueError, TypeError):
+            continue
+        if isinstance(doc, dict):
+            bundles.setdefault((str(row["competition_key"]), int(row["event_id"])), {})[row["doc_name"]] = doc
+    updates = []
+    for (key, event_id), bundle in bundles.items():
+        analysis = bundle.get("analysis") or {}
+        status = str(analysis.get("status") or analysis.get("analysis_status") or (bundle.get("status") or {}).get("status") or "").upper()
+        headline = _schedule_headline(bundle.get("goals") or {})
+        if status not in {"FULL", "PARTIAL_WITH_FALLBACK"}:
+            continue
+        if any(headline.get(field) is None for field in ("home_win", "draw", "away_win")):
+            continue
+        updates.append((
+            "UPDATE mobile_events SET analysis_status=?,headline_json=? WHERE competition_key=? AND event_id=?",
+            [status, json.dumps(headline, ensure_ascii=False, separators=(",", ":")), key, event_id],
+        ))
+    if updates:
+        client.execute_many(updates, chunk=12)
+    return len(updates)
 
 
 def publish_catalog_only(now: datetime) -> dict[str, Any]:

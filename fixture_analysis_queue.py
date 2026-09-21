@@ -161,13 +161,16 @@ def select_pending_fixture_analyses(
             continue
 
         status = str(record.get("status") or "").upper()
+        if status in {"POSTPONED", "CANCELED", "CANCELLED", "ABANDONED", "SUSPENDED", "WO", "WALKOVER"}:
+            continue
         is_terminal = status in terminal_states
         is_priority = event_id in priority_ids
+        local_day = kickoff.astimezone(ECUADOR_TZ).date()
 
         # Normal live/upcoming debt keeps the grace window. Explicit rescue
         # targets bypass it, and genuine terminal fixtures may be completed
         # from their original pre-match target timestamp.
-        if not is_priority and not is_terminal and kickoff < grace_floor:
+        if local_day < local_today and not is_priority and not is_terminal and kickoff < grace_floor:
             continue
 
         key = str(competition.get("key") or "").strip()
@@ -190,12 +193,11 @@ def select_pending_fixture_analyses(
             "season": record.get("season"),
         }
 
-        # 1) explicit rescued IDs
-        # 2) live/upcoming missing bundles
-        # 3) final missing bundles
+        # Today (all match states) must win over tomorrow and yesterday's
+        # backlog, including old NS rows whose result source is unavailable.
         rank = (
             0 if is_priority else 1,
-            1 if is_terminal else 0,
+            0 if local_day == local_today else (1 if local_day > local_today else 2),
             kickoff.timestamp(),
             event_id,
         )

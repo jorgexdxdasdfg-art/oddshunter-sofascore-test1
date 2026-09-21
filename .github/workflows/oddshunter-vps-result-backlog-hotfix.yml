@@ -69,6 +69,7 @@ jobs:
           "${SCP[@]}" /tmp/global_team_workflow.py "$VPS_USER@$VPS_HOST:$REMOTE_DIR/global_team_workflow.py"
           "${SCP[@]}" /tmp/cloud_stage5_cycle.complete.py "$VPS_USER@$VPS_HOST:$REMOTE_DIR/cloud_stage5_cycle.py"
           "${SCP[@]}" fixture_analysis_queue.py "$VPS_USER@$VPS_HOST:$REMOTE_DIR/fixture_analysis_queue.py"
+          "${SCP[@]}" cloud_live_status_sync.py "$VPS_USER@$VPS_HOST:$REMOTE_DIR/cloud_live_status_sync.py"
 
           "${SSH[@]}" bash -s -- "$REMOTE_DIR" <<'REMOTE'
           set -euo pipefail
@@ -81,6 +82,7 @@ jobs:
           STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
           "${SUDO[@]}" cp -a "$CURRENT/global_team_workflow.py" "/var/lib/oddshunter/artifacts/hotfix-backups/global_team_workflow.py.$STAMP"
           "${SUDO[@]}" cp -a "$CURRENT/cloud_stage5_cycle.py" "/var/lib/oddshunter/artifacts/hotfix-backups/cloud_stage5_cycle.py.$STAMP"
+          "${SUDO[@]}" cp -a "$CURRENT/cloud_live_status_sync.py" "/var/lib/oddshunter/artifacts/hotfix-backups/cloud_live_status_sync.py.$STAMP"
           "${SUDO[@]}" install -m 0644 -o oddshunter -g oddshunter "$REMOTE_DIR/global_team_workflow.py" "$CURRENT/global_team_workflow.py.new"
           "${SUDO[@]}" install -m 0644 -o oddshunter -g oddshunter "$REMOTE_DIR/cloud_stage5_cycle.py" "$CURRENT/cloud_stage5_cycle.py.new"
           "${SUDO[@]}" install -m 0644 -o oddshunter -g oddshunter "$REMOTE_DIR/fixture_analysis_queue.py" "$CURRENT/fixture_analysis_queue.py.new"
@@ -88,6 +90,8 @@ jobs:
           "${SUDO[@]}" mv "$CURRENT/global_team_workflow.py.new" "$CURRENT/global_team_workflow.py"
           "${SUDO[@]}" mv "$CURRENT/cloud_stage5_cycle.py.new" "$CURRENT/cloud_stage5_cycle.py"
           "${SUDO[@]}" mv "$CURRENT/fixture_analysis_queue.py.new" "$CURRENT/fixture_analysis_queue.py"
+          "${SUDO[@]}" install -m 0644 -o oddshunter -g oddshunter "$REMOTE_DIR/cloud_live_status_sync.py" "$CURRENT/cloud_live_status_sync.py"
+          "${SUDO[@]}" "$CURRENT/.venv-cloud/bin/python" -m py_compile "$CURRENT/cloud_live_status_sync.py"
           grep -F 'finished_schedule_matches(key)' "$CURRENT/global_team_workflow.py" >/dev/null
           grep -F 'ODDSHUNTER_RESULT_SYNC_TARGETS_PER_CYCLE' "$CURRENT/cloud_stage5_cycle.py" >/dev/null
           grep -F 'select_pending_fixture_analyses' "$CURRENT/cloud_stage5_cycle.py" >/dev/null
@@ -99,8 +103,9 @@ jobs:
             "${SUDO[@]}" tee /etc/systemd/system/oddshunter.service.d/complete-three-day-analysis.conf >/dev/null
           "${SUDO[@]}" systemctl daemon-reload
           "${SUDO[@]}" systemctl enable --now oddshunter-live-sync.timer oddshunter-schedule-refresh.timer
-          "${SUDO[@]}" systemctl start oddshunter-live-sync.service || true
+          "${SUDO[@]}" systemctl start --no-block oddshunter-live-sync.service
           "${SUDO[@]}" systemctl restart oddshunter.service
+          "${SUDO[@]}" systemctl start --no-block oddshunter-schedule-refresh.service
           sleep 8
           "${SUDO[@]}" systemctl is-active --quiet oddshunter.service
           "${SUDO[@]}" systemctl --no-pager --full status oddshunter.service | sed -n '1,12p'

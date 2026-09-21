@@ -104,6 +104,26 @@ def patch_source(source: str) -> str:
             break
     else:
         raise RuntimeError("STAGE5_ANALYSIS_LIMIT_CALL_NOT_FOUND")
+    # In production an unavailable result provider must not delay pre-match
+    # models or prevent already-generated bundles reaching Mobile.
+    discovery_start = patched.find("    # 1) Global discovery")
+    analysis_start = patched.find("    # 4) Analyze known future DB matches.")
+    analysis_end = patched.find("    con = sqlite3.connect(DB)", analysis_start)
+    if 0 <= discovery_start < analysis_start < analysis_end:
+        analysis_block = patched[analysis_start:analysis_end]
+        analysis_block += '''    # Publish valid model documents even if later result/discovery work fails.
+    catalog_env = dict(env)
+    catalog_env["ODDSHUNTER_FORCE_SCHEDULE_CATALOG"] = "1"
+    catalog_publish = run([
+        sys.executable, "-u", str(ROOT / "cloud_live_status_sync.py"),
+        "--catalog-only",
+    ], catalog_env)
+    report["analysis_catalog_publish"] = catalog_publish
+    print("ANALYSIS_CATALOG_PUBLISH", catalog_publish, flush=True)
+
+'''
+        patched = (patched[:discovery_start] + analysis_block
+                   + patched[discovery_start:analysis_start] + patched[analysis_end:])
     return patched
 
 

@@ -621,6 +621,46 @@ def test_explicit_event_selection_has_no_remaining_time_placeholders():
     assert live.select_event_ids(QueryProbe(), [11, 12]) == []
 
 
+def test_catalog_placeholder_cannot_erase_model_and_cards_recover_from_docs():
+    con = sqlite3.connect(":memory:")
+    con.row_factory = sqlite3.Row
+    con.executescript("""
+        CREATE TABLE mobile_events (
+            competition_key TEXT,event_id INTEGER,competition_name TEXT,season_name TEXT,
+            round_name TEXT,stage TEXT,kickoff TEXT,status TEXT,status_description TEXT,
+            home_team_id INTEGER,home_team TEXT,away_team_id INTEGER,away_team TEXT,
+            home_score INTEGER,away_score INTEGER,analysis_status TEXT,headline_json TEXT,
+            PRIMARY KEY(competition_key,event_id));
+        CREATE TABLE mobile_analysis_docs(competition_key,event_id,doc_name,json_text);
+    """)
+    stale = ["test", 10, "League", "2026", None, None, "2026-09-20T15:00:00Z",
+             "FT", "finished", 1, "Home", 2, "Away", 1, 0, "pending", "{}"]
+    con.execute(live.schedule_event_upsert_sql(), stale)
+    goals = {"models": {"MODELO_GOLES": {"outcome_probabilities": {
+        "home_win": 0.5, "draw": 0.3, "away_win": 0.2}}}}
+    for name, doc in (("analysis", {"status": "FULL"}), ("goals", goals)):
+        con.execute("INSERT INTO mobile_analysis_docs VALUES (?,?,?,?)", ("test", 10, name, json.dumps(doc)))
+
+    class Client:
+        def query(self, sql, params):
+            return [dict(row) for row in con.execute(sql, params)]
+        def execute_many(self, statements, chunk):
+            for sql, params in statements:
+                con.execute(sql, params)
+
+    assert live.reconcile_catalog_analysis(Client(), [10]) == 1
+    for _ in range(2):
+        con.execute(live.schedule_event_upsert_sql(), stale)
+        current = con.execute("SELECT * FROM mobile_events").fetchone()
+        assert current["analysis_status"] == "FULL"
+        assert json.loads(current["headline_json"])["home_win"] == 50.0
+    # A real new bundle is still allowed to update the card.
+    fresh = [*stale[:-2], "FULL", '{"home_win":55,"draw":25,"away_win":20}']
+    con.execute(live.schedule_event_upsert_sql(), fresh)
+    assert json.loads(con.execute("SELECT headline_json FROM mobile_events").fetchone()[0])["home_win"] == 55
+    con.close()
+
+
 def test_catalog_audit_accepts_concurrent_odds_refresh_but_rejects_regression():
     old = {"generated_at": "2026-09-07T21:00:00Z", "price_history": [{"key": "result_home", "opening": {"odds": 2.5}, "current": {"odds": 2.2, "updated_at": "2026-09-07T21:00:00Z"}}]}
     new = json.loads(json.dumps(old))
