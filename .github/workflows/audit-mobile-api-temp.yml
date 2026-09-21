@@ -78,3 +78,5 @@ jobs:
                   except Exception as exc:
                       print("MATCH_DETAIL_FAIL",path,type(exc).__name__,str(exc)[:180])
           PY
+
+# rerun-after-final-deploy
