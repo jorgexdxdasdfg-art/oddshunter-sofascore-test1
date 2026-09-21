@@ -482,6 +482,25 @@ def patch_backend(root: Path) -> list[str]:
     (path.parent / "asian_lines.py").write_text(lines_source.read_text(encoding="utf-8"), encoding="utf-8")
     text = path.read_text(encoding="utf-8")
     original_text = text
+    if "OH_MATCH_WITHOUT_MODEL_IDENTITY_V1" not in text:
+        anchor = '    # Mantiene el detalle alineado con la realidad actual sin convertir hora pasada en FINAL.\n'
+        identity = '''    # OH_MATCH_WITHOUT_MODEL_IDENTITY_V1
+    # Final statistics do not require a pre-match prediction bundle.
+    if not event and CLOUD_MODE:
+        conn = read_only_conn()
+        try:
+            row = conn.execute(
+                "SELECT * FROM mobile_events WHERE competition_key=? AND event_id=? LIMIT 1;",
+                (competition_key, int(event_id)),
+            ).fetchone()
+            if row:
+                event = dict(row)
+        finally:
+            conn.close()
+    event = {**event, "event_id": int(event_id), "competition_key": competition_key}
+
+'''
+        text = replace_once(text, anchor, identity + anchor, "identidad de finalizados sin modelo")
     if "OH_MODEL_PICKS_INDEPENDENT_OF_ODDS_V4" not in text and re.search(r"OH_MODEL_PICKS_INDEPENDENT_OF_ODDS_V[123]", text):
         text, count = re.subn(r"# OH_MODEL_PICKS_INDEPENDENT_OF_ODDS_V[123]\n.*?(?=def match_payload\()", VALUE_MODEL_FUNCTION, text, count=1, flags=re.DOTALL)
         if count != 1:
