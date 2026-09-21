@@ -1,0 +1,84 @@
+name: Inspect FotMob TEMP
+
+on:
+  push:
+    branches:
+      - codex/fix-autonomous-result-backlog
+    paths:
+      - .github/workflows/inspect-fotmob-temp.yml
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Inspect FotMob public API
+        run: |
+          python - <<'PY'
+          import json, urllib.request, urllib.parse, re, unicodedata
+
+          def get(url):
+              req=urllib.request.Request(url,headers={
+                  "User-Agent":"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/130 Safari/537.36",
+                  "Accept":"application/json,text/plain,*/*",
+                  "Referer":"https://www.fotmob.com/",
+              })
+              with urllib.request.urlopen(req,timeout=30) as r:
+                  return json.load(r)
+
+          urls=[
+              "https://www.fotmob.com/api/matches?date=20260920",
+              "https://www.fotmob.com/api/data/matches?date=20260920",
+          ]
+          doc=None
+          for url in urls:
+              try:
+                  x=get(url)
+                  print("MATCHES_OK",url,type(x).__name__,list(x)[:20] if isinstance(x,dict) else len(x))
+                  doc=x
+                  break
+              except Exception as e:
+                  print("MATCHES_FAIL",url,type(e).__name__,str(e)[:300])
+
+          if doc is None:
+              raise SystemExit(0)
+
+          def norm(v):
+              s=unicodedata.normalize("NFKD",str(v or "").casefold())
+              s="".join(c for c in s if not unicodedata.combining(c))
+              return re.sub(r"[^a-z0-9]+"," ",s).strip()
+
+          found=[]
+          def walk(x):
+              if isinstance(x,dict):
+                  home=x.get("home") or x.get("homeTeam") or {}
+                  away=x.get("away") or x.get("awayTeam") or {}
+                  hn=(home.get("name") if isinstance(home,dict) else None) or x.get("homeName")
+                  an=(away.get("name") if isinstance(away,dict) else None) or x.get("awayName")
+                  if hn and an and "hafnarf" in norm(hn) and "stjarn" in norm(an):
+                      found.append(x)
+                  for v in x.values(): walk(v)
+              elif isinstance(x,list):
+                  for v in x: walk(v)
+          walk(doc)
+          print("FOUND_COUNT",len(found))
+          for m in found[:10]:
+              print("FOUND",json.dumps(m,ensure_ascii=False)[:10000])
+              mid=m.get("id") or m.get("matchId") or m.get("match_id")
+              if not mid:
+                  continue
+              for endpoint in [
+                  f"https://www.fotmob.com/api/matchDetails?matchId={mid}",
+                  f"https://www.fotmob.com/api/matchDetails?matchId={mid}&ccode3=ECU",
+              ]:
+                  try:
+                      d=get(endpoint)
+                      print("DETAIL_OK",endpoint,"KEYS",list(d)[:40])
+                      print("DETAIL",json.dumps(d,ensure_ascii=False)[:35000])
+                      break
+                  except Exception as e:
+                      print("DETAIL_FAIL",endpoint,type(e).__name__,str(e)[:300])
+          PY
