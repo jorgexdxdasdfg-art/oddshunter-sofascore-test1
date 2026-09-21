@@ -2,6 +2,14 @@ name: OddsHunter VPS Result Backlog Hotfix
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - codex/fix-autonomous-result-backlog
+    paths:
+      - stage5_complete_fixture_analysis_patch.py
+      - fixture_analysis_queue.py
+      - cloud_live_status_sync.py
+      - .github/workflows/oddshunter-vps-result-backlog-hotfix.yml
 
 permissions:
   contents: read
@@ -27,6 +35,8 @@ jobs:
           grep -F 'finished_schedule_matches(key)' /tmp/global_team_workflow.py >/dev/null
           grep -F 'ODDSHUNTER_RESULT_SYNC_TARGETS_PER_CYCLE' /tmp/cloud_stage5_cycle.complete.py >/dev/null
           grep -F 'select_pending_fixture_analyses' /tmp/cloud_stage5_cycle.complete.py >/dev/null
+          echo '===== STAGE5 PASS/CRITERIA SOURCE ====='
+          grep -n -E 'stage5_pass|future_analysis_target_at_least_1|future_analysis_full_at_least_1|shots_future_pass_at_least_1|sync_candidate_pool_at_least_10|result_sync_targets_at_least_1|result_sync_committed_at_least_1' /tmp/cloud_stage5_cycle.complete.py || true
 
       - name: Verify VPS secrets
         env:
