@@ -1,0 +1,54 @@
+name: Inspect VPS Stage5 TEMP
+
+on:
+  push:
+    branches:
+      - codex/fix-autonomous-result-backlog
+    paths:
+      - .github/workflows/inspect-vps-stage5-temp.yml
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Prepare SSH
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_SSH_PRIVATE_KEY: ${{ secrets.VPS_SSH_PRIVATE_KEY }}
+          VPS_PORT_SECRET: ${{ secrets.VPS_PORT }}
+        run: |
+          set -euo pipefail
+          PORT="${VPS_PORT_SECRET:-22}"
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "$VPS_SSH_PRIVATE_KEY" > ~/.ssh/oddshunter_status
+          chmod 600 ~/.ssh/oddshunter_status
+          ssh-keyscan -p "$PORT" -H "$VPS_HOST" > ~/.ssh/known_hosts
+          echo "VPS_PORT=$PORT" >> "$GITHUB_ENV"
+
+      - name: Inspect Stage5 analysis path
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+        run: |
+          ssh -i ~/.ssh/oddshunter_status -p "$VPS_PORT" -o BatchMode=yes -o StrictHostKeyChecking=yes "$VPS_USER@$VPS_HOST" 'set -euo pipefail
+            CURRENT="$(readlink -f /opt/oddshunter/current)"
+            python3 - "$CURRENT/cloud_stage5_cycle.py" <<'"'"'PY'"'"'
+          import sys
+          from pathlib import Path
+          p=Path(sys.argv[1])
+          s=p.read_text(encoding="utf-8")
+          needles=["analysis_targets", "analyze_upcoming", "start_timestamp", "home_team_id", "future_analysis_targets"]
+          lines=s.splitlines()
+          hits=set()
+          for i,line in enumerate(lines):
+              if any(n in line for n in needles):
+                  for j in range(max(0,i-18), min(len(lines),i+55)):
+                      hits.add(j)
+          for j in sorted(hits):
+              print(f"{j+1:05d}: {lines[j]}")
+          PY'
