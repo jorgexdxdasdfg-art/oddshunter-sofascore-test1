@@ -661,6 +661,33 @@ def test_catalog_placeholder_cannot_erase_model_and_cards_recover_from_docs():
     con.close()
 
 
+def test_real_data_card_survives_stale_catalog_and_allows_model_upgrade():
+    con = sqlite3.connect(":memory:")
+    con.row_factory = sqlite3.Row
+    con.executescript("""
+        CREATE TABLE mobile_events (
+            competition_key TEXT,event_id INTEGER,competition_name TEXT,season_name TEXT,
+            round_name TEXT,stage TEXT,kickoff TEXT,status TEXT,status_description TEXT,
+            home_team_id INTEGER,home_team TEXT,away_team_id INTEGER,away_team TEXT,
+            home_score INTEGER,away_score INTEGER,analysis_status TEXT,headline_json TEXT,
+            PRIMARY KEY(competition_key,event_id));
+    """)
+    stale = ["test", 10, "League", "2026", None, None, "2026-09-20T15:00:00Z",
+             "FT", "finished", 1, "Home", 2, "Away", 2, 1, "pending", "{}"]
+    sql = live.schedule_event_upsert_sql()
+    con.execute(sql, stale)
+    con.execute("UPDATE mobile_events SET analysis_status='DATOS REALES' WHERE event_id=10")
+    con.execute(sql, stale)
+    assert con.execute("SELECT analysis_status FROM mobile_events WHERE event_id=10").fetchone()[0] == "DATOS REALES"
+
+    fresh = [*stale[:-2], "FULL", '{"home_win":55,"draw":25,"away_win":20}']
+    con.execute(sql, fresh)
+    row = con.execute("SELECT analysis_status,headline_json FROM mobile_events WHERE event_id=10").fetchone()
+    assert row["analysis_status"] == "FULL"
+    assert json.loads(row["headline_json"])["home_win"] == 55
+    con.close()
+
+
 def test_document_age_accepts_iso_seed_and_unix_publisher():
     stamp = datetime(2026, 9, 21, 10, tzinfo=timezone.utc).timestamp()
     assert live.document_timestamp("2026-09-21T10:00:00+00:00") == stamp
