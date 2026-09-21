@@ -71,8 +71,9 @@ jobs:
               if not mid:
                   continue
               for endpoint in [
+                  f"https://www.fotmob.com/api/data/matchDetails?matchId={mid}",
+                  f"https://www.fotmob.com/api/data/matchDetails?matchId={mid}&ccode3=ECU",
                   f"https://www.fotmob.com/api/matchDetails?matchId={mid}",
-                  f"https://www.fotmob.com/api/matchDetails?matchId={mid}&ccode3=ECU",
               ]:
                   try:
                       d=get(endpoint)
@@ -82,3 +83,4 @@ jobs:
                   except Exception as e:
                       print("DETAIL_FAIL",endpoint,type(e).__name__,str(e)[:300])
           PY
+# retry-data-details
