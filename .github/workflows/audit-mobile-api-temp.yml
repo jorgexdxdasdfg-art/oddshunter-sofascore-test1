@@ -61,7 +61,7 @@ jobs:
           if pos>=0:
               print("MATCH_API_SNIPPET",js[max(0,pos-300):pos+500])
           import urllib.parse,urllib.error
-          samples=(all_rows[1]+[x for x in all_rows[-1] if "pending" in json.dumps(x,ensure_ascii=False).lower()])
+          samples=(all_rows[1]+[x for x in all_rows[-1] if "pending" in json.dumps(x,ensure_ascii=False).lower() or int(x.get("event_id") or 0)==17048395])
           for x in samples:
               ck=urllib.parse.quote(str(x.get("competition_key") or ""),safe="")
               eid=int(x.get("event_id") or 0)
@@ -89,3 +89,4 @@ jobs:
 # verify-live-after-espn-cycle
 # verify-fotmob-final
 # verify-final-zero-pending
+# verify-besta-real-stats
