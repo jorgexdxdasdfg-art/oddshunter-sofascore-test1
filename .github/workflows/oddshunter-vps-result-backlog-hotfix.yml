@@ -22,9 +22,11 @@ jobs:
           test "$(sha256sum ODDSHUNTER_CLOUD_LINUX_STAGE4_STAGE5_V4.zip | awk '{print toupper($1)}')" = "B6040348D77A3A122A03BCEAE0EC7406D5FBA06DD2B4B52A201DB1241C975232"
           unzip -p ODDSHUNTER_CLOUD_LINUX_STAGE4_STAGE5_V4.zip global_team_workflow.py > /tmp/global_team_workflow.py
           unzip -p ODDSHUNTER_CLOUD_LINUX_STAGE4_STAGE5_V4.zip cloud_stage5_cycle.py > /tmp/cloud_stage5_cycle.py
-          python -m py_compile /tmp/global_team_workflow.py /tmp/cloud_stage5_cycle.py
+          python stage5_complete_fixture_analysis_patch.py /tmp/cloud_stage5_cycle.py /tmp/cloud_stage5_cycle.complete.py
+          python -m py_compile /tmp/global_team_workflow.py /tmp/cloud_stage5_cycle.complete.py fixture_analysis_queue.py
           grep -F 'finished_schedule_matches(key)' /tmp/global_team_workflow.py >/dev/null
-          grep -F 'ODDSHUNTER_RESULT_SYNC_TARGETS_PER_CYCLE' /tmp/cloud_stage5_cycle.py >/dev/null
+          grep -F 'ODDSHUNTER_RESULT_SYNC_TARGETS_PER_CYCLE' /tmp/cloud_stage5_cycle.complete.py >/dev/null
+          grep -F 'select_pending_fixture_analyses' /tmp/cloud_stage5_cycle.complete.py >/dev/null
 
       - name: Verify VPS secrets
         env:
@@ -65,7 +67,8 @@ jobs:
           REMOTE_DIR="$("${SSH[@]}" 'mktemp -d /tmp/oddshunter-hotfix.XXXXXX')"
           trap '"${SSH[@]}" "rm -rf \"$REMOTE_DIR\"" || true' EXIT
           "${SCP[@]}" /tmp/global_team_workflow.py "$VPS_USER@$VPS_HOST:$REMOTE_DIR/global_team_workflow.py"
-          "${SCP[@]}" /tmp/cloud_stage5_cycle.py "$VPS_USER@$VPS_HOST:$REMOTE_DIR/cloud_stage5_cycle.py"
+          "${SCP[@]}" /tmp/cloud_stage5_cycle.complete.py "$VPS_USER@$VPS_HOST:$REMOTE_DIR/cloud_stage5_cycle.py"
+          "${SCP[@]}" fixture_analysis_queue.py "$VPS_USER@$VPS_HOST:$REMOTE_DIR/fixture_analysis_queue.py"
 
           "${SSH[@]}" bash -s -- "$REMOTE_DIR" <<'REMOTE'
           set -euo pipefail
@@ -80,14 +83,26 @@ jobs:
           "${SUDO[@]}" cp -a "$CURRENT/cloud_stage5_cycle.py" "/var/lib/oddshunter/artifacts/hotfix-backups/cloud_stage5_cycle.py.$STAMP"
           "${SUDO[@]}" install -m 0644 -o oddshunter -g oddshunter "$REMOTE_DIR/global_team_workflow.py" "$CURRENT/global_team_workflow.py.new"
           "${SUDO[@]}" install -m 0644 -o oddshunter -g oddshunter "$REMOTE_DIR/cloud_stage5_cycle.py" "$CURRENT/cloud_stage5_cycle.py.new"
-          "${SUDO[@]}" "$CURRENT/.venv-cloud/bin/python" -m py_compile "$CURRENT/global_team_workflow.py.new" "$CURRENT/cloud_stage5_cycle.py.new"
+          "${SUDO[@]}" install -m 0644 -o oddshunter -g oddshunter "$REMOTE_DIR/fixture_analysis_queue.py" "$CURRENT/fixture_analysis_queue.py.new"
+          "${SUDO[@]}" "$CURRENT/.venv-cloud/bin/python" -m py_compile "$CURRENT/global_team_workflow.py.new" "$CURRENT/cloud_stage5_cycle.py.new" "$CURRENT/fixture_analysis_queue.py.new"
           "${SUDO[@]}" mv "$CURRENT/global_team_workflow.py.new" "$CURRENT/global_team_workflow.py"
           "${SUDO[@]}" mv "$CURRENT/cloud_stage5_cycle.py.new" "$CURRENT/cloud_stage5_cycle.py"
+          "${SUDO[@]}" mv "$CURRENT/fixture_analysis_queue.py.new" "$CURRENT/fixture_analysis_queue.py"
           grep -F 'finished_schedule_matches(key)' "$CURRENT/global_team_workflow.py" >/dev/null
           grep -F 'ODDSHUNTER_RESULT_SYNC_TARGETS_PER_CYCLE' "$CURRENT/cloud_stage5_cycle.py" >/dev/null
+          grep -F 'select_pending_fixture_analyses' "$CURRENT/cloud_stage5_cycle.py" >/dev/null
+          "${SUDO[@]}" install -d -m 0755 /etc/systemd/system/oddshunter.service.d
+          printf '%s\n' \
+            '[Service]' \
+            'Environment=ODDSHUNTER_ANALYSIS_TARGET_LIMIT=8' \
+            'Environment=ODDSHUNTER_ANALYSIS_GRACE_MINUTES=4320' | \
+            "${SUDO[@]}" tee /etc/systemd/system/oddshunter.service.d/complete-three-day-analysis.conf >/dev/null
+          "${SUDO[@]}" systemctl daemon-reload
+          "${SUDO[@]}" systemctl enable --now oddshunter-live-sync.timer oddshunter-schedule-refresh.timer
+          "${SUDO[@]}" systemctl start oddshunter-live-sync.service || true
           "${SUDO[@]}" systemctl restart oddshunter.service
           sleep 8
           "${SUDO[@]}" systemctl is-active --quiet oddshunter.service
           "${SUDO[@]}" systemctl --no-pager --full status oddshunter.service | sed -n '1,12p'
-          echo "VPS_RESULT_BACKLOG_HOTFIX=PASS"
+          echo "VPS_THREE_DAY_ANALYSIS_HOTFIX=PASS"
           REMOTE
