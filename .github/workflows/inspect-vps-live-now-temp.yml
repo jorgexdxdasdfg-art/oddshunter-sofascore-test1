@@ -1,0 +1,50 @@
+name: Inspect VPS Live Now TEMP
+
+on:
+  push:
+    branches:
+      - codex/fix-autonomous-result-backlog
+    paths:
+      - .github/workflows/inspect-vps-live-now-temp.yml
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Prepare SSH
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_SSH_PRIVATE_KEY: ${{ secrets.VPS_SSH_PRIVATE_KEY }}
+          VPS_PORT_SECRET: ${{ secrets.VPS_PORT }}
+        run: |
+          set -euo pipefail
+          PORT="${VPS_PORT_SECRET:-22}"
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "$VPS_SSH_PRIVATE_KEY" > ~/.ssh/oddshunter_status
+          chmod 600 ~/.ssh/oddshunter_status
+          ssh-keyscan -p "$PORT" -H "$VPS_HOST" > ~/.ssh/known_hosts
+          echo "VPS_PORT=$PORT" >> "$GITHUB_ENV"
+
+      - name: Inspect live sync
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+        run: |
+          ssh -i ~/.ssh/oddshunter_status -p "$VPS_PORT" -o BatchMode=yes -o StrictHostKeyChecking=yes "$VPS_USER@$VPS_HOST" 'set -euo pipefail
+            if [ "$(id -u)" -eq 0 ]; then SUDO=""; else SUDO="sudo -n"; fi
+            echo "LIVE_ACTIVE=$($SUDO systemctl is-active oddshunter-live-sync.service 2>/dev/null || true)"
+            echo "LIVE_TIMER=$($SUDO systemctl is-active oddshunter-live-sync.timer 2>/dev/null || true)"
+            $SUDO systemctl show oddshunter-live-sync.service -p ExecStart -p EnvironmentFiles --no-pager || true
+            echo "=== JOURNAL ==="
+            $SUDO journalctl -u oddshunter-live-sync.service --since "15 minutes ago" --no-pager -n 260 || true
+            for report in /var/lib/oddshunter/data/automation/cloud_live_status/last.json /opt/oddshunter/current/data/automation/cloud_live_status/last.json; do
+              if [ -f "$report" ]; then
+                echo "=== REPORT $report ==="
+                tail -n 220 "$report"
+              fi
+            done'
