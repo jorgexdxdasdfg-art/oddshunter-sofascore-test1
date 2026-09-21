@@ -44,7 +44,8 @@ jobs:
             -p EnvironmentFile=/etc/oddshunter/oddshunter.env \
             -p Environment=ODDSHUNTER_RUNTIME_MODE=cloud \
             -p Environment=ODDSHUNTER_WORK_DB=/var/lib/oddshunter/data/oddshunter.db \
+            -p Environment=ODDSHUNTER_ALLOW_WORK_DB_WRITE=1 \
             -p Environment=ODDSHUNTER_STAGE6_ALLOW_TURSO_WRITE=1 \
             -p Environment=ODDSHUNTER_FORCE_SCHEDULE_CATALOG=1 \
-            "$CURRENT/.venv-cloud/bin/python" -u "$CURRENT/cloud_live_status_sync.py" --catalog-only
+            "$CURRENT/.venv-cloud/bin/python" -u "$CURRENT/cloud_live_status_sync.py" --event-id 16450889 --event-id 1001000022063 --near-limit 0 --overdue-limit 0 --reconcile-terminal-limit 0
           REMOTE

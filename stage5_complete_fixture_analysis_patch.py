@@ -39,6 +39,7 @@ REPLACEMENT = '''def future_analysis_targets(
         by_league,
     ))
     priority_event_ids = []
+    rows.extend(load_schedule_seed_fixture_rows(DATA / "provider_fixture_catalog.json", by_league))
     for token in os.environ.get(
         "ODDSHUNTER_ANALYSIS_PRIORITY_EVENT_IDS", ""
     ).split(","):

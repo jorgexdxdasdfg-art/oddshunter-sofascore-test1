@@ -426,6 +426,8 @@ def match_ref(row: dict[str, Any], competition: dict[str, Any]) -> MatchRef:
 
 
 def normalized_update(snapshot: dict[str, Any]) -> dict[str, Any] | None:
+    if not isinstance(snapshot, dict):
+        return None
     state = str(snapshot.get("state") or "").strip().lower()
     provider = str(snapshot.get("provider_status") or "").strip()
     home = snapshot.get("home_goals")

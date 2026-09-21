@@ -22,7 +22,8 @@ def load_schedule_seed_fixture_rows(
     if not seed_path.is_file():
         return []
     try:
-        with gzip.open(seed_path, "rt", encoding="utf-8-sig") as handle:
+        opener = gzip.open if seed_path.suffix == ".gz" else open
+        with opener(seed_path, "rt", encoding="utf-8-sig") as handle:
             document = json.load(handle)
     except (OSError, UnicodeError, json.JSONDecodeError):
         return []
