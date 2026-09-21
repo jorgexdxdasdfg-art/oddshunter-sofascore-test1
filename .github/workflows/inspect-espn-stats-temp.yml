@@ -1,0 +1,72 @@
+name: Inspect ESPN Stats TEMP
+
+on:
+  push:
+    branches:
+      - codex/fix-autonomous-result-backlog
+    paths:
+      - .github/workflows/inspect-espn-stats-temp.yml
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Inspect ESPN scoreboards and summaries
+        run: |
+          python - <<'PY'
+          import json, urllib.request, urllib.parse
+
+          targets = {
+              "eng.2": [("Norwich City","Bolton Wanderers")],
+              "bra.1": [
+                  ("Grêmio","Palmeiras"),
+                  ("Corinthians","Fluminense"),
+                  ("Vitória","Cruzeiro"),
+                  ("Flamengo","Red Bull Bragantino"),
+                  ("Athletico","Bahia"),
+              ],
+              "isl.1": [("FH Hafnarfjörður","Stjarnan Garðabær")],
+          }
+          def get(url):
+              req=urllib.request.Request(url,headers={"User-Agent":"Mozilla/5.0 OddsHunter/1.0","Accept":"application/json"})
+              with urllib.request.urlopen(req,timeout=30) as r:
+                  return json.load(r)
+
+          def norm(s):
+              import unicodedata,re
+              s=unicodedata.normalize("NFKD",str(s or "").casefold())
+              s="".join(c for c in s if not unicodedata.combining(c))
+              return re.sub(r"[^a-z0-9]+"," ",s).strip()
+
+          for league,pairs in targets.items():
+              try:
+                  board=get(f"https://site.api.espn.com/apis/site/v2/sports/soccer/{league}/scoreboard?dates=20260920")
+              except Exception as e:
+                  print("BOARD_FAIL",league,type(e).__name__,str(e))
+                  continue
+              print("LEAGUE",league,"EVENTS",len(board.get("events",[])))
+              for ev in board.get("events",[]):
+                  comps=ev.get("competitions") or []
+                  if not comps: continue
+                  competitors=comps[0].get("competitors") or []
+                  home=next((x for x in competitors if x.get("homeAway")=="home"),{})
+                  away=next((x for x in competitors if x.get("homeAway")=="away"),{})
+                  hn=(home.get("team") or {}).get("displayName")
+                  an=(away.get("team") or {}).get("displayName")
+                  if not any((norm(a) in norm(hn) or norm(hn) in norm(a)) and (norm(b) in norm(an) or norm(an) in norm(b)) for a,b in pairs):
+                      continue
+                  eid=ev.get("id")
+                  print("MATCH",league,eid,hn,"vs",an,"status",(ev.get("status") or {}).get("type"))
+                  print("COMP_STATS",json.dumps({"home_stats":home.get("statistics"),"away_stats":away.get("statistics")},ensure_ascii=False)[:12000])
+                  try:
+                      summary=get(f"https://site.api.espn.com/apis/site/v2/sports/soccer/{league}/summary?event={eid}")
+                      box=summary.get("boxscore") or {}
+                      print("SUMMARY_KEYS",sorted(summary.keys()))
+                      print("BOX_TEAMS",json.dumps(box.get("teams"),ensure_ascii=False)[:20000])
+                      print("GAMEINFO",json.dumps(summary.get("gameInfo"),ensure_ascii=False)[:5000])
+                  except Exception as e:
+                      print("SUMMARY_FAIL",league,eid,type(e).__name__,str(e))
+          PY
