@@ -39,6 +39,10 @@ jobs:
                   if "pending" in text:
                       pending.append(int(x.get("event_id") or 0))
               print(f"PENDING_TEXT_COUNT={len(pending)} ids={pending[:25]}")
+              if off == -1:
+                  for x in rows:
+                      if int(x.get("event_id") or 0) in pending:
+                          print("PENDING_ROW",json.dumps(x,ensure_ascii=False,separators=(",",":")))
               for x in rows[:5]:
                   print("ROW",json.dumps(x,ensure_ascii=False,separators=(",",":")))
           print("TOMORROW_ROWS")
@@ -80,4 +84,4 @@ jobs:
           PY
 
 # rerun-after-final-deploy
-# verify-pending-fix
+# verify-pending-fix-details
