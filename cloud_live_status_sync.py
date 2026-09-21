@@ -870,6 +870,284 @@ def espn_final_actuals_snapshot(
     return None
 
 
+
+_FOTMOB_MATCHES_CACHE: dict[str, list[dict[str, Any]]] = {}
+_FOTMOB_DETAILS_CACHE: dict[int, dict[str, Any] | None] = {}
+
+
+def _fotmob_get_json(url: str, logger) -> dict[str, Any] | None:
+    try:
+        request = Request(
+            url,
+            headers={
+                "Accept": "application/json,text/plain,*/*",
+                "Referer": "https://www.fotmob.com/",
+                "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) "
+                "AppleWebKit/537.36 Chrome/130 Safari/537.36",
+            },
+        )
+        with urlopen(request, timeout=15) as response:
+            document = json.load(response)
+        return document if isinstance(document, dict) else None
+    except Exception as exc:
+        logger(f"FotMob no disponible url={url}: {type(exc).__name__}: {exc}")
+        return None
+
+
+def _fotmob_daily_matches(date_key: str, logger) -> list[dict[str, Any]]:
+    if date_key in _FOTMOB_MATCHES_CACHE:
+        return _FOTMOB_MATCHES_CACHE[date_key]
+    document = _fotmob_get_json(
+        f"https://www.fotmob.com/api/data/matches?date={date_key}",
+        logger,
+    )
+    matches: dict[int, dict[str, Any]] = {}
+
+    def walk(value: Any) -> None:
+        if isinstance(value, dict):
+            home = value.get("home")
+            away = value.get("away")
+            event_id = value.get("id")
+            if (
+                event_id is not None
+                and isinstance(home, dict)
+                and isinstance(away, dict)
+                and home.get("name")
+                and away.get("name")
+            ):
+                try:
+                    matches[int(event_id)] = value
+                except (TypeError, ValueError):
+                    pass
+            for child in value.values():
+                walk(child)
+        elif isinstance(value, list):
+            for child in value:
+                walk(child)
+
+    if document is not None:
+        walk(document)
+    rows = list(matches.values())
+    _FOTMOB_MATCHES_CACHE[date_key] = rows
+    return rows
+
+
+def _fotmob_match_details(match_id: int, logger) -> dict[str, Any] | None:
+    match_id = int(match_id)
+    if match_id in _FOTMOB_DETAILS_CACHE:
+        return _FOTMOB_DETAILS_CACHE[match_id]
+    document = _fotmob_get_json(
+        f"https://www.fotmob.com/api/data/matchDetails?matchId={match_id}",
+        logger,
+    )
+    _FOTMOB_DETAILS_CACHE[match_id] = document
+    return document
+
+
+def _fotmob_all_stats(document: dict[str, Any]) -> dict[str, tuple[Any, Any]]:
+    periods = (((document.get("content") or {}).get("stats") or {}).get("Periods") or {})
+    all_period = periods.get("All") if isinstance(periods, dict) else None
+    groups = all_period.get("stats") if isinstance(all_period, dict) else None
+    result: dict[str, tuple[Any, Any]] = {}
+    for group in groups or []:
+        if not isinstance(group, dict):
+            continue
+        for item in group.get("stats") or []:
+            if not isinstance(item, dict):
+                continue
+            key = str(item.get("key") or "").strip()
+            values = item.get("stats")
+            if key and isinstance(values, list) and len(values) >= 2:
+                result.setdefault(key, (values[0], values[1]))
+    return result
+
+
+def _number(value: Any) -> float | None:
+    if value is None:
+        return None
+    if isinstance(value, str):
+        value = value.split("(", 1)[0].replace("%", "").strip()
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def fotmob_final_actuals_snapshot(
+    row: dict[str, Any],
+    competition: dict[str, Any],
+    logger,
+) -> dict[str, Any] | None:
+    """Verified generic final-statistics fallback using exact match identity."""
+    expected_kickoff = parse_dt(row.get("kickoff"))
+    if expected_kickoff is None:
+        return None
+
+    date_keys = {
+        expected_kickoff.astimezone(timezone.utc).strftime("%Y%m%d"),
+        expected_kickoff.astimezone(ECUADOR_TZ).strftime("%Y%m%d"),
+    }
+    expected_home_score = row.get("home_goals")
+    expected_away_score = row.get("away_goals")
+
+    for date_key in sorted(date_keys):
+        for match in _fotmob_daily_matches(date_key, logger):
+            home = match.get("home") if isinstance(match.get("home"), dict) else {}
+            away = match.get("away") if isinstance(match.get("away"), dict) else {}
+            if not _espn_team_matches(row.get("home_team"), home.get("name")):
+                continue
+            if not _espn_team_matches(row.get("away_team"), away.get("name")):
+                continue
+
+            status = match.get("status") if isinstance(match.get("status"), dict) else {}
+            kickoff = parse_dt(status.get("utcTime"))
+            if kickoff is None or abs((kickoff - expected_kickoff).total_seconds()) > 6 * 3600:
+                continue
+            if not bool(status.get("finished")):
+                continue
+
+            home_score = _espn_score(home.get("score"))
+            away_score = _espn_score(away.get("score"))
+            if (
+                expected_home_score is not None
+                and home_score is not None
+                and int(float(expected_home_score)) != home_score
+            ):
+                continue
+            if (
+                expected_away_score is not None
+                and away_score is not None
+                and int(float(expected_away_score)) != away_score
+            ):
+                continue
+
+            match_id = int(match.get("id") or 0)
+            if match_id <= 0:
+                continue
+            details = _fotmob_match_details(match_id, logger)
+            if details is None:
+                continue
+
+            general = details.get("general") if isinstance(details.get("general"), dict) else {}
+            if not bool(general.get("finished")):
+                continue
+            ghome = general.get("homeTeam") if isinstance(general.get("homeTeam"), dict) else {}
+            gaway = general.get("awayTeam") if isinstance(general.get("awayTeam"), dict) else {}
+            if not _espn_team_matches(row.get("home_team"), ghome.get("name")):
+                continue
+            if not _espn_team_matches(row.get("away_team"), gaway.get("name")):
+                continue
+
+            stats = _fotmob_all_stats(details)
+            def pair(key: str) -> tuple[float | None, float | None]:
+                values = stats.get(key, (None, None))
+                return _number(values[0]), _number(values[1])
+
+            home_shots, away_shots = pair("total_shots")
+            home_sot, away_sot = pair("ShotsOnTarget")
+            home_corners, away_corners = pair("corners")
+            home_yellow, away_yellow = pair("yellow_cards")
+            home_red, away_red = pair("red_cards")
+            home_possession, away_possession = pair("BallPossesion")
+            home_fouls, away_fouls = pair("fouls")
+            home_offsides, away_offsides = pair("Offsides")
+
+            content = details.get("content") if isinstance(details.get("content"), dict) else {}
+            match_facts = content.get("matchFacts") if isinstance(content.get("matchFacts"), dict) else {}
+            events_doc = match_facts.get("events") if isinstance(match_facts.get("events"), dict) else {}
+            events = events_doc.get("events") if isinstance(events_doc.get("events"), list) else []
+            yellow_count = [0, 0]
+            first_half_goals = [0, 0]
+            second_half_goals = [0, 0]
+            half = 1
+            for event in events:
+                if not isinstance(event, dict):
+                    continue
+                event_type = str(event.get("type") or "")
+                if event_type == "Half" and int(event.get("time") or 0) <= 45:
+                    half = 2
+                    continue
+                side = 0 if bool(event.get("isHome")) else 1
+                if event_type == "Card" and "yellow" in str(event.get("card") or "").lower():
+                    yellow_count[side] += 1
+                if event_type == "Goal" and not bool(event.get("isPenaltyShootoutEvent")):
+                    if half == 1:
+                        first_half_goals[side] += 1
+                    else:
+                        second_half_goals[side] += 1
+
+            # Event feed can be fresher than the aggregate card row.
+            home_yellow = max(float(yellow_count[0]), float(home_yellow or 0))
+            away_yellow = max(float(yellow_count[1]), float(away_yellow or 0))
+
+            home_xg = away_xg = None
+            shotmap = content.get("shotmap") if isinstance(content.get("shotmap"), dict) else {}
+            shots = shotmap.get("shots") if isinstance(shotmap.get("shots"), list) else []
+            home_team_id = int(ghome.get("id") or 0)
+            away_team_id = int(gaway.get("id") or 0)
+            hxg = axg = 0.0
+            hseen = aseen = False
+            for shot in shots:
+                if not isinstance(shot, dict):
+                    continue
+                xg = _number(shot.get("expectedGoals"))
+                team_id = int(shot.get("teamId") or 0)
+                if xg is None:
+                    continue
+                if team_id == home_team_id:
+                    hxg += xg
+                    hseen = True
+                elif team_id == away_team_id:
+                    axg += xg
+                    aseen = True
+            if hseen:
+                home_xg = round(hxg, 4)
+            if aseen:
+                away_xg = round(axg, 4)
+
+            payload = {
+                "real": {
+                    "home_xg": home_xg,
+                    "away_xg": away_xg,
+                    "home_shots": home_shots,
+                    "away_shots": away_shots,
+                    "home_sot": home_sot,
+                    "away_sot": away_sot,
+                    "home_corners": home_corners,
+                    "away_corners": away_corners,
+                    "home_yellow_cards": home_yellow,
+                    "away_yellow_cards": away_yellow,
+                    "home_red_cards": home_red,
+                    "away_red_cards": away_red,
+                    "home_possession": home_possession,
+                    "away_possession": away_possession,
+                    "home_fouls": home_fouls,
+                    "away_fouls": away_fouls,
+                    "home_offsides": home_offsides,
+                    "away_offsides": away_offsides,
+                    "home_goals_1h": float(first_half_goals[0]),
+                    "away_goals_1h": float(first_half_goals[1]),
+                    "home_goals_2h": float(second_half_goals[0]),
+                    "away_goals_2h": float(second_half_goals[1]),
+                },
+                "source": "fotmob-data",
+                "source_match_id": match_id,
+            }
+            if not final_actuals_core_complete(payload):
+                continue
+            return {
+                "source": "fotmob-data",
+                "state": "finished",
+                "provider_status": "finished",
+                "home_goals": home_score,
+                "away_goals": away_score,
+                "kickoff": row.get("kickoff"),
+                "final_actuals": payload,
+            }
+
+    return None
+
+
 def turso_client() -> Any:
     # The certified Stage6 publisher owns the Turso protocol implementation.
     # Import lazily so unit tests and dry-runs do not require the Stage6 archive.
@@ -1965,6 +2243,30 @@ def run(
                             ),
                         }
                         item["source"] = f"{item.get('source')}+espn-final-actuals"
+                if (
+                    update is not None
+                    and update.get("state") == "finished"
+                    and isinstance(snapshot, dict)
+                    and not final_actuals_core_complete(snapshot.get("final_actuals"))
+                ):
+                    fotmob_enrichment = fotmob_final_actuals_snapshot(
+                        row, competition, provider_logger
+                    )
+                    if (
+                        isinstance(fotmob_enrichment, dict)
+                        and fotmob_enrichment.get("home_goals") == update.get("home_score")
+                        and fotmob_enrichment.get("away_goals") == update.get("away_score")
+                    ):
+                        snapshot = {
+                            **snapshot,
+                            "final_actuals": merge_final_actuals_payload(
+                                snapshot.get("final_actuals")
+                                if isinstance(snapshot.get("final_actuals"), dict)
+                                else {},
+                                fotmob_enrichment.get("final_actuals") or {},
+                            ),
+                        }
+                        item["source"] = f"{item.get('source')}+fotmob-final-actuals"
                 item["snapshot"] = snapshot
                 if not isinstance(snapshot, dict):
                     item["result"] = "SOURCE_UNAVAILABLE"
