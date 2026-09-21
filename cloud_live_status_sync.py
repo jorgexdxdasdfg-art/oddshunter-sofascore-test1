@@ -2201,6 +2201,26 @@ def run(
                                 "no se permite LIVE -> PRE"
                             )
                             update = None
+                    # If both live-status providers are unavailable but Mobile
+                    # already has a verified FT score, a stats provider may safely
+                    # rebuild the final snapshot after matching date, teams and score.
+                    if (
+                        update is None
+                        and str(row.get("status") or "").upper() in FINAL_STATUSES
+                        and row.get("home_goals") is not None
+                        and row.get("away_goals") is not None
+                    ):
+                        fotmob_snapshot = fotmob_final_actuals_snapshot(
+                            row, competition, provider_logger
+                        )
+                        if (
+                            isinstance(fotmob_snapshot, dict)
+                            and fotmob_snapshot.get("home_goals") == int(float(row["home_goals"]))
+                            and fotmob_snapshot.get("away_goals") == int(float(row["away_goals"]))
+                        ):
+                            snapshot = fotmob_snapshot
+                            update = normalized_update(snapshot)
+                            item["source"] = "fotmob-final-recovery"
                 if (
                     update is not None
                     and update.get("state") == "finished"
