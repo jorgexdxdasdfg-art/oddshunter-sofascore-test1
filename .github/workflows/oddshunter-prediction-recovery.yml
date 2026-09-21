@@ -1,0 +1,47 @@
+name: Recover original pre-match prediction snapshots
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  restore:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      VPS_HOST: ${{ secrets.VPS_HOST }}
+      VPS_USER: ${{ secrets.VPS_USER }}
+      VPS_SSH_PRIVATE_KEY: ${{ secrets.VPS_SSH_PRIVATE_KEY }}
+      VPS_PORT_SECRET: ${{ secrets.VPS_PORT }}
+    steps:
+      - uses: actions/checkout@v6
+      - name: Restore validated originals and publish
+        run: |
+          set -euo pipefail
+          PORT="${VPS_PORT_SECRET:-22}"
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "$VPS_SSH_PRIVATE_KEY" > ~/.ssh/recovery
+          chmod 600 ~/.ssh/recovery
+          ssh-keyscan -p "$PORT" -H "$VPS_HOST" > ~/.ssh/known_hosts
+          SCP=(scp -i ~/.ssh/recovery -P "$PORT" -o BatchMode=yes -o StrictHostKeyChecking=yes)
+          SSH=(ssh -i ~/.ssh/recovery -p "$PORT" -o BatchMode=yes -o StrictHostKeyChecking=yes "$VPS_USER@$VPS_HOST")
+          DEST="/tmp/oddshunter-prediction-recovery-${GITHUB_RUN_ID}"
+          "${SSH[@]}" "mkdir -p '$DEST'"
+          "${SCP[@]}" prediction_snapshot_recovery.py fixture_analysis_queue.py deploy/prediction_recovery_20260921.json.gz "$VPS_USER@$VPS_HOST:$DEST/"
+          "${SSH[@]}" bash -s -- "$DEST" "$GITHUB_RUN_ID" <<'REMOTE'
+          set -euo pipefail
+          DEST="$1"
+          RUN_ID="$2"
+          if [ "$(id -u)" -eq 0 ]; then SUDO=(); else SUDO=(sudo -n); fi
+          CURRENT="$(readlink -f /opt/oddshunter/current)"
+          "${SUDO[@]}" -u oddshunter "$CURRENT/.venv-cloud/bin/python" "$DEST/prediction_snapshot_recovery.py" restore /var/lib/oddshunter/data/analisis "$DEST/prediction_recovery_20260921.json.gz"
+          "${SUDO[@]}" systemd-run --quiet --wait --pipe --collect \
+            --unit="oddshunter-recovery-$RUN_ID" \
+            -p User=oddshunter -p Group=oddshunter -p WorkingDirectory="$CURRENT" \
+            -p EnvironmentFile=/etc/oddshunter/oddshunter.env \
+            -p Environment=ODDSHUNTER_RUNTIME_MODE=cloud \
+            -p Environment=ODDSHUNTER_WORK_DB=/var/lib/oddshunter/data/oddshunter.db \
+            -p Environment=ODDSHUNTER_STAGE6_ALLOW_TURSO_WRITE=1 \
+            -p Environment=ODDSHUNTER_FORCE_SCHEDULE_CATALOG=1 \
+            "$CURRENT/.venv-cloud/bin/python" -u "$CURRENT/cloud_live_status_sync.py" --catalog-only
+          REMOTE
