@@ -105,7 +105,7 @@ def select_pending_fixture_analyses(
     grace_minutes: int = 0,
     priority_event_ids: Iterable[int] = (),
 ) -> list[dict[str, Any]]:
-    """Return missing real model bundles, including recently finished fixtures."""
+    """Select pre-kickoff models; final actuals use the separate live-sync queue."""
 
     now = now.astimezone(timezone.utc)
     local_today = now.astimezone(ECUADOR_TZ).date()
@@ -161,6 +161,11 @@ def select_pending_fixture_analyses(
             continue
 
         status = str(record.get("status") or "").upper()
+        # analyze_upcoming_matches freezes predictions at kickoff. Sending
+        # past fixtures here returns MISSED forever and starves future work.
+        # Existing snapshots are published separately by catalog reconciliation.
+        if kickoff <= now or status in terminal_states or status in {"LIVE", "HT", "1H", "2H", "INPROGRESS", "IN_PROGRESS"}:
+            continue
         if status in {"POSTPONED", "CANCELED", "CANCELLED", "ABANDONED", "SUSPENDED", "WO", "WALKOVER"}:
             continue
         is_terminal = status in terminal_states

@@ -137,7 +137,7 @@ def test_patch_repairs_already_patched_call_that_depended_on_by_league() -> None
     compile(patched, "cloud_stage5_cycle.py", "exec")
 
 
-def test_finished_missing_fixture_can_be_recovered(tmp_path: Path) -> None:
+def test_finished_fixture_is_not_repredicted_after_kickoff(tmp_path: Path) -> None:
     finished = row(700, 10, "2026-09-11T12:00:00Z")
     finished["status"] = "FT"
 
@@ -150,11 +150,11 @@ def test_finished_missing_fixture_can_be_recovered(tmp_path: Path) -> None:
         grace_minutes=90,
     )
 
-    assert [item["event_id"] for item in selected] == [700]
+    assert selected == []
 
 
-def test_priority_fixture_bypasses_grace_and_wins_limit(tmp_path: Path) -> None:
-    recent = row(1, 10, "2026-09-11T22:30:00Z")
+def test_priority_cannot_bypass_pre_match_freeze(tmp_path: Path) -> None:
+    recent = row(1, 10, "2026-09-12T00:30:00Z")
     rescued = row(2, 10, "2026-09-11T14:00:00Z")
 
     selected = select_pending_fixture_analyses(
@@ -167,7 +167,7 @@ def test_priority_fixture_bypasses_grace_and_wins_limit(tmp_path: Path) -> None:
         priority_event_ids=[2],
     )
 
-    assert [item["event_id"] for item in selected] == [2]
+    assert [item["event_id"] for item in selected] == [1]
 
 
 def test_stage5_patch_wires_priority_event_ids() -> None:
@@ -187,7 +187,7 @@ def main():
     assert "priority_event_ids=priority_event_ids" in patched
 
 
-def test_today_all_states_then_tomorrow_then_yesterday(tmp_path: Path) -> None:
+def test_future_today_then_tomorrow_without_starvation_from_past(tmp_path: Path) -> None:
     records = [
         {**row(1, 10, "2026-09-20T16:00:00Z"), "status": "NS"},
         {**row(2, 10, "2026-09-20T17:00:00Z"), "status": "FT"},
@@ -202,9 +202,9 @@ def test_today_all_states_then_tomorrow_then_yesterday(tmp_path: Path) -> None:
         now=datetime(2026, 9, 21, 18, tzinfo=timezone.utc),
         limit=8, grace_minutes=4320,
     )
-    assert [item["event_id"] for item in selected] == [3, 4, 5, 6, 1, 2]
+    assert [item["event_id"] for item in selected] == [5, 6]
     selected = select_pending_fixture_analyses(
         records, {10: {"key": "mls"}}, tmp_path,
         now=datetime(2026, 9, 21, 18, tzinfo=timezone.utc), limit=3,
     )
-    assert [item["event_id"] for item in selected] == [3, 4, 5]
+    assert [item["event_id"] for item in selected] == [5, 6]
