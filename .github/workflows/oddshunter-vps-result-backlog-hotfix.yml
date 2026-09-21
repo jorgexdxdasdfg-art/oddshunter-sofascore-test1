@@ -9,7 +9,7 @@ on:
       - stage5_complete_fixture_analysis_patch.py
       - fixture_analysis_queue.py
       - cloud_live_status_sync.py
-      - stage8_odds_patch.py
+      - stage8_daemon_runtime_patch.py
       - .github/workflows/oddshunter-vps-result-backlog-hotfix.yml
 
 permissions:
@@ -33,13 +33,11 @@ jobs:
           unzip -p ODDSHUNTER_CLOUD_LINUX_STAGE4_STAGE5_V4.zip cloud_stage5_cycle.py > /tmp/cloud_stage5_cycle.py
           python stage5_complete_fixture_analysis_patch.py /tmp/cloud_stage5_cycle.py /tmp/cloud_stage5_cycle.complete.py
           python -m py_compile /tmp/global_team_workflow.py /tmp/cloud_stage5_cycle.complete.py fixture_analysis_queue.py
-          rm -rf /tmp/stage8-package
-          mkdir -p /tmp/stage8-package
-          unzip -q ODDSHUNTER_CLOUD_STAGE8_VPS_24X7_V1_3.zip -d /tmp/stage8-package
-          python stage8_odds_patch.py /tmp/stage8-package
-          python -m py_compile /tmp/stage8-package/stage8_daemon.py
-          python /tmp/stage8-package/stage8_daemon.py --self-test
-          grep -F 'OH_STAGE8_IDLE_STAGE5_OK_V1' /tmp/stage8-package/stage8_daemon.py >/dev/null
+          unzip -p ODDSHUNTER_CLOUD_STAGE8_VPS_24X7_V1_3.zip stage8_daemon.py > /tmp/stage8_daemon.py
+          python stage8_daemon_runtime_patch.py /tmp/stage8_daemon.py
+          python -m py_compile /tmp/stage8_daemon.py
+          python /tmp/stage8_daemon.py --self-test
+          grep -F 'OH_STAGE8_IDLE_STAGE5_OK_V1' /tmp/stage8_daemon.py >/dev/null
           grep -F 'finished_schedule_matches(key)' /tmp/global_team_workflow.py >/dev/null
           grep -F 'ODDSHUNTER_RESULT_SYNC_TARGETS_PER_CYCLE' /tmp/cloud_stage5_cycle.complete.py >/dev/null
           grep -F 'select_pending_fixture_analyses' /tmp/cloud_stage5_cycle.complete.py >/dev/null
@@ -88,7 +86,7 @@ jobs:
           "${SCP[@]}" /tmp/cloud_stage5_cycle.complete.py "$VPS_USER@$VPS_HOST:$REMOTE_DIR/cloud_stage5_cycle.py"
           "${SCP[@]}" fixture_analysis_queue.py "$VPS_USER@$VPS_HOST:$REMOTE_DIR/fixture_analysis_queue.py"
           "${SCP[@]}" cloud_live_status_sync.py "$VPS_USER@$VPS_HOST:$REMOTE_DIR/cloud_live_status_sync.py"
-          "${SCP[@]}" stage8_odds_patch.py "$VPS_USER@$VPS_HOST:$REMOTE_DIR/stage8_odds_patch.py"
+          "${SCP[@]}" stage8_daemon_runtime_patch.py "$VPS_USER@$VPS_HOST:$REMOTE_DIR/stage8_daemon_runtime_patch.py"
 
           "${SSH[@]}" bash -s -- "$REMOTE_DIR" <<'REMOTE'
           set -euo pipefail
@@ -112,7 +110,7 @@ jobs:
           "${SUDO[@]}" mv "$CURRENT/fixture_analysis_queue.py.new" "$CURRENT/fixture_analysis_queue.py"
           "${SUDO[@]}" install -m 0644 -o oddshunter -g oddshunter "$REMOTE_DIR/cloud_live_status_sync.py" "$CURRENT/cloud_live_status_sync.py"
           "${SUDO[@]}" "$CURRENT/.venv-cloud/bin/python" -m py_compile "$CURRENT/cloud_live_status_sync.py"
-          "${SUDO[@]}" "$CURRENT/.venv-cloud/bin/python" "$REMOTE_DIR/stage8_odds_patch.py" "$CURRENT"
+          "${SUDO[@]}" "$CURRENT/.venv-cloud/bin/python" "$REMOTE_DIR/stage8_daemon_runtime_patch.py" "$CURRENT/stage8_daemon.py"
           "${SUDO[@]}" "$CURRENT/.venv-cloud/bin/python" -m py_compile "$CURRENT/stage8_daemon.py"
           "${SUDO[@]}" "$CURRENT/.venv-cloud/bin/python" "$CURRENT/stage8_daemon.py" --self-test
           grep -F 'OH_STAGE8_IDLE_STAGE5_OK_V1' "$CURRENT/stage8_daemon.py" >/dev/null
