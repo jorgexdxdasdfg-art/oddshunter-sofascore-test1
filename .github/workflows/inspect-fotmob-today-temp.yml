@@ -51,3 +51,29 @@ jobs:
                       "finished":st.get("finished"),
                   },ensure_ascii=False))
           PY
+
+      - name: Inspect SofaScore LigaPro exact fixture
+        run: |
+          python - <<'PY'
+          import json, subprocess
+          for direction in ("last","next"):
+              for host in ("api.sofascore.com","www.sofascore.com"):
+                  url=f"https://{host}/api/v1/unique-tournament/240/season/89674/events/{direction}/0"
+                  try:
+                      p=subprocess.run(["curl","-fsSL","--max-time","25",
+                          "-H","Accept: application/json",
+                          "-H","Referer: https://www.sofascore.com/",
+                          "-H","User-Agent: Mozilla/5.0",url],
+                          capture_output=True,text=True,timeout=30,check=True)
+                      doc=json.loads(p.stdout)
+                      print("SOFA_OK",host,direction,"count",len(doc.get("events",[])))
+                      for e in doc.get("events",[]):
+                          h=(e.get("homeTeam") or {}).get("name","")
+                          a=(e.get("awayTeam") or {}).get("name","")
+                          if "Manta" in h or "Manta" in a or "Orense" in h or "Orense" in a:
+                              print("SOFA_MATCH",json.dumps(e,ensure_ascii=False)[:15000])
+                      break
+                  except Exception as exc:
+                      print("SOFA_FAIL",host,direction,type(exc).__name__,str(exc)[:250])
+          PY
+# inspect-sofa-ligapro
