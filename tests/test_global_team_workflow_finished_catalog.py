@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import sqlite3
+import sys
 import zipfile
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 
@@ -99,3 +101,64 @@ def test_finished_catalog_is_deduplicated_against_upcoming_catalog(
 
     assert due == [500]
     assert report["selected_total"] == 1
+
+
+def test_cloud_cycle_selects_expired_ns_and_skips_settled_matches(
+    tmp_path: Path,
+) -> None:
+    with zipfile.ZipFile(PACKAGE) as archive:
+        archive.extractall(tmp_path)
+    module_path = tmp_path / "cloud_stage5_cycle.py"
+    sys.path.insert(0, str(tmp_path))
+    try:
+        spec = importlib.util.spec_from_file_location("cloud_stage5_under_test", module_path)
+        assert spec is not None and spec.loader is not None
+        workflow = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(workflow)
+    finally:
+        sys.path.remove(str(tmp_path))
+
+    connection = sqlite3.connect(":memory:")
+    connection.row_factory = sqlite3.Row
+    connection.executescript(
+        """
+        CREATE TABLE teams(team_id INTEGER PRIMARY KEY, name TEXT, sofascore_id INTEGER);
+        CREATE TABLE matches(
+            match_id INTEGER PRIMARY KEY, sofascore_id INTEGER, league_id INTEGER,
+            kickoff TEXT, status TEXT, season TEXT, home_goals INTEGER,
+            away_goals INTEGER, home_team_id INTEGER, away_team_id INTEGER
+        );
+        CREATE TABLE team_match_stats(
+            stat_id INTEGER PRIMARY KEY, match_id INTEGER, data_quality TEXT,
+            xg_for REAL, shots INTEGER, corners_for INTEGER, yellow_cards INTEGER
+        );
+        """
+    )
+    connection.executemany(
+        "INSERT INTO teams VALUES (?, ?, ?)",
+        [(1, "Home", 1), (2, "Away", 2)],
+    )
+    expired = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
+    connection.executemany(
+        "INSERT INTO matches VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        [
+            (10, 100, 1, expired, "NS", "2026", None, None, 1, 2),
+            (20, 200, 1, expired, "FT", "2026", 1, 0, 1, 2),
+        ],
+    )
+    connection.executemany(
+        "INSERT INTO team_match_stats VALUES (?, ?, ?, ?, ?, ?, ?)",
+        [
+            (1, 20, "FULL", 1.0, 10, 5, 2),
+            (2, 20, "FULL", 0.5, 8, 3, 3),
+        ],
+    )
+
+    candidates = workflow.recent_sync_candidates(
+        connection,
+        {1: {"key": "serie-a"}},
+    )
+
+    assert [(row["event_id"], row["database_status"]) for row in candidates] == [
+        (100, "NS")
+    ]
