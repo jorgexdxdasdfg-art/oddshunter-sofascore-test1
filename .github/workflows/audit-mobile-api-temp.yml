@@ -49,6 +49,10 @@ jobs:
               js=r.read().decode("utf-8","replace")
           apis=sorted(set(re.findall(r"/api/[A-Za-z0-9_./?=&{}$:+-]+",js)))
           print("API_LITERALS",apis[:120])
+          for needle in ("analysis_status","pending","FULL","PARTIAL_WITH_FALLBACK"):
+              p=js.find(needle)
+              if p>=0:
+                  print("APP_STATUS_SNIPPET",needle,js[max(0,p-500):p+900])
           pos=js.find("/api/match/")
           if pos>=0:
               print("MATCH_API_SNIPPET",js[max(0,pos-300):pos+500])
