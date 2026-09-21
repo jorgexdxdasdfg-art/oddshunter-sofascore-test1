@@ -1,0 +1,52 @@
+name: Audit Mobile API TEMP
+
+on:
+  push:
+    branches:
+      - codex/fix-autonomous-result-backlog
+    paths:
+      - .github/workflows/audit-mobile-api-temp.yml
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Audit public Mobile API
+        run: |
+          python - <<'PY'
+          import json,re,time,urllib.request
+          from collections import Counter
+          base="https://oddshunter-mobile.vercel.app"
+          def get(path):
+              req=urllib.request.Request(base+path,headers={"User-Agent":"OddsHunter-Audit/1.0","Cache-Control":"no-cache"})
+              with urllib.request.urlopen(req,timeout=45) as r:
+                  raw=r.read()
+                  return json.loads(raw.decode("utf-8"))
+          all_rows={}
+          for off in (-1,0,1):
+              rows=get(f"/api/day?offset={off}&limit=1000&cb={time.time_ns()}")
+              all_rows[off]=rows
+              print(f"DAY offset={off} count={len(rows)}")
+              print("STATUSES",dict(Counter(str(x.get("status")) for x in rows)))
+              fields=sorted({k for row in rows for k in row.keys()})
+              print("FIELDS",fields)
+              pending=[]
+              for x in rows:
+                  text=json.dumps(x,ensure_ascii=False).lower()
+                  if "pending" in text:
+                      pending.append(int(x.get("event_id") or 0))
+              print(f"PENDING_TEXT_COUNT={len(pending)} ids={pending[:25]}")
+              for x in rows[:5]:
+                  print("ROW",json.dumps(x,ensure_ascii=False,separators=(",",":")))
+          print("TOMORROW_ROWS")
+          for x in all_rows[1]:
+              print(json.dumps(x,ensure_ascii=False,separators=(",",":")))
+          req=urllib.request.Request(base+"/assets/js/app.js",headers={"User-Agent":"OddsHunter-Audit/1.0"})
+          with urllib.request.urlopen(req,timeout=45) as r:
+              js=r.read().decode("utf-8","replace")
+          apis=sorted(set(re.findall(r"/api/[A-Za-z0-9_./?=&{}$:+-]+",js)))
+          print("API_LITERALS",apis[:120])
+          PY
