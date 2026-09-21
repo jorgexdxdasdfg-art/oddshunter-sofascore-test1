@@ -1,6 +1,9 @@
 name: Recover original pre-match prediction snapshots
 on:
   workflow_dispatch:
+  push:
+    branches: [codex/fix-autonomous-result-backlog]
+    paths: [.github/workflows/oddshunter-prediction-recovery.yml]
 permissions:
   contents: read
 jobs:
