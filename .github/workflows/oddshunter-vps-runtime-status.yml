@@ -34,9 +34,28 @@ jobs:
           set -euo pipefail
           ssh -i ~/.ssh/oddshunter_status -p "$VPS_PORT" -o BatchMode=yes -o StrictHostKeyChecking=yes "$VPS_USER@$VPS_HOST" 'set -euo pipefail
             if [ "$(id -u)" -eq 0 ]; then SUDO=""; else SUDO="sudo -n"; fi
-            $SUDO systemctl is-active oddshunter.service
+            for unit in \
+              oddshunter.service \
+              oddshunter-live-sync.timer \
+              oddshunter-schedule-refresh.timer; do
+              echo "UNIT=$unit ENABLED=$($SUDO systemctl is-enabled "$unit" 2>/dev/null || true) ACTIVE=$($SUDO systemctl is-active "$unit" 2>/dev/null || true)"
+            done
             $SUDO systemctl --no-pager --full status oddshunter.service | sed -n "1,16p"
-            $SUDO journalctl -u oddshunter.service --since "15 minutes ago" --no-pager -n 160
+            for unit in oddshunter.service oddshunter-live-sync.service oddshunter-schedule-refresh.service; do
+              echo "========== JOURNAL $unit =========="
+              $SUDO journalctl -u "$unit" --since "90 minutes ago" --no-pager -n 220 || true
+            done
             if [ -f /var/lib/oddshunter/data/automation/last_run_selective.json ]; then
               tail -n 80 /var/lib/oddshunter/data/automation/last_run_selective.json
-            fi'
+            fi
+            for report in \
+              /var/lib/oddshunter/data/automation/cloud_live_status/last.json \
+              /opt/oddshunter/current/data/automation/cloud_live_status/last.json \
+              /var/lib/oddshunter/data/automation/cloud_schedule_refresh/last.json \
+              /opt/oddshunter/current/data/automation/cloud_schedule_refresh/last.json \
+              /opt/oddshunter/current/artifacts/cloud_stage5_cycle.json; do
+              if [ -f "$report" ]; then
+                echo "========== REPORT $report =========="
+                tail -n 180 "$report"
+              fi
+            done'
