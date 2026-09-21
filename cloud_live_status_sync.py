@@ -1422,6 +1422,22 @@ def publish_schedule_catalog(
         }
     events = catalog["events"]
     docs = catalog["docs"]
+    # Keep source-specific ids separate; incomplete primary season cursors may
+    # omit newly announced relegation/playoff phases altogether.
+    from provider_fixture_catalog import supplement
+    alternative = supplement(DATA / "provider_fixture_catalog.json", competitions, now, events)
+    seen_ids = {int(e["event_id"]) for e in events}
+    for event in alternative["events"]:
+        if int(event["event_id"]) not in seen_ids:
+            events.append(event)
+            seen_ids.add(int(event["event_id"]))
+            day = parse_dt(event["kickoff"]).astimezone(ECUADOR_TZ).date().isoformat()
+            catalog["counts_by_day"][day] = catalog["counts_by_day"].get(day, 0) + 1
+            catalog["event_ids_by_day"].setdefault(day, []).append(int(event["event_id"]))
+            docs.append({"competition_key":event["competition_key"],"event_id":event["event_id"],
+                         "doc_name":"provider_identity", "source_mtime":iso_utc(now),
+                         "json_text":json.dumps({"provider":"fotmob","provider_event_id":event["provider_event_id"],
+                         "internal_event_id":event["event_id"],"sofascore_event_id":None})})
     # Seed-only fixtures may have acquired a model since the hourly seed was
     # built. Read those folders too; otherwise their new bundles never publish.
     doc_map = {(row["competition_key"], int(row["event_id"]), row["doc_name"]): row for row in docs}
@@ -2138,6 +2154,7 @@ def run(
             parse_dt(row.get("kickoff")) is None
             or parse_dt(row.get("kickoff")).astimezone(ECUADOR_TZ).date().isoformat() not in seed_days
             or int(row["event_id"]) in seed_event_ids
+            or int(row["event_id"]) >= 1_000_000_000_000
         )
     ]
 
@@ -2179,7 +2196,10 @@ def run(
                     item["source"] = "verified-schedule-correction"
                 else:
                     try:
-                        snapshot = sofa.get_match_snapshot(row)
+                        if int(row["event_id"]) >= 1_000_000_000_000:
+                            snapshot = recover_verified_final(row, competition, provider_logger)
+                        else:
+                            snapshot = sofa.get_match_snapshot(row)
                         update = normalized_update(snapshot)
                         item["source"] = "sofascore-event-id"
                     except Exception as exc:

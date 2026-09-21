@@ -9,6 +9,7 @@ on:
       - stage5_complete_fixture_analysis_patch.py
       - fixture_analysis_queue.py
       - cloud_live_status_sync.py
+      - provider_fixture_catalog.py
       - stage8_daemon_runtime_patch.py
       - .github/workflows/oddshunter-vps-result-backlog-hotfix.yml
 
@@ -86,6 +87,7 @@ jobs:
           "${SCP[@]}" /tmp/cloud_stage5_cycle.complete.py "$VPS_USER@$VPS_HOST:$REMOTE_DIR/cloud_stage5_cycle.py"
           "${SCP[@]}" fixture_analysis_queue.py "$VPS_USER@$VPS_HOST:$REMOTE_DIR/fixture_analysis_queue.py"
           "${SCP[@]}" cloud_live_status_sync.py "$VPS_USER@$VPS_HOST:$REMOTE_DIR/cloud_live_status_sync.py"
+          "${SCP[@]}" provider_fixture_catalog.py "$VPS_USER@$VPS_HOST:$REMOTE_DIR/provider_fixture_catalog.py"
           "${SCP[@]}" stage8_daemon_runtime_patch.py "$VPS_USER@$VPS_HOST:$REMOTE_DIR/stage8_daemon_runtime_patch.py"
 
           "${SSH[@]}" bash -s -- "$REMOTE_DIR" <<'REMOTE'
@@ -109,6 +111,7 @@ jobs:
           "${SUDO[@]}" mv "$CURRENT/cloud_stage5_cycle.py.new" "$CURRENT/cloud_stage5_cycle.py"
           "${SUDO[@]}" mv "$CURRENT/fixture_analysis_queue.py.new" "$CURRENT/fixture_analysis_queue.py"
           "${SUDO[@]}" install -m 0644 -o oddshunter -g oddshunter "$REMOTE_DIR/cloud_live_status_sync.py" "$CURRENT/cloud_live_status_sync.py"
+          "${SUDO[@]}" install -m 0644 -o oddshunter -g oddshunter "$REMOTE_DIR/provider_fixture_catalog.py" "$CURRENT/provider_fixture_catalog.py"
           "${SUDO[@]}" "$CURRENT/.venv-cloud/bin/python" -m py_compile "$CURRENT/cloud_live_status_sync.py"
           "${SUDO[@]}" "$CURRENT/.venv-cloud/bin/python" "$REMOTE_DIR/stage8_daemon_runtime_patch.py" "$CURRENT/stage8_daemon.py"
           "${SUDO[@]}" "$CURRENT/.venv-cloud/bin/python" -m py_compile "$CURRENT/stage8_daemon.py"
