@@ -106,6 +106,14 @@ def patch_frontend(root: Path) -> dict[str, list[str]]:
     for path in app_candidates:
         text = path.read_text(encoding="utf-8")
         original = text
+        # Visual only: a post-match data label is not a prediction and must not
+        # be rewritten as FULL. Hide that footer, preserving scores and models.
+        old_footer = '<div class="match-footer"><span class="analysis-badge">'
+        new_footer = '<div class="match-footer"${String(m.analysis_status||m.status_description||"N/D").trim().toUpperCase()==="DATOS REALES" ? \' style="display:none"\' : ""}><span class="analysis-badge">'
+        if old_footer in text:
+            text = text.replace(old_footer, new_footer)
+        elif new_footer not in text:
+            raise RuntimeError("No se encontró el footer de estado para el cambio visual")
         for old in OLD_LABELS:
             text = text.replace(old, NEW_LABEL)
         detail_js = (ASSET_ROOT / "match_summary_v2.js").read_text(encoding="utf-8")
