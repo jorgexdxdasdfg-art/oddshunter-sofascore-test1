@@ -2147,7 +2147,15 @@ def run(
     )
     merged: dict[int, dict[str, Any]] = {}
     for row in [*explicit, *candidates, *remote]:
-        merged.setdefault(int(row["event_id"]), row)
+        eid = int(row["event_id"])
+        previous = merged.get(eid)
+        if previous is not None and row.get("remote_only"):
+            # Mobile's verified reschedule is newer than the original SQLite
+            # season row. Preserve the local DB identity, not its obsolete date.
+            merged[eid] = {**previous, **row, "match_id":previous.get("match_id"),
+                           "remote_only":previous.get("remote_only", False)}
+        else:
+            merged.setdefault(eid, row)
     candidates = list(merged.values())
     seed_days, seed_event_ids = seed_schedule_coverage()
     candidates = [
