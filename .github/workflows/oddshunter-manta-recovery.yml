@@ -1,0 +1,46 @@
+name: Restore only Manta Orense original analysis
+on:
+  push:
+    branches: [codex/fix-autonomous-result-backlog]
+    paths: [.github/workflows/oddshunter-manta-recovery.yml]
+permissions:
+  contents: read
+jobs:
+  restore:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      VPS_HOST: ${{ secrets.VPS_HOST }}
+      VPS_USER: ${{ secrets.VPS_USER }}
+      VPS_SSH_PRIVATE_KEY: ${{ secrets.VPS_SSH_PRIVATE_KEY }}
+      VPS_PORT_SECRET: ${{ secrets.VPS_PORT }}
+    steps:
+      - uses: actions/checkout@v6
+      - name: Recover only the explicit fixture alias
+        run: |
+          set -euo pipefail
+          PORT="${VPS_PORT_SECRET:-22}"
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "$VPS_SSH_PRIVATE_KEY" > ~/.ssh/recovery
+          chmod 600 ~/.ssh/recovery
+          ssh-keyscan -p "$PORT" -H "$VPS_HOST" > ~/.ssh/known_hosts
+          DEST="/tmp/oddshunter-manta-${GITHUB_RUN_ID}"
+          SSH=(ssh -i ~/.ssh/recovery -p "$PORT" -o BatchMode=yes -o StrictHostKeyChecking=yes "$VPS_USER@$VPS_HOST")
+          "${SSH[@]}" "mkdir -p '$DEST'"
+          scp -i ~/.ssh/recovery -P "$PORT" -o BatchMode=yes -o StrictHostKeyChecking=yes recover_manta_analysis.py prediction_snapshot_recovery.py deploy/manta_original_analysis.json.gz "$VPS_USER@$VPS_HOST:$DEST/"
+          "${SSH[@]}" bash -s -- "$DEST" "$GITHUB_RUN_ID" <<'REMOTE'
+          set -euo pipefail
+          DEST="$1"
+          RUN_ID="$2"
+          if [ "$(id -u)" -eq 0 ]; then SUDO=(); else SUDO=(sudo -n); fi
+          CURRENT="$(readlink -f /opt/oddshunter/current)"
+          "${SUDO[@]}" systemd-run --quiet --wait --pipe --collect \
+            --unit="oddshunter-manta-$RUN_ID" \
+            -p User=oddshunter -p Group=oddshunter -p WorkingDirectory="$CURRENT" \
+            -p EnvironmentFile=/etc/oddshunter/oddshunter.env \
+            -p Environment=ODDSHUNTER_RUNTIME_MODE=cloud \
+            -p Environment=ODDSHUNTER_STAGE6_ALLOW_TURSO_WRITE=1 \
+            "$CURRENT/.venv-cloud/bin/python" "$DEST/recover_manta_analysis.py" publish \
+            /var/lib/oddshunter/data/analisis "$DEST/manta_original_analysis.json.gz" --runtime "$CURRENT"
+          REMOTE
