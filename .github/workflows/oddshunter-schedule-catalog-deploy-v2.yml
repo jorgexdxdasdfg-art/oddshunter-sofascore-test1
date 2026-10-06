@@ -106,7 +106,7 @@ jobs:
               seed=json.load(handle)
           expected_counts=seed.get('counts_by_day') or {}
           for offset in (-1,0,1):
-              url=f'https://oddshunter-mobile.vercel.app/api/day?offset={offset}&limit=1000&cb={time.time_ns()}'
+              url=f'https://oddshunter.158-69-216-233.sslip.io/api/day?offset={offset}&limit=1000&cb={time.time_ns()}'
               with urlopen(Request(url,headers={'Cache-Control':'no-cache'}),timeout=45) as response:
                   rows=json.load(response)
               expected=today+timedelta(days=offset)
