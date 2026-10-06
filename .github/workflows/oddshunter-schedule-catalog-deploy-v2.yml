@@ -61,7 +61,8 @@ jobs:
           "${SSH[@]}" "mkdir -p '$REMOTE_DIR'"
           "${SCP[@]}" mobile_sqlite_catalog_import.py deploy/mobile_schedule_catalog_seed.json.gz \
             "$VPS_USER@$VPS_HOST:$REMOTE_DIR/"
-          "${SSH[@]}" "set -euo pipefail
+          set +e
+          REMOTE_OUTPUT=$("${SSH[@]}" "set -euo pipefail
             SUDO=''; if [ \"\$(id -u)\" -ne 0 ]; then SUDO='sudo -n'; fi
             DB=/var/lib/oddshunter-hybrid/runtime/data/oddshunter.db
             test -f \"\$DB\"
@@ -75,7 +76,15 @@ jobs:
               --expected-day \"\$TODAY\" \
               --expected-count 11
             rm -rf '$REMOTE_DIR'
-            echo SCHEDULE_CATALOG_DEPLOY=PASS"
+            echo SCHEDULE_CATALOG_DEPLOY=PASS" 2>&1)
+          REMOTE_STATUS=$?
+          set -e
+          printf '%s\n' "$REMOTE_OUTPUT"
+          if [ "$REMOTE_STATUS" -ne 0 ]; then
+            ERROR_TEXT=$(printf '%s' "$REMOTE_OUTPUT" | tail -c 3500 | tr '\n' ' ')
+            echo "::error file=.github,line=1::REMOTE_DEPLOY_FAILED: $ERROR_TEXT"
+            exit "$REMOTE_STATUS"
+          fi
 
       - name: Verificar Mobile y el corte de tres días
         run: |
