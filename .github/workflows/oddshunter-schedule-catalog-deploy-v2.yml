@@ -106,15 +106,18 @@ jobs:
                   rows=json.load(response)
               expected=today+timedelta(days=offset)
               expected_count=int(expected_counts.get(expected.isoformat()) or 0)
+              expected_ids={int(value) for value in (seed.get('event_ids_by_day') or {}).get(expected.isoformat(),[])}
+              actual_ids={int(row['event_id']) for row in rows}
               wrong=[]
               for row in rows:
                   kickoff=datetime.fromisoformat(str(row['kickoff']).replace('Z','+00:00'))
                   if kickoff.astimezone(tz).date()!=expected:
                       wrong.append(row.get('event_id'))
-              if expected_count <= 0 or len(rows) != expected_count or wrong:
+              missing=sorted(expected_ids-actual_ids)
+              if expected_count <= 0 or len(rows) < expected_count or missing or wrong:
                   raise SystemExit(
-                      f'DAY_VERIFY_FAIL offset={offset} expected={expected_count} '
-                      f'actual={len(rows)} wrong={wrong}'
+                      f'DAY_VERIFY_FAIL offset={offset} expected_min={expected_count} '
+                      f'actual={len(rows)} missing={missing} wrong={wrong}'
                   )
-              print(f'MOBILE_DAY offset={offset} expected={expected_count} actual={len(rows)}')
+              print(f'MOBILE_DAY offset={offset} expected_min={expected_count} actual={len(rows)}')
           PY
