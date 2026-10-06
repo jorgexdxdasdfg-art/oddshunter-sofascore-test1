@@ -1,0 +1,92 @@
+name: OddsHunter Mobile SQLite Catalog Hotfix V1
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      VPS_HOST: ${{ secrets.VPS_HOST }}
+      VPS_USER: ${{ secrets.VPS_USER }}
+      VPS_PORT_SECRET: ${{ secrets.VPS_PORT }}
+      VPS_SSH_PRIVATE_KEY: ${{ secrets.VPS_SSH_PRIVATE_KEY }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Validar catálogo y preparar SSH
+        run: |
+          set -euo pipefail
+          python -m py_compile mobile_sqlite_catalog_import.py
+          python - <<'PY'
+          import gzip,json
+          from datetime import datetime,timedelta,timezone
+          with gzip.open('deploy/mobile_schedule_catalog_seed.json.gz','rt',encoding='utf-8') as f:
+              doc=json.load(f)
+          tz=timezone(timedelta(hours=-5))
+          today=datetime.now(timezone.utc).astimezone(tz).date().isoformat()
+          count=int((doc.get('counts_by_day') or {}).get(today) or 0)
+          if count != 11:
+              raise SystemExit(f'EXPECTED_11_TODAY actual={count} day={today}')
+          print(f'CATALOG_TODAY={today} COUNT={count}')
+          PY
+          test -n "${VPS_HOST:-}" && test -n "${VPS_USER:-}" && test -n "${VPS_SSH_PRIVATE_KEY:-}"
+          VPS_PORT="${VPS_PORT_SECRET:-22}"
+          echo "VPS_PORT=$VPS_PORT" >> "$GITHUB_ENV"
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$VPS_SSH_PRIVATE_KEY" > ~/.ssh/oddshunter
+          chmod 600 ~/.ssh/oddshunter
+          ssh-keyscan -p "$VPS_PORT" -H "$VPS_HOST" > ~/.ssh/known_hosts
+
+      - name: Importar en el SQLite usado por Mobile
+        run: |
+          set -euo pipefail
+          REMOTE_DIR="/tmp/oddshunter-mobile-catalog-${GITHUB_RUN_ID}"
+          SSH=(ssh -i ~/.ssh/oddshunter -p "$VPS_PORT" -o BatchMode=yes -o StrictHostKeyChecking=yes "$VPS_USER@$VPS_HOST")
+          SCP=(scp -i ~/.ssh/oddshunter -P "$VPS_PORT" -o BatchMode=yes -o StrictHostKeyChecking=yes)
+          "${SSH[@]}" "mkdir -p '$REMOTE_DIR'"
+          "${SCP[@]}" mobile_sqlite_catalog_import.py deploy/mobile_schedule_catalog_seed.json.gz \
+            "$VPS_USER@$VPS_HOST:$REMOTE_DIR/"
+          "${SSH[@]}" "set -euo pipefail
+            SUDO=''; if [ \"\$(id -u)\" -ne 0 ]; then SUDO='sudo -n'; fi
+            DB=/var/lib/oddshunter-hybrid/runtime/data/oddshunter.db
+            test -f \"\$DB\"
+            TODAY=\$(TZ=America/Guayaquil date +%F)
+            $SUDO python3 '$REMOTE_DIR/mobile_sqlite_catalog_import.py' \
+              --db \"\$DB\" \
+              --seed '$REMOTE_DIR/mobile_schedule_catalog_seed.json.gz' \
+              --backup-dir /var/lib/oddshunter-hybrid/backups \
+              --expected-day \"\$TODAY\" \
+              --expected-count 11
+            rm -rf '$REMOTE_DIR'"
+
+      - name: Verificar los 11 partidos en la API pública
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import gzip,json,time
+          from datetime import datetime,timedelta,timezone
+          from urllib.request import Request,urlopen
+          tz=timezone(timedelta(hours=-5))
+          today=datetime.now(timezone.utc).astimezone(tz).date().isoformat()
+          with gzip.open('deploy/mobile_schedule_catalog_seed.json.gz','rt',encoding='utf-8') as f:
+              seed=json.load(f)
+          expected=set(int(x) for x in seed['event_ids_by_day'][today])
+          last=[]
+          for attempt in range(12):
+              url=f'https://oddshunter.158-69-216-233.sslip.io/api/day?offset=0&limit=1000&cb={time.time_ns()}'
+              with urlopen(Request(url,headers={'Cache-Control':'no-cache'}),timeout=45) as response:
+                  last=json.load(response)
+              actual={int(row['event_id']) for row in last}
+              if actual == expected and len(last) == 11:
+                  print('MOBILE_TODAY_VERIFY=PASS count=11 ids='+','.join(map(str,sorted(actual))))
+                  break
+              print(f'WAIT attempt={attempt+1} count={len(last)} missing={sorted(expected-actual)}')
+              time.sleep(5)
+          else:
+              raise SystemExit(f'MOBILE_TODAY_VERIFY=FAIL count={len(last)}')
+          PY
