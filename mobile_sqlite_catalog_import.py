@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import gzip
+import hashlib
 import json
 import shutil
 import sqlite3
@@ -77,15 +78,26 @@ def event_upsert_sql() -> str:
     )
 
 
-DOC_UPSERT_SQL = (
-    "INSERT INTO mobile_analysis_docs "
-    "(competition_key,event_id,doc_name,json_text,source_mtime) VALUES (?,?,?,?,?) "
-    "ON CONFLICT(competition_key,event_id,doc_name) DO UPDATE SET "
-    "json_text=excluded.json_text,source_mtime=excluded.source_mtime "
-    "WHERE COALESCE(julianday(excluded.source_mtime),julianday(excluded.source_mtime,'unixepoch'),0) "
-    ">= COALESCE(julianday(mobile_analysis_docs.source_mtime),"
-    "julianday(mobile_analysis_docs.source_mtime,'unixepoch'),0)"
-)
+def doc_upsert(conn: sqlite3.Connection, row: dict) -> None:
+    columns = {str(item[1]) for item in conn.execute("PRAGMA table_info(mobile_analysis_docs)")}
+    names = ["competition_key", "event_id", "doc_name", "json_text", "source_mtime"]
+    values = [row.get(name) for name in names]
+    updates = ["json_text=excluded.json_text", "source_mtime=excluded.source_mtime"]
+    if "content_hash" in columns:
+        names.append("content_hash")
+        values.append(hashlib.sha256(str(row.get("json_text") or "").encode("utf-8")).hexdigest())
+        updates.append("content_hash=excluded.content_hash")
+    placeholders = ",".join("?" for _ in names)
+    sql = (
+        f"INSERT INTO mobile_analysis_docs ({','.join(names)}) VALUES ({placeholders}) "
+        "ON CONFLICT(competition_key,event_id,doc_name) DO UPDATE SET "
+        + ",".join(updates)
+        + " WHERE COALESCE(julianday(excluded.source_mtime),"
+        "julianday(excluded.source_mtime,'unixepoch'),0) "
+        ">= COALESCE(julianday(mobile_analysis_docs.source_mtime),"
+        "julianday(mobile_analysis_docs.source_mtime,'unixepoch'),0)"
+    )
+    conn.execute(sql, tuple(values))
 
 
 def ecuador_day(kickoff: str) -> str:
@@ -126,12 +138,7 @@ def main() -> int:
         for row in seed.get("docs") or []:
             if row.get("doc_name") == "odds_value":
                 continue
-            conn.execute(
-                DOC_UPSERT_SQL,
-                tuple(row.get(column) for column in (
-                    "competition_key", "event_id", "doc_name", "json_text", "source_mtime"
-                )),
-            )
+            doc_upsert(conn, row)
             docs_written += 1
         if table_exists(conn, "mobile_sync_meta"):
             now = datetime.now(timezone.utc).isoformat()
