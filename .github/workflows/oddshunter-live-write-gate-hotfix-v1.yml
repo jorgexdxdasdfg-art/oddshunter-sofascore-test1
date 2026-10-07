@@ -1,0 +1,77 @@
+name: OddsHunter OVH Live Write Gate Hotfix V1
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/oddshunter-live-write-gate-hotfix-v1.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Preparar SSH
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_SSH_PRIVATE_KEY: ${{ secrets.VPS_SSH_PRIVATE_KEY }}
+          VPS_PORT_SECRET: ${{ secrets.VPS_PORT }}
+        run: |
+          set -eEuo pipefail
+          PORT="${VPS_PORT_SECRET:-22}"
+          echo "VPS_PORT=$PORT" >> "$GITHUB_ENV"
+          install -d -m 0700 ~/.ssh
+          printf '%s\n' "$VPS_SSH_PRIVATE_KEY" > ~/.ssh/oddshunter_live
+          chmod 0600 ~/.ssh/oddshunter_live
+          ssh-keyscan -p "$PORT" -H "$VPS_HOST" > ~/.ssh/known_hosts
+
+      - name: Reparar sincronizador live en OVH
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+        run: |
+          set -eEuo pipefail
+          ssh -i ~/.ssh/oddshunter_live -p "$VPS_PORT" \
+            -o BatchMode=yes -o StrictHostKeyChecking=yes \
+            "$VPS_USER@$VPS_HOST" 'bash -s' <<'REMOTE'
+          set -eEuo pipefail
+          if [ "$(id -u)" -eq 0 ]; then SUDO=""; else SUDO="sudo -n"; fi
+          DB=/var/lib/oddshunter-hybrid/runtime/data/oddshunter.db
+          STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
+          $SUDO test -f "$DB"
+          $SUDO install -d -m 0755 /etc/systemd/system/oddshunter-live-sync.service.d
+          $SUDO tee /etc/systemd/system/oddshunter-live-sync.service.d/20-write-gate.conf >/dev/null <<'UNIT'
+          [Service]
+          Environment=ODDSHUNTER_STAGE6_ALLOW_TURSO_WRITE=1
+          Environment=ODDSHUNTER_WORK_DB=/var/lib/oddshunter-hybrid/runtime/data/oddshunter.db
+          Environment=ODDSHUNTER_MOBILE_SQLITE=1
+          Environment=ODDSHUNTER_MOBILE_DB=/var/lib/oddshunter-hybrid/runtime/data/oddshunter.db
+          UNIT
+          echo "DROPIN_BACKUP_MARKER=$STAMP"
+          $SUDO systemctl daemon-reload
+          $SUDO systemctl reset-failed oddshunter-live-sync.service || true
+          $SUDO systemctl enable --now oddshunter-live-sync.timer
+          if ! $SUDO systemctl start oddshunter-live-sync.service; then
+            $SUDO journalctl -u oddshunter-live-sync.service -n 160 --no-pager
+            exit 31
+          fi
+          test "$($SUDO systemctl show oddshunter-live-sync.service -p Result --value)" = "success"
+          test "$($SUDO systemctl is-active oddshunter-live-sync.timer)" = "active"
+          echo "LIVE_SERVICE_RESULT=success"
+          echo "LIVE_TIMER=active"
+          $SUDO systemctl show oddshunter-live-sync.service -p Environment --no-pager
+          $SUDO python3 - <<'PY'
+          import json, sqlite3
+          path="/var/lib/oddshunter-hybrid/runtime/data/oddshunter.db"
+          con=sqlite3.connect(f"file:{path}?mode=ro",uri=True)
+          con.row_factory=sqlite3.Row
+          row=con.execute("select competition_key,event_id,kickoff,status,status_description,home_team,away_team,home_score,away_score from mobile_events where event_id=?",(15502891,)).fetchone()
+          print("TARGET_AFTER",json.dumps(dict(row) if row else None,ensure_ascii=False,default=str))
+          print("INTEGRITY",con.execute("pragma integrity_check").fetchone()[0])
+          con.close()
+          PY
+          $SUDO journalctl -u oddshunter-live-sync.service -n 100 --no-pager
+          REMOTE
