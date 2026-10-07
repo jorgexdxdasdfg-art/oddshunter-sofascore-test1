@@ -339,6 +339,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Restaurar partido eliminado y reconciliarlo
+        continue-on-error: true
         env:
           VPS_HOST: ${{ secrets.VPS_HOST }}
           VPS_USER: ${{ secrets.VPS_USER }}
@@ -395,6 +396,55 @@ jobs:
           printf '%s\n' "$OUT"
           {
             echo '## Restored final match in OVH'
+            echo '```json'
+            printf '%s\n' "$OUT"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Localizar partido faltante en OVH
+        if: always()
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+        run: |
+          set -eEuo pipefail
+          OUT="$(ssh -i ~/.ssh/oddshunter_live -p "$VPS_PORT" -o BatchMode=yes -o StrictHostKeyChecking=yes "$VPS_USER@$VPS_HOST" 'bash -s' <<'REMOTE'
+          set -eEuo pipefail
+          if [ "$(id -u)" -eq 0 ]; then SUDO=""; else SUDO="sudo -n"; fi
+          $SUDO python3 - <<'PY'
+          import glob,gzip,json,os,sqlite3
+          db="/var/lib/oddshunter-hybrid/runtime/data/oddshunter.db"
+          paths=sorted(set([db]+glob.glob(db+"*")+glob.glob("/var/lib/oddshunter-hybrid/runtime/data/*.db*")))
+          found=[]
+          for path in paths:
+              try:
+                  c=sqlite3.connect("file:"+path+"?mode=ro",uri=True);c.row_factory=sqlite3.Row
+                  tables={r[0] for r in c.execute("select name from sqlite_master where type='table'")}
+                  if "mobile_events" in tables:
+                      rows=c.execute("select competition_key,event_id,kickoff,status,home_team,away_team,home_score,away_score,headline_json from mobile_events where lower(home_team) like '%toronto%' or lower(away_team) like '%toronto%' or lower(home_team) like '%supra%' or lower(away_team) like '%supra%'").fetchall()
+                      for r in rows:found.append({"path":path,"table":"mobile_events","row":dict(r)})
+                  if "matches" in tables:
+                      cols={r[1] for r in c.execute("pragma table_info(matches)")}
+                      h=next((x for x in ("home_team","home_name","home") if x in cols),None);a=next((x for x in ("away_team","away_name","away") if x in cols),None)
+                      if h and a:
+                          for r in c.execute(f"select * from matches where lower({h}) like '%toronto%' or lower({a}) like '%toronto%' or lower({h}) like '%supra%' or lower({a}) like '%supra%'").fetchall():found.append({"path":path,"table":"matches","row":dict(r)})
+                  c.close()
+              except Exception as exc:pass
+          seeds=[]
+          for path in glob.glob("/opt/oddshunter/current/**/mobile_schedule_catalog_seed.json.gz",recursive=True):
+              try:
+                  with gzip.open(path,"rt",encoding="utf-8") as f:data=json.load(f)
+                  for row in data.get("events") or []:
+                      names=(str(row.get("home_team") or "")+" "+str(row.get("away_team") or "")).lower()
+                      if "toronto" in names or "supra" in names:seeds.append({"path":path,"row":row})
+              except Exception:pass
+          print(json.dumps({"database_hits":found,"seed_hits":seeds},ensure_ascii=False,default=str))
+          PY
+          REMOTE
+          )"
+          printf '%s\n' "$OUT"
+          {
+            echo '## Missing event locator'
             echo '```json'
             printf '%s\n' "$OUT"
             echo '```'
