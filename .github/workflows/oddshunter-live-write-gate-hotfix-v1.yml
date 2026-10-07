@@ -262,7 +262,7 @@ jobs:
                       hs=similarity(row["home_team"],home.get("name"));aws=similarity(row["away_team"],away.get("name"))
                       if hs<0.58 or aws<0.58:continue
                       mts=match.get("timeTS") or match.get("timeTs")
-                      mt=dt.datetime.fromtimestamp(float(mts),dt.timezone.utc) if mts else None
+                      mt=dt.datetime.fromtimestamp(float(mts)/(1000 if float(mts)>100000000000 else 1),dt.timezone.utc) if mts else None
                       delta=abs((kickoff-mt).total_seconds()) if kickoff and mt else 0
                       if delta>21600:continue
                       rank=hs+aws-(delta/21600)*0.15
