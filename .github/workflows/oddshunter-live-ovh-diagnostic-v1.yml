@@ -1,0 +1,115 @@
+name: OddsHunter OVH Live Diagnostic V1
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/oddshunter-live-ovh-diagnostic-v1.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Preparar SSH
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_SSH_PRIVATE_KEY: ${{ secrets.VPS_SSH_PRIVATE_KEY }}
+          VPS_PORT_SECRET: ${{ secrets.VPS_PORT }}
+        run: |
+          set -eEuo pipefail
+          PORT="${VPS_PORT_SECRET:-22}"
+          echo "VPS_PORT=$PORT" >> "$GITHUB_ENV"
+          install -d -m 0700 ~/.ssh
+          printf '%s\n' "$VPS_SSH_PRIVATE_KEY" > ~/.ssh/oddshunter_live
+          chmod 0600 ~/.ssh/oddshunter_live
+          ssh-keyscan -p "$PORT" -H "$VPS_HOST" > ~/.ssh/known_hosts
+
+      - name: Inspeccionar sincronizador live en OVH
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+        run: |
+          set -eEuo pipefail
+          ssh -i ~/.ssh/oddshunter_live -p "$VPS_PORT" \
+            -o BatchMode=yes -o StrictHostKeyChecking=yes \
+            "$VPS_USER@$VPS_HOST" 'bash -s' <<'REMOTE'
+          set -eEuo pipefail
+          if [ "$(id -u)" -eq 0 ]; then SUDO=""; else SUDO="sudo -n"; fi
+          echo "UTC_NOW=$(date -u +%FT%TZ)"
+          echo "=== SYSTEMD ==="
+          for unit in oddshunter-live-sync.timer oddshunter-live-sync.service oddshunter-hybrid.service; do
+            echo "UNIT=$unit ACTIVE=$($SUDO systemctl is-active "$unit" 2>/dev/null || true) ENABLED=$($SUDO systemctl is-enabled "$unit" 2>/dev/null || true)"
+          done
+          $SUDO systemctl show oddshunter-live-sync.service \
+            -p ExecStart -p Environment -p EnvironmentFiles -p User --no-pager || true
+          echo "=== DATABASES ==="
+          $SUDO python3 - <<'PY'
+          import json, os, sqlite3
+          paths=[
+              "/var/lib/oddshunter/data/oddshunter.db",
+              "/var/lib/oddshunter-hybrid/runtime/data/oddshunter.db",
+          ]
+          for path in paths:
+              print("DB",path,"EXISTS",os.path.exists(path),"SIZE",os.path.getsize(path) if os.path.exists(path) else -1)
+              if not os.path.exists(path):
+                  continue
+              con=sqlite3.connect(f"file:{path}?mode=ro",uri=True)
+              con.row_factory=sqlite3.Row
+              tables={r[0] for r in con.execute("select name from sqlite_master where type='table'")}
+              print("TABLES",sorted(t for t in tables if 'mobile' in t or 'event' in t))
+              if "mobile_events" in tables:
+                  cols=[r[1] for r in con.execute("pragma table_info(mobile_events)")]
+                  print("MOBILE_EVENT_COLS",cols)
+                  wanted=[c for c in ["competition_key","event_id","competition_name","kickoff","status","status_description","home_name","away_name","home_score","away_score","updated_at"] if c in cols]
+                  where=[]
+                  args=[]
+                  for col in ("home_name","away_name"):
+                      if col in cols:
+                          where.append(f"lower(coalesce({col},'')) like ?")
+                          args.append("%toronto%")
+                          where.append(f"lower(coalesce({col},'')) like ?")
+                          args.append("%supra%")
+                  if where:
+                      sql=f"select {','.join(wanted)} from mobile_events where {' or '.join(where)} order by kickoff desc limit 20"
+                      for row in con.execute(sql,args):
+                          print("TARGET_ROW",json.dumps(dict(row),ensure_ascii=False,default=str))
+                  if "kickoff" in cols:
+                      sql=f"select {','.join(wanted)} from mobile_events where date(kickoff) in ('2026-10-07','2026-10-08') order by kickoff limit 100"
+                      for row in con.execute(sql):
+                          print("TODAY_ROW",json.dumps(dict(row),ensure_ascii=False,default=str))
+              con.close()
+          PY
+          echo "=== FOTMOB FROM OVH ==="
+          $SUDO python3 - <<'PY'
+          import json, urllib.request
+          url="https://www.fotmob.com/api/data/matches?date=20261007"
+          req=urllib.request.Request(url,headers={"User-Agent":"Mozilla/5.0","Accept":"application/json,text/plain,*/*","Referer":"https://www.fotmob.com/"})
+          try:
+              with urllib.request.urlopen(req,timeout=25) as response:
+                  doc=json.load(response)
+              found=[]
+              for league in doc.get("leagues",[]):
+                  for match in league.get("matches",[]):
+                      home=(match.get("home") or {}).get("name") or ""
+                      away=(match.get("away") or {}).get("name") or ""
+                      if any(x in (home+" "+away).lower() for x in ("inter toronto","supra du quebec","supra du québec")):
+                          found.append({"league":league.get("name"),"id":match.get("id"),"home":match.get("home"),"away":match.get("away"),"status":match.get("status")})
+              print("FOTMOB_TARGET",json.dumps(found,ensure_ascii=False,default=str))
+          except Exception as exc:
+              print("FOTMOB_ERROR",type(exc).__name__,str(exc))
+          PY
+          echo "=== RECENT JOURNAL ==="
+          $SUDO journalctl -u oddshunter-live-sync.service --since '3 hours ago' --no-pager -n 300 || true
+          echo "=== REPORTS ==="
+          for report in \
+            /var/lib/oddshunter/data/automation/cloud_live_status/last.json \
+            /var/lib/oddshunter-hybrid/runtime/data/automation/cloud_live_status/last.json; do
+            echo "REPORT=$report"
+            $SUDO test -f "$report" && $SUDO tail -c 12000 "$report" || true
+            echo
+          done
+          REMOTE
