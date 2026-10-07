@@ -337,3 +337,65 @@ jobs:
             printf '%s\n' "$OUT"
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Restaurar partido eliminado y reconciliarlo
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+        run: |
+          set -eEuo pipefail
+          OUT="$(ssh -i ~/.ssh/oddshunter_live -p "$VPS_PORT" -o BatchMode=yes -o StrictHostKeyChecking=yes "$VPS_USER@$VPS_HOST" 'bash -s' 2>&1 <<'REMOTE'
+          set -eEuo pipefail
+          if [ "$(id -u)" -eq 0 ]; then SUDO=""; else SUDO="sudo -n"; fi
+          DB=/var/lib/oddshunter-hybrid/runtime/data/oddshunter.db
+          $SUDO python3 - "$DB" <<'PY'
+          import datetime as dt, glob, json, shutil, sqlite3, sys
+          db=sys.argv[1]; event_id=15502891
+          paths=sorted(set(glob.glob(db+".before-*")+glob.glob(db+".PRE_*")+glob.glob("/var/lib/oddshunter-hybrid/runtime/data/*oddshunter*.db*")),reverse=True)
+          source=None; saved=None
+          for path in paths:
+              if path==db:continue
+              try:
+                  c=sqlite3.connect("file:"+path+"?mode=ro",uri=True);c.row_factory=sqlite3.Row
+                  saved=c.execute("select * from mobile_events where event_id=?",(event_id,)).fetchone()
+                  if saved is not None:source=path;c.close();break
+                  c.close()
+              except Exception:pass
+          if saved is None:raise RuntimeError("EVENT_NOT_FOUND_IN_BACKUPS")
+          stamp=dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+          cur=sqlite3.connect(db,timeout=60);cur.row_factory=sqlite3.Row;cur.execute("pragma busy_timeout=60000")
+          with sqlite3.connect(db+".before-restore-current-"+stamp) as out:cur.backup(out)
+          src=sqlite3.connect("file:"+source+"?mode=ro",uri=True);src.row_factory=sqlite3.Row
+          cur.execute("begin immediate")
+          cols=[r[1] for r in cur.execute("pragma table_info(mobile_events)")]
+          vals=[saved[c] for c in cols]
+          cur.execute("insert or replace into mobile_events("+','.join(cols)+") values("+','.join('?' for _ in cols)+")",vals)
+          copied_docs=0
+          try:
+              dcols=[r[1] for r in cur.execute("pragma table_info(mobile_analysis_docs)")]
+              for row in src.execute("select * from mobile_analysis_docs where event_id=?",(event_id,)).fetchall():
+                  cur.execute("insert or replace into mobile_analysis_docs("+','.join(dcols)+") values("+','.join('?' for _ in dcols)+")",[row[c] for c in dcols]);copied_docs+=1
+          except Exception:pass
+          cur.commit();integrity=cur.execute("pragma integrity_check").fetchone()[0]
+          print(json.dumps({"restore":"PASS","source":source,"event_id":event_id,"copied_docs":copied_docs,"integrity":integrity},ensure_ascii=False))
+          src.close();cur.close()
+          PY
+          $SUDO /usr/bin/python3 /opt/oddshunter/current/ovh_fotmob_reconcile.py --db "$DB"
+          $SUDO systemctl enable --now oddshunter-fotmob-reconcile.timer >/dev/null
+          $SUDO python3 - "$DB" <<'PY'
+          import json,sqlite3,sys
+          c=sqlite3.connect("file:"+sys.argv[1]+"?mode=ro",uri=True);c.row_factory=sqlite3.Row
+          r=c.execute("select competition_key,event_id,status,status_description,home_team,away_team,home_score,away_score,headline_json from mobile_events where event_id=15502891").fetchone()
+          d=c.execute("select json_text from mobile_analysis_docs where event_id=15502891 and doc_name='expected_real_actuals'").fetchone()
+          payload=json.loads(d[0]) if d else None
+          print(json.dumps({"target":dict(r) if r else None,"final_stats":payload,"integrity":c.execute('pragma integrity_check').fetchone()[0]},ensure_ascii=False))
+          PY
+          REMOTE
+          )"
+          printf '%s\n' "$OUT"
+          {
+            echo '## Restored final match in OVH'
+            echo '```json'
+            printf '%s\n' "$OUT"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
