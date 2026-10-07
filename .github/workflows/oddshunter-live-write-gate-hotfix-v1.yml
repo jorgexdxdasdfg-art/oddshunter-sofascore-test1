@@ -51,6 +51,74 @@ jobs:
           Environment=ODDSHUNTER_MOBILE_DB=/var/lib/oddshunter-hybrid/runtime/data/oddshunter.db
           UNIT
           echo "DROPIN_BACKUP_MARKER=$STAMP"
+          LIVE_CODE=/opt/oddshunter/current/cloud_live_status_sync.py
+          $SUDO test -f "$LIVE_CODE"
+          $SUDO cp -a "$LIVE_CODE" "$LIVE_CODE.PRE_OVH_ONLY_$STAMP"
+          $SUDO python3 - "$LIVE_CODE" <<'PY'
+          from pathlib import Path
+          import sys
+
+          path = Path(sys.argv[1])
+          text = path.read_text(encoding="utf-8")
+          text = text.replace('        "ODDSHUNTER_STAGE6_ALLOW_TURSO_WRITE": "1",\n', '')
+          start = text.index("def turso_client() -> Any:")
+          end = text.index("\ndef _schedule_pct", start)
+          replacement = '''class LocalSQLiteClient:
+              """Client compatible con el publicador que usa solo SQLite en OVH."""
+
+              def __init__(self, path: Path) -> None:
+                  self.path = Path(path)
+
+              def _connect(self) -> sqlite3.Connection:
+                  con = sqlite3.connect(self.path, timeout=45)
+                  con.execute("PRAGMA busy_timeout=45000")
+                  con.row_factory = sqlite3.Row
+                  return con
+
+              def query(self, sql: str, params: Iterable[Any]) -> list[dict[str, Any]]:
+                  with self._connect() as con:
+                      return [dict(row) for row in con.execute(sql, list(params)).fetchall()]
+
+              def execute(self, sql: str, params: Iterable[Any]) -> int:
+                  with self._connect() as con:
+                      cursor = con.execute(sql, list(params))
+                      con.commit()
+                      return max(0, int(cursor.rowcount))
+
+              def execute_many(self, statements: Iterable[tuple[str, Iterable[Any]]], *, chunk: int = 12) -> int:
+                  del chunk
+                  count = 0
+                  with self._connect() as con:
+                      con.execute("BEGIN IMMEDIATE")
+                      try:
+                          for sql, params in statements:
+                              con.execute(sql, list(params))
+                              count += 1
+                          con.commit()
+                      except Exception:
+                          con.rollback()
+                          raise
+                  return count
+
+
+          def turso_client() -> Any:
+              """Compatibilidad interna: devuelve SQLite local, nunca Turso."""
+              return LocalSQLiteClient(DB)
+          '''
+          text = text[:start] + replacement + text[end:]
+          for old, new in (
+              ("Turso no publicó eventos del catálogo", "SQLite Mobile no publicó eventos del catálogo"),
+              ("Turso no contiene mobile_event", "SQLite Mobile no contiene mobile_event"),
+              ("Estado Turso", "Estado SQLite Mobile"),
+              ("Marcador local Turso", "Marcador local SQLite Mobile"),
+              ("Marcador visitante Turso", "Marcador visitante SQLite Mobile"),
+              ("Kickoff Turso", "Kickoff SQLite Mobile"),
+          ):
+              text = text.replace(old, new)
+          compile(text, str(path), "exec")
+          path.write_text(text, encoding="utf-8")
+          print("OVH_ONLY_SQLITE_PATCH=PASS")
+          PY
           $SUDO systemctl daemon-reload
           $SUDO systemctl reset-failed oddshunter-live-sync.service || true
           $SUDO systemctl enable --now oddshunter-live-sync.timer
