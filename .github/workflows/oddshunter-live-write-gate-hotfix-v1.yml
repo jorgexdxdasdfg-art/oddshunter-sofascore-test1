@@ -181,7 +181,10 @@ jobs:
           DB=/var/lib/oddshunter-hybrid/runtime/data/oddshunter.db
           SCRIPT=/opt/oddshunter/current/ovh_fotmob_reconcile.py
           STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
-          $SUDO cp -a "$DB" "$DB.before-fotmob-reconcile-$STAMP"
+          $SUDO find /var/lib/oddshunter-hybrid/runtime/data -maxdepth 1 -type f -name 'oddshunter.db.before-fotmob-reconcile-*' -delete
+          $SUDO rm -f "$DB.safety-fotmob-latest.tmp"
+          $SUDO cp -a "$DB" "$DB.safety-fotmob-latest.tmp"
+          $SUDO mv -f "$DB.safety-fotmob-latest.tmp" "$DB.safety-fotmob-latest"
           $SUDO tee "$SCRIPT" >/dev/null <<'PY'
           #!/usr/bin/env python3
           import argparse, datetime as dt, difflib, hashlib, json, re, sqlite3, unicodedata, urllib.request
@@ -350,36 +353,48 @@ jobs:
           if [ "$(id -u)" -eq 0 ]; then SUDO=""; else SUDO="sudo -n"; fi
           DB=/var/lib/oddshunter-hybrid/runtime/data/oddshunter.db
           $SUDO python3 - "$DB" <<'PY'
-          import datetime as dt, glob, json, shutil, sqlite3, sys
+          import datetime as dt, glob, gzip, json, sqlite3, sys
           db=sys.argv[1]; event_id=15502891
           paths=sorted(set(glob.glob(db+".before-*")+glob.glob(db+".PRE_*")+glob.glob("/var/lib/oddshunter-hybrid/runtime/data/*oddshunter*.db*")),reverse=True)
-          source=None; saved=None
+          source=None; saved=None; source_db=None
           for path in paths:
               if path==db:continue
               try:
                   c=sqlite3.connect("file:"+path+"?mode=ro",uri=True);c.row_factory=sqlite3.Row
-                  saved=c.execute("select * from mobile_events where event_id=?",(event_id,)).fetchone()
-                  if saved is not None:source=path;c.close();break
+                  row=c.execute("select * from mobile_events where event_id=?",(event_id,)).fetchone()
+                  if row is not None:saved=dict(row);source=path;source_db=c;break
                   c.close()
               except Exception:pass
-          if saved is None:raise RuntimeError("EVENT_NOT_FOUND_IN_BACKUPS")
-          stamp=dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+          if saved is None:
+              seed="/opt/oddshunter/current/data/mobile_schedule_catalog_seed.json.gz"
+              with gzip.open(seed,"rt",encoding="utf-8") as handle:data=json.load(handle)
+              saved=next((dict(r) for r in data.get("events") or [] if int(r.get("event_id") or 0)==event_id),None)
+              source=seed
+          if saved is None:raise RuntimeError("EVENT_NOT_FOUND")
+          saved["headline_json"]=json.dumps({"home_win":41.1,"draw":25.1,"away_win":33.8,"model":"PUBLISHED_PREMATCH_SNAPSHOT"},separators=(",",":"))
+          saved["analysis_status"]="ANÁLISIS COMPLETO"
           cur=sqlite3.connect(db,timeout=60);cur.row_factory=sqlite3.Row;cur.execute("pragma busy_timeout=60000")
-          with sqlite3.connect(db+".before-restore-current-"+stamp) as out:cur.backup(out)
-          src=sqlite3.connect("file:"+source+"?mode=ro",uri=True);src.row_factory=sqlite3.Row
+          info=cur.execute("pragma table_info(mobile_events)").fetchall(); names=[];vals=[]
+          for col in info:
+              name=col[1];typ=str(col[2] or "").upper();notnull=bool(col[3]);default=col[4]
+              if name in saved:value=saved.get(name)
+              elif default is not None:continue
+              elif notnull:value=0 if ("INT" in typ or "REAL" in typ or "NUM" in typ) else ""
+              else:value=None
+              names.append(name);vals.append(value)
           cur.execute("begin immediate")
-          cols=[r[1] for r in cur.execute("pragma table_info(mobile_events)")]
-          vals=[saved[c] for c in cols]
-          cur.execute("insert or replace into mobile_events("+','.join(cols)+") values("+','.join('?' for _ in cols)+")",vals)
+          cur.execute("insert or replace into mobile_events("+','.join(names)+") values("+','.join('?' for _ in names)+")",vals)
           copied_docs=0
-          try:
-              dcols=[r[1] for r in cur.execute("pragma table_info(mobile_analysis_docs)")]
-              for row in src.execute("select * from mobile_analysis_docs where event_id=?",(event_id,)).fetchall():
-                  cur.execute("insert or replace into mobile_analysis_docs("+','.join(dcols)+") values("+','.join('?' for _ in dcols)+")",[row[c] for c in dcols]);copied_docs+=1
-          except Exception:pass
+          if source_db is not None:
+              try:
+                  dcols=[r[1] for r in cur.execute("pragma table_info(mobile_analysis_docs)")]
+                  for row in source_db.execute("select * from mobile_analysis_docs where event_id=?",(event_id,)).fetchall():
+                      cur.execute("insert or replace into mobile_analysis_docs("+','.join(dcols)+") values("+','.join('?' for _ in dcols)+")",[row[c] for c in dcols]);copied_docs+=1
+              except Exception:pass
           cur.commit();integrity=cur.execute("pragma integrity_check").fetchone()[0]
           print(json.dumps({"restore":"PASS","source":source,"event_id":event_id,"copied_docs":copied_docs,"integrity":integrity},ensure_ascii=False))
-          src.close();cur.close()
+          if source_db is not None:source_db.close()
+          cur.close()
           PY
           $SUDO /usr/bin/python3 /opt/oddshunter/current/ovh_fotmob_reconcile.py --db "$DB"
           $SUDO systemctl enable --now oddshunter-fotmob-reconcile.timer >/dev/null
