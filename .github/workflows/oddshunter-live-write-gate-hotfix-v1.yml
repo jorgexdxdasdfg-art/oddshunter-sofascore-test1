@@ -167,3 +167,168 @@ jobs:
           PY
           $SUDO journalctl -u oddshunter-live-sync.service -n 100 --no-pager
           REMOTE
+
+      - name: Instalar reconciliador FotMob en OVH
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+        run: |
+          set -eEuo pipefail
+          OUT="$(ssh -i ~/.ssh/oddshunter_live -p "$VPS_PORT" -o BatchMode=yes -o StrictHostKeyChecking=yes "$VPS_USER@$VPS_HOST" 'bash -s' <<'REMOTE'
+          set -eEuo pipefail
+          if [ "$(id -u)" -eq 0 ]; then SUDO=""; else SUDO="sudo -n"; fi
+          DB=/var/lib/oddshunter-hybrid/runtime/data/oddshunter.db
+          SCRIPT=/opt/oddshunter/current/ovh_fotmob_reconcile.py
+          STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
+          $SUDO cp -a "$DB" "$DB.before-fotmob-reconcile-$STAMP"
+          $SUDO tee "$SCRIPT" >/dev/null <<'PY'
+          #!/usr/bin/env python3
+          import argparse, datetime as dt, difflib, hashlib, json, re, sqlite3, unicodedata, urllib.request
+          from pathlib import Path
+
+          UA={"User-Agent":"Mozilla/5.0 OddsHunter-OVH/1.0","Accept":"application/json"}
+          def fetch(url):
+              req=urllib.request.Request(url,headers=UA)
+              with urllib.request.urlopen(req,timeout=20) as res:
+                  return json.loads(res.read().decode("utf-8"))
+          def norm(value):
+              value=unicodedata.normalize("NFKD",str(value or "")).encode("ascii","ignore").decode().lower()
+              value=re.sub(r"\b(fc|cf|sc|afc|club|football|soccer)\b"," ",value)
+              return " ".join(re.findall(r"[a-z0-9]+",value))
+          def similarity(a,b):
+              a,b=norm(a),norm(b)
+              if not a or not b:return 0.0
+              if a==b:return 1.0
+              sa,sb=set(a.split()),set(b.split())
+              token=len(sa&sb)/max(1,len(sa|sb))
+              return max(token,difflib.SequenceMatcher(None,a,b).ratio())
+          def parse_time(value):
+              if not value:return None
+              try:return dt.datetime.fromisoformat(str(value).replace("Z","+00:00"))
+              except Exception:return None
+          def number(value):
+              if isinstance(value,dict):value=value.get("value")
+              if value is None:return None
+              m=re.search(r"-?\d+(?:\.\d+)?",str(value).replace(",","."))
+              if not m:return None
+              v=float(m.group())
+              return int(v) if v.is_integer() else v
+          def stat_pairs(node,out):
+              if isinstance(node,dict):
+                  title=str(node.get("title") or node.get("name") or "").strip().lower()
+                  vals=node.get("stats")
+                  if title and isinstance(vals,list) and len(vals)>=2 and not isinstance(vals[0],dict):
+                      out[title]=(number(vals[0]),number(vals[1]))
+                  for value in node.values():stat_pairs(value,out)
+              elif isinstance(node,list):
+                  for value in node:stat_pairs(value,out)
+          def choose(stats,*names):
+              for key,pair in stats.items():
+                  if any(name in key for name in names):return pair
+              return (None,None)
+          def score(obj):
+              value=obj.get("score") if isinstance(obj,dict) else None
+              if isinstance(value,dict):value=value.get("current") or value.get("total")
+              return number(value)
+          def flatten_matches(payload):
+              result=[]
+              for league in payload.get("leagues") or []:result.extend(league.get("matches") or [])
+              return result
+          def upsert_doc(con,key,event_id,payload,stamp):
+              text=json.dumps(payload,ensure_ascii=False,separators=(",",":"))
+              digest=hashlib.sha256(text.encode()).hexdigest()
+              cols={r[1] for r in con.execute("pragma table_info(mobile_analysis_docs)")}
+              names=["competition_key","event_id","doc_name","json_text","source_mtime"]
+              vals=[key,event_id,"expected_real_actuals",text,stamp]
+              updates=["json_text=excluded.json_text","source_mtime=excluded.source_mtime"]
+              if "content_hash" in cols:
+                  names.append("content_hash");vals.append(digest);updates.append("content_hash=excluded.content_hash")
+              con.execute(f"insert into mobile_analysis_docs({','.join(names)}) values({','.join('?' for _ in names)}) on conflict(competition_key,event_id,doc_name) do update set {','.join(updates)}",vals)
+          def main():
+              ap=argparse.ArgumentParser();ap.add_argument("--db",required=True);args=ap.parse_args()
+              now=dt.datetime.now(dt.timezone.utc); stamp=now.isoformat()
+              days=[(now+dt.timedelta(days=x)).strftime("%Y%m%d") for x in (-1,0,1)]
+              feed=[]
+              for day in days:
+                  feed.extend(flatten_matches(fetch("https://www.fotmob.com/api/data/matches?date="+day)))
+              con=sqlite3.connect(args.db,timeout=60);con.row_factory=sqlite3.Row;con.execute("pragma busy_timeout=60000")
+              rows=con.execute("select competition_key,event_id,kickoff,status,home_team,away_team,home_score,away_score from mobile_events where datetime(kickoff)>=datetime('now','-2 day') and datetime(kickoff)<=datetime('now','+2 day')").fetchall()
+              updates=[]
+              for row in rows:
+                  kickoff=parse_time(row["kickoff"]);best=None
+                  for match in feed:
+                      home=match.get("home") or {};away=match.get("away") or {}
+                      hs=similarity(row["home_team"],home.get("name"));aws=similarity(row["away_team"],away.get("name"))
+                      if hs<0.58 or aws<0.58:continue
+                      mts=match.get("timeTS") or match.get("timeTs")
+                      mt=dt.datetime.fromtimestamp(float(mts),dt.timezone.utc) if mts else None
+                      delta=abs((kickoff-mt).total_seconds()) if kickoff and mt else 0
+                      if delta>21600:continue
+                      rank=hs+aws-(delta/21600)*0.15
+                      if best is None or rank>best[0]:best=(rank,match)
+                  if not best:continue
+                  match=best[1];status=match.get("status") or {};finished=bool(status.get("finished"));ongoing=bool(status.get("ongoing") or status.get("started")) and not finished
+                  if not finished and not ongoing:continue
+                  home=match.get("home") or {};away=match.get("away") or {};hg=score(home);ag=score(away)
+                  if hg is None or ag is None:continue
+                  new_status="FT" if finished else "LIVE";desc="Finalizado" if finished else "En vivo"
+                  con.execute("update mobile_events set status=?,status_description=?,home_score=?,away_score=? where competition_key=? and event_id=?",(new_status,desc,hg,ag,row["competition_key"],row["event_id"]))
+                  docs=0;stat_count=0
+                  if finished:
+                      details=fetch("https://www.fotmob.com/api/matchDetails?matchId="+str(match.get("id")))
+                      stats={};stat_pairs(((details.get("content") or {}).get("stats") or {}),stats)
+                      possession=choose(stats,"ball possession","possession");xg=choose(stats,"expected goals","xg");shots=choose(stats,"total shots");sot=choose(stats,"shots on target");big=choose(stats,"big chances");yellow=choose(stats,"yellow cards");corners=choose(stats,"corners");offsides=choose(stats,"offsides");red=choose(stats,"red cards");fouls=choose(stats,"fouls")
+                      stat_count=sum(v is not None for pair in (possession,xg,shots,sot,big,yellow,corners,offsides,red,fouls) for v in pair)
+                      payload={"available":stat_count>0,"source":"fotmob","verified":True,"verified_at":stamp,"fotmob_match_id":match.get("id"),"real":{"home_goals":hg,"away_goals":ag,"home_possession":possession[0],"away_possession":possession[1],"home_xg":xg[0],"away_xg":xg[1],"home_shots":shots[0],"away_shots":shots[1],"home_sot":sot[0],"away_sot":sot[1],"home_big_chances":big[0],"away_big_chances":big[1],"home_yellow_cards":yellow[0],"away_yellow_cards":yellow[1],"home_corners":corners[0],"away_corners":corners[1],"home_offsides":offsides[0],"away_offsides":offsides[1],"home_red_cards":red[0],"away_red_cards":red[1],"home_fouls":fouls[0],"away_fouls":fouls[1]},"temporal_xg_available":False,"xg_zone_map_available":False}
+                      upsert_doc(con,row["competition_key"],row["event_id"],payload,stamp);docs=1
+                  try:con.execute("delete from mobile_match_payloads where competition_key=? and event_id=?",(row["competition_key"],row["event_id"]))
+                  except sqlite3.OperationalError:pass
+                  updates.append({"event_id":row["event_id"],"fotmob_id":match.get("id"),"teams":[row["home_team"],row["away_team"]],"status":new_status,"score":[hg,ag],"final_stats_doc":docs,"stat_values":stat_count})
+              con.commit();integrity=con.execute("pragma integrity_check").fetchone()[0];con.close()
+              print(json.dumps({"status":"PASS","provider":"fotmob","updated":len(updates),"events":updates,"integrity":integrity},ensure_ascii=False))
+          if __name__=="__main__":main()
+          PY
+          $SUDO chmod 0755 "$SCRIPT"
+          $SUDO tee /etc/systemd/system/oddshunter-fotmob-reconcile.service >/dev/null <<'UNIT'
+          [Unit]
+          Description=OddsHunter OVH FotMob live/final reconciler
+          After=network-online.target
+          [Service]
+          Type=oneshot
+          ExecStart=/usr/bin/python3 /opt/oddshunter/current/ovh_fotmob_reconcile.py --db /var/lib/oddshunter-hybrid/runtime/data/oddshunter.db
+          UNIT
+          $SUDO tee /etc/systemd/system/oddshunter-fotmob-reconcile.timer >/dev/null <<'UNIT'
+          [Unit]
+          Description=OddsHunter FotMob reconciliation every minute
+          [Timer]
+          OnBootSec=20s
+          OnUnitActiveSec=60s
+          AccuracySec=5s
+          Persistent=true
+          [Install]
+          WantedBy=timers.target
+          UNIT
+          $SUDO systemctl daemon-reload
+          $SUDO systemctl start oddshunter-fotmob-reconcile.service
+          $SUDO systemctl enable --now oddshunter-fotmob-reconcile.timer >/dev/null
+          $SUDO systemctl is-active --quiet oddshunter-fotmob-reconcile.timer
+          $SUDO systemctl show oddshunter-fotmob-reconcile.service -p Result --value
+          $SUDO journalctl -u oddshunter-fotmob-reconcile.service -n 30 --no-pager -o cat
+          $SUDO python3 - <<'PY'
+          import json,sqlite3
+          p="/var/lib/oddshunter-hybrid/runtime/data/oddshunter.db";c=sqlite3.connect(f"file:{p}?mode=ro",uri=True);c.row_factory=sqlite3.Row
+          r=c.execute("select competition_key,event_id,status,status_description,home_team,away_team,home_score,away_score,headline_json from mobile_events where event_id=15502891").fetchone()
+          d=c.execute("select json_text from mobile_analysis_docs where event_id=15502891 and doc_name='expected_real_actuals'").fetchone()
+          print(json.dumps({"target":dict(r) if r else None,"final_stats":json.loads(d[0]) if d else None,"integrity":c.execute('pragma integrity_check').fetchone()[0]},ensure_ascii=False))
+          PY
+          REMOTE
+          )"
+          printf '%s
+' "$OUT"
+          {
+            echo '## OVH FotMob live/final reconciliation'
+            echo '```json'
+            printf '%s
+' "$OUT"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
