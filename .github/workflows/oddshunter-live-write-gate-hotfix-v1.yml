@@ -323,12 +323,10 @@ jobs:
           PY
           REMOTE
           )"
-          printf '%s
-' "$OUT"
+          printf '%s\n' "$OUT"
           {
             echo '## OVH FotMob live/final reconciliation'
             echo '```json'
-            printf '%s
-' "$OUT"
+            printf '%s\n' "$OUT"
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
