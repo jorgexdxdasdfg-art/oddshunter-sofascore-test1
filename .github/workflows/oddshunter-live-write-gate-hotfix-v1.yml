@@ -309,7 +309,9 @@ jobs:
           [Install]
           WantedBy=timers.target
           UNIT
+          $SUDO /usr/bin/python3 "$SCRIPT" --db "$DB"
           $SUDO systemctl daemon-reload
+          $SUDO systemctl reset-failed oddshunter-fotmob-reconcile.service || true
           $SUDO systemctl start oddshunter-fotmob-reconcile.service
           $SUDO systemctl enable --now oddshunter-fotmob-reconcile.timer >/dev/null
           $SUDO systemctl is-active --quiet oddshunter-fotmob-reconcile.timer
