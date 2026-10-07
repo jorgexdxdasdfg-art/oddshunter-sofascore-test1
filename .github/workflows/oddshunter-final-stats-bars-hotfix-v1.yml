@@ -1,0 +1,87 @@
+name: OddsHunter Final Stats and 1X2 Bars Hotfix V1
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - mobile_final_stats_bars_hotfix.py
+      - .github/workflows/oddshunter-final-stats-bars-hotfix-v1.yml
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      VPS_HOST: ${{ secrets.VPS_HOST }}
+      VPS_USER: ${{ secrets.VPS_USER }}
+      VPS_PORT_SECRET: ${{ secrets.VPS_PORT }}
+      VPS_SSH_PRIVATE_KEY: ${{ secrets.VPS_SSH_PRIVATE_KEY }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Validate patch and prepare SSH
+        run: |
+          set -euo pipefail
+          python -m py_compile mobile_final_stats_bars_hotfix.py
+          test -n "${VPS_HOST:-}" && test -n "${VPS_USER:-}" && test -n "${VPS_SSH_PRIVATE_KEY:-}"
+          VPS_PORT="${VPS_PORT_SECRET:-22}"
+          echo "VPS_PORT=$VPS_PORT" >> "$GITHUB_ENV"
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$VPS_SSH_PRIVATE_KEY" > ~/.ssh/oddshunter
+          chmod 600 ~/.ssh/oddshunter
+          ssh-keyscan -p "$VPS_PORT" -H "$VPS_HOST" > ~/.ssh/known_hosts
+
+      - name: Backup and publish verified final data
+        run: |
+          set -euo pipefail
+          REMOTE="/tmp/oddshunter-final-stats-bars-${GITHUB_RUN_ID}.py"
+          SSH=(ssh -i ~/.ssh/oddshunter -p "$VPS_PORT" -o BatchMode=yes -o StrictHostKeyChecking=yes "$VPS_USER@$VPS_HOST")
+          SCP=(scp -i ~/.ssh/oddshunter -P "$VPS_PORT" -o BatchMode=yes -o StrictHostKeyChecking=yes)
+          "${SCP[@]}" mobile_final_stats_bars_hotfix.py "$VPS_USER@$VPS_HOST:$REMOTE"
+          "${SSH[@]}" "set -euo pipefail
+            SUDO=''; if [ \"\$(id -u)\" -ne 0 ]; then SUDO='sudo -n'; fi
+            DB=/var/lib/oddshunter-hybrid/runtime/data/oddshunter.db
+            test -f \"\$DB\"
+            \$SUDO python3 '$REMOTE' --db \"\$DB\" --backup-dir /var/lib/oddshunter-hybrid/backups
+            rm -f '$REMOTE'"
+
+      - name: Verify public Mobile API
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json,time
+          from urllib.request import Request,urlopen
+          base='https://oddshunter.158-69-216-233.sslip.io'
+          expected={15534082,15534091,15534108,15534114,15534144,15534148,15534189,15534198,15534236,15537771,16547921}
+          bars={15534082,15534091,15534108,15534114,15534144,15534148,15534236,15537771}
+          rows=[]
+          for offset in (-1,0):
+              url=f'{base}/api/day?offset={offset}&limit=1000&cb={time.time_ns()}'
+              with urlopen(Request(url,headers={'Cache-Control':'no-cache'}),timeout=45) as response:
+                  rows.extend(json.load(response))
+          by_id={int(row['event_id']):row for row in rows}
+          missing=sorted(expected-set(by_id))
+          bad_bars=[]
+          for event_id in bars:
+              head=(by_id.get(event_id) or {}).get('headline') or {}
+              if not all(head.get(key) is not None for key in ('home_win','draw','away_win')):
+                  bad_bars.append(event_id)
+          bad_stats=[]
+          for event_id in expected:
+              row=by_id.get(event_id) or {}
+              key=row.get('competition_key') or ('mls' if event_id==16547921 else 'uefa-nations-league')
+              url=f'{base}/api/match/{key}/{event_id}?cb={time.time_ns()}'
+              with urlopen(Request(url,headers={'Cache-Control':'no-cache'}),timeout=45) as response:
+                  detail=json.load(response)
+              real=((detail.get('expected_real') or {}).get('real') or {})
+              required=('home_goals','away_goals','home_possession','away_possession','home_shots','away_shots','home_sot','away_sot','home_corners','away_corners','home_yellow_cards','away_yellow_cards')
+              if not all(real.get(name) is not None for name in required):
+                  bad_stats.append(event_id)
+          if missing or bad_bars or bad_stats:
+              raise SystemExit(f'PUBLIC_VERIFY_FAIL missing={missing} bad_bars={bad_bars} bad_stats={bad_stats}')
+          print(json.dumps({'status':'PASS','events':len(expected),'bars':len(bars),'stats':len(expected)},sort_keys=True))
+          PY
