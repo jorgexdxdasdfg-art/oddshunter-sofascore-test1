@@ -464,3 +464,56 @@ jobs:
             printf '%s\n' "$OUT"
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Probar respaldos 365 AiScore Flashscore Futbol24
+        if: always()
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+        run: |
+          set -eEuo pipefail
+          OUT="$(ssh -i ~/.ssh/oddshunter_live -p "$VPS_PORT" -o BatchMode=yes -o StrictHostKeyChecking=yes "$VPS_USER@$VPS_HOST" 'bash -s' 2>&1 <<'REMOTE'
+          set -u
+          if [ "$(id -u)" -eq 0 ]; then SUDO=""; else SUDO="sudo -n"; fi
+          $SUDO python3 - <<'PY'
+          import datetime as dt,json,re,unicodedata,urllib.parse,urllib.request
+          H={"User-Agent":"Mozilla/5.0 OddsHunter-OVH/1.0","Accept":"application/json,text/html"}
+          def get(url):
+              with urllib.request.urlopen(urllib.request.Request(url,headers=H),timeout=25) as r:return r.status,r.read()
+          def norm(v):
+              v=unicodedata.normalize("NFKD",str(v or "")).encode("ascii","ignore").decode().lower()
+              return " ".join(x for x in re.findall(r"[a-z0-9]+",v) if x not in {"fc","cf","club","football"})
+          result={}
+          try:
+              params=urllib.parse.urlencode({"appTypeId":5,"langId":1,"timezoneName":"UTC","userCountryId":-1,"sports":1,"startDate":"07/10/2026","endDate":"07/10/2026","showOdds":"false","onlyMajorGames":"false","withTop":"true"})
+              code,raw=get("https://webws.365scores.com/web/games/allscores/?"+params);data=json.loads(raw)
+              games=data.get("games") or []
+              game=next((g for g in games if "inter toronto" in norm((g.get("homeCompetitor") or {}).get("name")) and "supra" in norm((g.get("awayCompetitor") or {}).get("name"))),None)
+              if game:
+                  gid=game.get("id");scode,sraw=get("https://webws.365scores.com/web/game/stats/?appTypeId=5&langId=1&timezoneName=UTC&userCountryId=-1&games="+str(gid));sdata=json.loads(sraw)
+                  result["365scores"]={"ok":True,"http":code,"game_id":gid,"status":game.get("statusText") or game.get("statusName"),"home_score":game.get("homeCompetitor",{}).get("score"),"away_score":game.get("awayCompetitor",{}).get("score"),"statistics_count":len(sdata.get("statistics") or []),"stats_http":scode}
+              else:result["365scores"]={"ok":False,"http":code,"games":len(games),"reason":"MATCH_NOT_FOUND"}
+          except Exception as e:result["365scores"]={"ok":False,"error":type(e).__name__+": "+str(e)}
+          try:
+              url="https://www.aiscore.com/head-to-head/soccer-inter-toronto-fc-vs-supra-du-quebec"
+              code,raw=get(url);txt=raw.decode("utf-8","ignore")
+              links=re.findall(r'href=["\']([^"\']*match-[^"\']*)',txt,re.I)
+              result["aiscore"]={"ok":code==200 and "Inter Toronto" in txt and "Supra" in txt,"http":code,"bytes":len(raw),"match_links":links[-8:]}
+          except Exception as e:result["aiscore"]={"ok":False,"error":type(e).__name__+": "+str(e)}
+          print("PROVIDER_PROBE="+json.dumps(result,ensure_ascii=False))
+          PY
+          PYTHON=/opt/oddshunter/current/.venv-cloud/bin/python
+          if [ -x "$PYTHON" ]; then
+            echo 'F24_FLASH_PROBE_BEGIN'
+            timeout 240 "$PYTHON" -u /opt/oddshunter/current/cloud_incremental_result_sync.py --key canada-canadian-premier-league --event-id 15502891 --dry-run || true
+            echo 'F24_FLASH_PROBE_END'
+          fi
+          REMOTE
+          )"
+          printf '%s\n' "$OUT"
+          {
+            echo '## Provider fallback probe from OVH'
+            echo '```'
+            printf '%s\n' "$OUT" | tail -c 18000
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
