@@ -130,14 +130,15 @@ jobs:
           ):
               text = text.replace(old, new)
           run_start = text.index("def run(")
-          catalog_start = text.index("    schedule_catalog = (", run_start)
-          catalog_end = text.index("    with connect_db(read_only=True) as con:", catalog_start)
-          text = (
-              text[:catalog_start]
-              + '    schedule_catalog = {"result": "SKIPPED_OVH_LOCAL_LIVE"}\n'
-              + '    exact_actuals_published = 0\n'
-              + text[catalog_end:]
-          )
+          if "    schedule_catalog = (" in text[run_start:]:
+              catalog_start = text.index("    schedule_catalog = (", run_start)
+              catalog_end = text.index("    with connect_db(read_only=True) as con:", catalog_start)
+              text = (
+                  text[:catalog_start]
+                  + '    schedule_catalog = {"result": "SKIPPED_OVH_LOCAL_LIVE"}\n'
+                  + '    exact_actuals_published = 0\n'
+                  + text[catalog_end:]
+              )
           compile(text, str(path), "exec")
           path.write_text(text, encoding="utf-8")
           print("OVH_ONLY_SQLITE_PATCH=PASS")
