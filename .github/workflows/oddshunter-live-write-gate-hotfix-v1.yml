@@ -276,7 +276,7 @@ jobs:
                   con.execute("update mobile_events set status=?,status_description=?,home_score=?,away_score=? where competition_key=? and event_id=?",(new_status,desc,hg,ag,row["competition_key"],row["event_id"]))
                   docs=0;stat_count=0
                   if finished:
-                      details=fetch("https://www.fotmob.com/api/matchDetails?matchId="+str(match.get("id")))
+                      details=fetch("https://www.fotmob.com/api/data/matchDetails?matchId="+str(match.get("id")))
                       stats={};stat_pairs(((details.get("content") or {}).get("stats") or {}),stats)
                       possession=choose(stats,"ball possession","possession");xg=choose(stats,"expected goals","xg");shots=choose(stats,"total shots");sot=choose(stats,"shots on target");big=choose(stats,"big chances");yellow=choose(stats,"yellow cards");corners=choose(stats,"corners");offsides=choose(stats,"offsides");red=choose(stats,"red cards");fouls=choose(stats,"fouls")
                       stat_count=sum(v is not None for pair in (possession,xg,shots,sot,big,yellow,corners,offsides,red,fouls) for v in pair)
