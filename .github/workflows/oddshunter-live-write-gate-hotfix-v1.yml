@@ -174,7 +174,8 @@ jobs:
           VPS_USER: ${{ secrets.VPS_USER }}
         run: |
           set -eEuo pipefail
-          OUT="$(ssh -i ~/.ssh/oddshunter_live -p "$VPS_PORT" -o BatchMode=yes -o StrictHostKeyChecking=yes "$VPS_USER@$VPS_HOST" 'bash -s' <<'REMOTE'
+          set +e
+          OUT="$(ssh -i ~/.ssh/oddshunter_live -p "$VPS_PORT" -o BatchMode=yes -o StrictHostKeyChecking=yes "$VPS_USER@$VPS_HOST" 'bash -s' 2>&1 <<'REMOTE'
           set -eEuo pipefail
           if [ "$(id -u)" -eq 0 ]; then SUDO=""; else SUDO="sudo -n"; fi
           DB=/var/lib/oddshunter-hybrid/runtime/data/oddshunter.db
@@ -323,9 +324,13 @@ jobs:
           PY
           REMOTE
           )"
+          RC=$?
+          set -e
           printf '%s\n' "$OUT"
+          echo "REMOTE_EXIT=$RC"
           {
             echo '## OVH FotMob live/final reconciliation'
+            echo "Remote exit: $RC"
             echo '```json'
             printf '%s\n' "$OUT"
             echo '```'
