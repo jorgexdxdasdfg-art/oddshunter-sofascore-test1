@@ -75,13 +75,26 @@ jobs:
                   con.row_factory = sqlite3.Row
                   return con
 
+              @staticmethod
+              def _adapt(sql: str, params: Iterable[Any]) -> tuple[str, list[Any]]:
+                  values = list(params)
+                  columns = "(competition_key,event_id,doc_name,json_text,source_mtime)"
+                  if "INSERT INTO mobile_analysis_docs" in sql and "content_hash" not in sql:
+                      import hashlib
+                      sql = sql.replace(columns, "(competition_key,event_id,doc_name,json_text,source_mtime,content_hash)", 1)
+                      sql = sql.replace("VALUES (?,?,?,?,?)", "VALUES (?,?,?,?,?,?)", 1)
+                      sql = sql.replace("source_mtime=excluded.source_mtime", "source_mtime=excluded.source_mtime,content_hash=excluded.content_hash", 1)
+                      values.append(hashlib.sha256(str(values[3]).encode("utf-8")).hexdigest())
+                  return sql, values
+
               def query(self, sql: str, params: Iterable[Any]) -> list[dict[str, Any]]:
                   with self._connect() as con:
                       return [dict(row) for row in con.execute(sql, list(params)).fetchall()]
 
               def execute(self, sql: str, params: Iterable[Any]) -> int:
+                  sql, values = self._adapt(sql, params)
                   with self._connect() as con:
-                      cursor = con.execute(sql, list(params))
+                      cursor = con.execute(sql, values)
                       con.commit()
                       return max(0, int(cursor.rowcount))
 
@@ -92,7 +105,8 @@ jobs:
                       con.execute("BEGIN IMMEDIATE")
                       try:
                           for sql, params in statements:
-                              con.execute(sql, list(params))
+                              sql, values = self._adapt(sql, params)
+                              con.execute(sql, values)
                               count += 1
                           con.commit()
                       except Exception:
