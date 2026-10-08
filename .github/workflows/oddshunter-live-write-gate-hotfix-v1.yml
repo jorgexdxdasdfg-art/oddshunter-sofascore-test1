@@ -491,7 +491,7 @@ jobs:
               game=next((g for g in games if "inter toronto" in norm((g.get("homeCompetitor") or {}).get("name")) and "supra" in norm((g.get("awayCompetitor") or {}).get("name"))),None)
               if game:
                   gid=game.get("id");scode,sraw=get("https://webws.365scores.com/web/game/stats/?appTypeId=5&langId=1&timezoneName=UTC&userCountryId=-1&games="+str(gid));sdata=json.loads(sraw)
-                  result["365scores"]={"ok":True,"http":code,"game_id":gid,"status":game.get("statusText") or game.get("statusName"),"home_score":game.get("homeCompetitor",{}).get("score"),"away_score":game.get("awayCompetitor",{}).get("score"),"statistics_count":len(sdata.get("statistics") or []),"stats_http":scode}
+                  result["365scores"]={"ok":True,"http":code,"game_id":gid,"status":game.get("statusText") or game.get("statusName"),"home_score":game.get("homeCompetitor",{}).get("score"),"away_score":game.get("awayCompetitor",{}).get("score"),"statistics_count":len(sdata.get("statistics") or []),"stats_http":scode,"stats_keys":list(sdata.keys()),"stats_sample":(sdata.get("statistics") or [])[:10],"competitors":sdata.get("competitors")}
               else:result["365scores"]={"ok":False,"http":code,"games":len(games),"reason":"MATCH_NOT_FOUND"}
           except Exception as e:result["365scores"]={"ok":False,"error":type(e).__name__+": "+str(e)}
           try:
