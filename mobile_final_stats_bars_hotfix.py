@@ -40,6 +40,40 @@ def table_exists(conn: sqlite3.Connection, name: str) -> bool:
     return conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (name,)).fetchone() is not None
 
 
+def install_headline_guard(conn: sqlite3.Connection) -> None:
+    """Keep a complete saved 1X2 prediction when a stale catalog has none.
+
+    Live/result reconciliation owns status and scores, while the pre-match
+    analysis owns the 1X2 headline.  Some catalog refreshes legitimately carry
+    an empty headline, so they must not erase an already persisted prediction.
+    A later complete prediction is still allowed to replace the previous one.
+    """
+    conn.execute("DROP TRIGGER IF EXISTS mobile_events_preserve_complete_1x2")
+    conn.execute(
+        """
+        CREATE TRIGGER mobile_events_preserve_complete_1x2
+        AFTER UPDATE OF headline_json ON mobile_events
+        FOR EACH ROW
+        WHEN json_valid(COALESCE(OLD.headline_json, '')) = 1
+          AND json_extract(OLD.headline_json, '$.home_win') IS NOT NULL
+          AND json_extract(OLD.headline_json, '$.draw') IS NOT NULL
+          AND json_extract(OLD.headline_json, '$.away_win') IS NOT NULL
+          AND (
+            json_valid(COALESCE(NEW.headline_json, '')) = 0
+            OR json_extract(NEW.headline_json, '$.home_win') IS NULL
+            OR json_extract(NEW.headline_json, '$.draw') IS NULL
+            OR json_extract(NEW.headline_json, '$.away_win') IS NULL
+          )
+        BEGIN
+          UPDATE mobile_events
+             SET headline_json = OLD.headline_json
+           WHERE competition_key = OLD.competition_key
+             AND event_id = OLD.event_id;
+        END
+        """
+    )
+
+
 def actual_doc(spec: dict, verified_at: str) -> dict:
     possession, xg, shots, sot, big, yellow, corners, offsides, red, fouls = spec["stats"]
     score = spec["score"]
@@ -99,6 +133,7 @@ def main() -> int:
                 raise RuntimeError(f"MISSING_TABLE:{table}")
         with sqlite3.connect(backup) as target:
             conn.backup(target)
+        install_headline_guard(conn)
         missing = []
         for event_id, spec in PATCHES.items():
             if conn.execute(
@@ -153,7 +188,7 @@ def main() -> int:
         result = {
             "status": "PASS", "backup": str(backup), "events": len(PATCHES),
             "actual_docs": int(doc_count), "reconstructed_bars": bar_count,
-            "integrity_check": "ok",
+            "headline_guard": "installed", "integrity_check": "ok",
         }
         if doc_count != len(PATCHES) or bar_count != 8:
             raise RuntimeError(f"POST_VERIFY_FAILED:{result}")
