@@ -174,3 +174,36 @@ jobs:
               out["odds_files"][p]=info
           print(json.dumps({"audit":"READ_ONLY_SERVICES","results":out},ensure_ascii=False))
           PY
+
+      - name: Investigar por que no refresca cuotas (sin modificar nada)
+        run: |
+          set -euo pipefail
+          ssh -i "$HOME/.ssh/oddshunter_audit" -p "$VPS_PORT" -o BatchMode=yes -o StrictHostKeyChecking=yes "$VPS_USER@$VPS_HOST" 'if [ "$(id -u)" -eq 0 ]; then exec python3 -; else exec sudo -n python3 -; fi' <<'PY'
+          import json,os,subprocess
+          p="/opt/oddshunter/current/stage8_daemon.py"
+          data={"mode":"READ_ONLY_ODDS_DIAG","runtime":p,"lines":[],"env_configured":False,"services":{}}
+          if os.path.isfile(p):
+              ls=open(p,encoding="utf-8",errors="replace").read().splitlines()
+              keys=("five_dollar_odds_sync","ODDS_VALUE_TODAY_TOMORROW_V3","ODDS_VALUE_STARTUP_BACKFILL_V3",
+                    "ODDSHUNTER_MAX_INDIVIDUAL_ODDS_PER_HOUR")
+              indices=set()
+              for i,line in enumerate(ls):
+                  if any(key in line for key in keys):
+                      indices.update(range(max(0,i-5),min(len(ls),i+10)))
+              data["lines"]=[{"n":i+1,"line":ls[i][:220]} for i in sorted(indices)][:120]
+          e="/etc/oddshunter/oddshunter.env"
+          if os.path.isfile(e):
+              data["env_configured"]=any(x.strip().startswith("FIVE_DOLLAR_FOOTBALL_API_KEY=") and
+                  len(x.strip().split("=",1)[1])>8 for x in open(e,encoding="utf-8",errors="replace"))
+          for unit in ("oddshunter.service","oddshunter-hybrid-sync.service"):
+              r=subprocess.run(["journalctl","-u",unit,"--since","2026-10-07 00:00:00",
+                                "--no-pager","-o","cat","-n","250"],
+                   capture_output=True,text=True,timeout=14)
+              lines=r.stdout.splitlines()
+              data["services"][unit]={
+                  "log_total_sample":len(lines),
+                  "matching": [x[:240] for x in lines if any(k in x.lower() for k in
+                     ("odd", "odds", "bet365", "five_dollar", "error", "traceback", "failed", "rate_limit", "limit"))][-25:]
+              }
+          print(json.dumps(data,ensure_ascii=False))
+          PY
