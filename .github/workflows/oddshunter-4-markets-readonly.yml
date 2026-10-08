@@ -1,0 +1,40 @@
+name: OddsHunter - Auditoria cuotas 4 mercados (READ ONLY)
+
+on:
+  push:
+    branches:
+      - audit/cuotas-4-mercados-20261008
+    paths:
+      - audit_four_markets_readonly.py
+      - .github/workflows/oddshunter-4-markets-readonly.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit_four_markets:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      FIVE_DOLLAR_FOOTBALL_API_KEY: ${{ secrets.FIVE_DOLLAR_FOOTBALL_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Revisar codigo sin modificar archivos
+        run: |
+          python -m py_compile audit_four_markets_readonly.py five_dollar_odds_sync.py odds_value_engine.py
+      - name: Probar mercados reales de dos partidos futuros
+        run: |
+          set -o pipefail
+          python -u audit_four_markets_readonly.py | tee audit_four_markets_report.json
+      - name: Guardar reporte sin datos secretos
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: audit-four-markets-readonly
+          path: audit_four_markets_report.json
+          if-no-files-found: ignore
+          retention-days: 7
