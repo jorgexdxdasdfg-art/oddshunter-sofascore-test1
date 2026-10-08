@@ -1,0 +1,303 @@
+name: OddsHunter OVH Provider Fallback Deploy V1
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/oddshunter-provider-fallback-deploy-v1.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Preparar SSH
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_SSH_PRIVATE_KEY: ${{ secrets.VPS_SSH_PRIVATE_KEY }}
+          VPS_PORT_SECRET: ${{ secrets.VPS_PORT }}
+        run: |
+          set -eEuo pipefail
+          PORT="${VPS_PORT_SECRET:-22}"
+          echo "VPS_PORT=$PORT" >> "$GITHUB_ENV"
+          install -d -m 0700 ~/.ssh
+          printf '%s\n' "$VPS_SSH_PRIVATE_KEY" > ~/.ssh/oddshunter_live
+          chmod 0600 ~/.ssh/oddshunter_live
+          ssh-keyscan -p "$PORT" -H "$VPS_HOST" > ~/.ssh/known_hosts
+
+      - name: Instalar cadena de respaldos en OVH
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+        run: |
+          set -eEuo pipefail
+          OUT="$(ssh -i ~/.ssh/oddshunter_live -p "$VPS_PORT" -o BatchMode=yes -o StrictHostKeyChecking=yes "$VPS_USER@$VPS_HOST" 'bash -s' 2>&1 <<'REMOTE'
+          set -eEuo pipefail
+          if [ "$(id -u)" -eq 0 ]; then SUDO=""; else SUDO="sudo -n"; fi
+          DB=/var/lib/oddshunter-hybrid/runtime/data/oddshunter.db
+          SCRIPT=/opt/oddshunter/current/ovh_365scores_reconcile.py
+          WRAPPER=/opt/oddshunter/current/ovh_residual_enrichment.py
+          $SUDO test -f "$DB"
+          $SUDO tee "$SCRIPT" >/dev/null <<'PY'
+          #!/usr/bin/env python3
+          import argparse, datetime as dt, difflib, hashlib, json, re, sqlite3, unicodedata, urllib.parse, urllib.request
+
+          HEADERS={"User-Agent":"Mozilla/5.0 OddsHunter-OVH/1.0","Accept":"application/json"}
+          FINAL_WORDS=("ended","finished","full time","fulltime","final")
+          LIVE_WORDS=("live","playing","in progress","1st half","2nd half","first half","second half","half time","halftime","extra time","penalties")
+
+          def fetch(url):
+              req=urllib.request.Request(url,headers=HEADERS)
+              with urllib.request.urlopen(req,timeout=22) as response:
+                  return json.loads(response.read().decode("utf-8"))
+
+          def norm(value):
+              value=unicodedata.normalize("NFKD",str(value or "")).encode("ascii","ignore").decode().lower()
+              value=re.sub(r"\b(fc|cf|sc|afc|club|football|soccer)\b"," ",value)
+              return " ".join(re.findall(r"[a-z0-9]+",value))
+
+          def similarity(a,b):
+              a,b=norm(a),norm(b)
+              if not a or not b:return 0.0
+              if a==b:return 1.0
+              sa,sb=set(a.split()),set(b.split())
+              return max(len(sa&sb)/max(1,len(sa|sb)),difflib.SequenceMatcher(None,a,b).ratio())
+
+          def number(value):
+              if value is None:return None
+              found=re.search(r"-?\d+(?:[.,]\d+)?",str(value))
+              if not found:return None
+              result=float(found.group().replace(",","."))
+              return int(result) if result.is_integer() else result
+
+          def parse_time(value):
+              if value is None:return None
+              if isinstance(value,(int,float)):
+                  return dt.datetime.fromtimestamp(float(value)/(1000 if float(value)>100000000000 else 1),dt.timezone.utc)
+              try:return dt.datetime.fromisoformat(str(value).replace("Z","+00:00"))
+              except Exception:return None
+
+          def game_time(game):
+              for key in ("startTime","startTimeUTC","startTimeUtc","startTimestamp","startTimeStamp","time"):
+                  parsed=parse_time(game.get(key))
+                  if parsed:return parsed
+              return None
+
+          def status_of(game):
+              bits=[]
+              for key in ("statusText","statusName","shortStatusText","gameStatus","statusGroup","status"):
+                  value=game.get(key)
+                  if isinstance(value,dict):value=" ".join(str(x) for x in value.values())
+                  bits.append(str(value or ""))
+              text=" ".join(bits).lower()
+              if any(word in text for word in FINAL_WORDS):return "FT"
+              if any(word in text for word in LIVE_WORDS):return "LIVE"
+              return None
+
+          def score(game,side):
+              obj=game.get(side+"Competitor") or {}
+              value=obj.get("score")
+              if value is None:value=game.get(side+"Score")
+              if isinstance(value,dict):value=value.get("current") or value.get("total") or value.get("display")
+              return number(value)
+
+          def daily_feed(now):
+              games=[]
+              for offset in (-1,0,1):
+                  day=(now+dt.timedelta(days=offset)).strftime("%d/%m/%Y")
+                  params=urllib.parse.urlencode({"appTypeId":5,"langId":1,"timezoneName":"UTC","userCountryId":-1,"sports":1,"startDate":day,"endDate":day,"showOdds":"false","onlyMajorGames":"false","withTop":"true"})
+                  payload=fetch("https://webws.365scores.com/web/games/allscores/?"+params)
+                  games.extend(payload.get("games") or [])
+              return games
+
+          def match_game(row,games):
+              kickoff=parse_time(row["kickoff"]);best=None
+              for game in games:
+                  home=game.get("homeCompetitor") or {};away=game.get("awayCompetitor") or {}
+                  hs=similarity(row["home_team"],home.get("name"));aws=similarity(row["away_team"],away.get("name"))
+                  if hs<0.58 or aws<0.58:continue
+                  when=game_time(game);delta=abs((kickoff-when).total_seconds()) if kickoff and when else 0
+                  if kickoff and when and delta>21600:continue
+                  rank=hs+aws-(delta/21600)*0.15
+                  if best is None or rank>best[0]:best=(rank,game)
+              return best[1] if best else None
+
+          def stat_value(values,*aliases):
+              normalized=[norm(x) for x in aliases]
+              for key,value in values.items():
+                  if key in normalized:return value
+              for key,value in values.items():
+                  if any(alias in key for alias in normalized):return value
+              return None
+
+          def extract_stats(payload,home_id,away_id):
+              grouped={int(home_id):{},int(away_id):{}}
+              for item in payload.get("statistics") or []:
+                  try:cid=int(item.get("competitorId"))
+                  except Exception:continue
+                  if cid not in grouped:continue
+                  grouped[cid][norm(item.get("name"))]=number(item.get("value"))
+              aliases={
+                  "possession":("possession",),"xg":("expected goals","xg"),"shots":("total shots",),
+                  "sot":("shots on target",),"big_chances":("big chances created","big chances"),
+                  "yellow_cards":("yellow cards",),"corners":("corners",),"offsides":("offsides",),
+                  "red_cards":("red cards",),"fouls":("fouls","fouls committed")}
+              real={}
+              for output,names in aliases.items():
+                  real["home_"+output]=stat_value(grouped[int(home_id)],*names)
+                  real["away_"+output]=stat_value(grouped[int(away_id)],*names)
+              return real
+
+          def load_doc(con,key,event_id):
+              row=con.execute("select json_text from mobile_analysis_docs where competition_key=? and event_id=? and doc_name='expected_real_actuals'",(key,event_id)).fetchone()
+              if not row:return {}
+              try:return json.loads(row[0])
+              except Exception:return {}
+
+          def save_doc(con,key,event_id,payload,stamp):
+              text=json.dumps(payload,ensure_ascii=False,separators=(",",":"));digest=hashlib.sha256(text.encode()).hexdigest()
+              cols={r[1] for r in con.execute("pragma table_info(mobile_analysis_docs)")}
+              names=["competition_key","event_id","doc_name","json_text","source_mtime"];values=[key,event_id,"expected_real_actuals",text,stamp]
+              updates=["json_text=excluded.json_text","source_mtime=excluded.source_mtime"]
+              if "content_hash" in cols:names.append("content_hash");values.append(digest);updates.append("content_hash=excluded.content_hash")
+              con.execute(f"insert into mobile_analysis_docs({','.join(names)}) values({','.join('?' for _ in names)}) on conflict(competition_key,event_id,doc_name) do update set {','.join(updates)}",values)
+
+          def main():
+              parser=argparse.ArgumentParser();parser.add_argument("--db",required=True);args=parser.parse_args()
+              now=dt.datetime.now(dt.timezone.utc);stamp=now.isoformat();games=daily_feed(now)
+              con=sqlite3.connect(args.db,timeout=60);con.row_factory=sqlite3.Row;con.execute("pragma busy_timeout=60000")
+              rows=con.execute("select competition_key,event_id,kickoff,status,home_team,away_team,home_score,away_score from mobile_events where datetime(kickoff)>=datetime('now','-2 day') and datetime(kickoff)<=datetime('now','+2 day')").fetchall()
+              report=[]
+              for row in rows:
+                  game=match_game(row,games)
+                  if not game:continue
+                  state=status_of(game);home_score=score(game,"home");away_score=score(game,"away")
+                  if state not in ("LIVE","FT") or home_score is None or away_score is None:continue
+                  existing_ft=str(row["status"] or "").upper() in ("FT","ENDED","FINISHED")
+                  existing_scores=row["home_score"] is not None and row["away_score"] is not None
+                  if not existing_ft or not existing_scores:
+                      con.execute("update mobile_events set status=?,status_description=?,home_score=?,away_score=? where competition_key=? and event_id=?",(state,"Finalizado" if state=="FT" else "En vivo",home_score,away_score,row["competition_key"],row["event_id"]))
+                  filled=0
+                  if state=="FT":
+                      gid=game.get("id");home=game.get("homeCompetitor") or {};away=game.get("awayCompetitor") or {}
+                      stats=fetch("https://webws.365scores.com/web/game/stats/?"+urllib.parse.urlencode({"appTypeId":5,"langId":1,"timezoneName":"UTC","userCountryId":-1,"games":gid}))
+                      incoming=extract_stats(stats,home.get("id"),away.get("id"));incoming.update({"home_goals":home_score,"away_goals":away_score})
+                      payload=load_doc(con,row["competition_key"],row["event_id"]);real=payload.get("real") if isinstance(payload.get("real"),dict) else {}
+                      for field,value in incoming.items():
+                          if real.get(field) is None and value is not None:real[field]=value;filled+=1
+                      previous=str(payload.get("source") or "").strip();providers=list(payload.get("providers_checked") or [])
+                      if "365scores" not in providers:providers.append("365scores")
+                      payload.update({"available":any(v is not None for v in real.values()),"verified":True,"verified_at":stamp,"real":real,"providers_checked":providers})
+                      ids=payload.get("provider_ids") if isinstance(payload.get("provider_ids"),dict) else {};ids["365scores"]=gid;payload["provider_ids"]=ids
+                      if filled and "365scores" not in previous:payload["source"]=(previous+"+365scores").strip("+")
+                      elif not previous:payload["source"]="365scores"
+                      save_doc(con,row["competition_key"],row["event_id"],payload,stamp)
+                  try:con.execute("delete from mobile_match_payloads where competition_key=? and event_id=?",(row["competition_key"],row["event_id"]))
+                  except sqlite3.OperationalError:pass
+                  report.append({"event_id":row["event_id"],"game_id":game.get("id"),"state":state,"score":[home_score,away_score],"filled":filled})
+              con.commit();integrity=con.execute("pragma integrity_check").fetchone()[0];con.close()
+              print(json.dumps({"status":"PASS","provider":"365scores","updated":len(report),"events":report,"integrity":integrity},ensure_ascii=False))
+          if __name__=="__main__":main()
+          PY
+          $SUDO chmod 0755 "$SCRIPT"
+
+          $SUDO tee "$WRAPPER" >/dev/null <<'PY'
+          #!/usr/bin/env python3
+          import datetime as dt, json, os, sqlite3, subprocess
+          DB="/var/lib/oddshunter-hybrid/runtime/data/oddshunter.db"
+          PYTHON="/opt/oddshunter/current/.venv-cloud/bin/python"
+          ROOT="/opt/oddshunter/current"
+          env=dict(os.environ,ODDSHUNTER_RUNTIME_MODE="cloud",ODDSHUNTER_ALLOW_WORK_DB_WRITE="1",ODDSHUNTER_DISABLE_TRAINING="1",ODDSHUNTER_BROWSER_HEADLESS="1",ODDSHUNTER_CHROMIUM_SANDBOX="0",ODDSHUNTER_STAGE6_ALLOW_TURSO_WRITE="1",ODDSHUNTER_WORK_DB=DB,ODDSHUNTER_MOBILE_SQLITE="1",ODDSHUNTER_MOBILE_DB=DB)
+          con=sqlite3.connect(DB);con.row_factory=sqlite3.Row
+          rows=con.execute("select e.competition_key,e.event_id from mobile_events e left join mobile_analysis_docs d on d.competition_key=e.competition_key and d.event_id=e.event_id and d.doc_name='expected_real_actuals' where upper(coalesce(e.status,'')) in ('FT','ENDED','FINISHED') and datetime(e.kickoff)>=datetime('now','-2 day') order by datetime(e.kickoff) desc limit 4").fetchall();con.close()
+          results=[]
+          for row in rows:
+              cmd=[PYTHON,"-u",ROOT+"/cloud_incremental_result_sync.py","--key",row["competition_key"],"--event-id",str(row["event_id"])]
+              try:
+                  done=subprocess.run(cmd,env=env,cwd=ROOT,text=True,capture_output=True,timeout=180)
+                  results.append({"event_id":row["event_id"],"key":row["competition_key"],"rc":done.returncode,"tail":(done.stdout+done.stderr)[-1500:]})
+                  if done.returncode==0:
+                      publish=[PYTHON,"-u",ROOT+"/cloud_live_status_sync.py","--event-id",str(row["event_id"]),"--reconcile-terminal-hours","48","--reconcile-terminal-limit","12"]
+                      subprocess.run(publish,env=env,cwd=ROOT,text=True,capture_output=True,timeout=180)
+              except Exception as exc:results.append({"event_id":row["event_id"],"key":row["competition_key"],"error":type(exc).__name__+": "+str(exc)})
+          print(json.dumps({"generated_at":dt.datetime.now(dt.timezone.utc).isoformat(),"providers":["futbol24","flashscore"],"events":results},ensure_ascii=False))
+          PY
+          $SUDO chmod 0755 "$WRAPPER"
+
+          $SUDO tee /etc/systemd/system/oddshunter-365scores-reconcile.service >/dev/null <<'UNIT'
+          [Unit]
+          Description=OddsHunter 365Scores fallback reconciler
+          After=network-online.target oddshunter-fotmob-reconcile.service
+          [Service]
+          Type=oneshot
+          User=oddshunter
+          Group=oddshunter
+          ExecStart=/usr/bin/python3 /opt/oddshunter/current/ovh_365scores_reconcile.py --db /var/lib/oddshunter-hybrid/runtime/data/oddshunter.db
+          UNIT
+          $SUDO tee /etc/systemd/system/oddshunter-365scores-reconcile.timer >/dev/null <<'UNIT'
+          [Unit]
+          Description=OddsHunter 365Scores fallback every 90 seconds
+          [Timer]
+          OnBootSec=35s
+          OnUnitActiveSec=90s
+          AccuracySec=5s
+          Persistent=true
+          [Install]
+          WantedBy=timers.target
+          UNIT
+
+          $SUDO tee /etc/systemd/system/oddshunter-residual-enrichment.service >/dev/null <<'UNIT'
+          [Unit]
+          Description=OddsHunter Futbol24 and Flashscore residual enrichment
+          After=network-online.target oddshunter-365scores-reconcile.service
+          [Service]
+          Type=oneshot
+          User=oddshunter
+          Group=oddshunter
+          Environment=HOME=/var/lib/oddshunter
+          ExecStart=/opt/oddshunter/current/.venv-cloud/bin/python /opt/oddshunter/current/ovh_residual_enrichment.py
+          UNIT
+          $SUDO tee /etc/systemd/system/oddshunter-residual-enrichment.timer >/dev/null <<'UNIT'
+          [Unit]
+          Description=OddsHunter residual enrichment every five minutes
+          [Timer]
+          OnBootSec=90s
+          OnUnitActiveSec=5min
+          AccuracySec=15s
+          Persistent=true
+          [Install]
+          WantedBy=timers.target
+          UNIT
+
+          $SUDO chown oddshunter:oddshunter "$SCRIPT" "$WRAPPER"
+          $SUDO systemctl daemon-reload
+          $SUDO systemctl reset-failed oddshunter-365scores-reconcile.service oddshunter-residual-enrichment.service || true
+          $SUDO systemctl start oddshunter-365scores-reconcile.service
+          $SUDO systemctl enable --now oddshunter-365scores-reconcile.timer >/dev/null
+          $SUDO systemctl start oddshunter-residual-enrichment.service || true
+          $SUDO systemctl enable --now oddshunter-residual-enrichment.timer >/dev/null
+          echo "365_TIMER=$($SUDO systemctl is-active oddshunter-365scores-reconcile.timer)"
+          echo "RESIDUAL_TIMER=$($SUDO systemctl is-active oddshunter-residual-enrichment.timer)"
+          echo "365_RESULT=$($SUDO systemctl show oddshunter-365scores-reconcile.service -p Result --value)"
+          echo "RESIDUAL_RESULT=$($SUDO systemctl show oddshunter-residual-enrichment.service -p Result --value)"
+          $SUDO journalctl -u oddshunter-365scores-reconcile.service -n 20 --no-pager -o cat
+          $SUDO journalctl -u oddshunter-residual-enrichment.service -n 20 --no-pager -o cat
+          $SUDO python3 - "$DB" <<'PY'
+          import json,sqlite3,sys
+          con=sqlite3.connect("file:"+sys.argv[1]+"?mode=ro",uri=True);con.row_factory=sqlite3.Row
+          row=con.execute("select status,home_score,away_score,headline_json from mobile_events where event_id=15502891").fetchone()
+          doc=con.execute("select json_text from mobile_analysis_docs where event_id=15502891 and doc_name='expected_real_actuals'").fetchone()
+          print(json.dumps({"target":dict(row) if row else None,"doc":json.loads(doc[0]) if doc else None,"integrity":con.execute('pragma integrity_check').fetchone()[0]},ensure_ascii=False))
+          PY
+          REMOTE
+          )"
+          printf '%s\n' "$OUT"
+          {
+            echo '## OVH provider fallback deployment'
+            echo '```'
+            printf '%s\n' "$OUT" | tail -c 30000
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
