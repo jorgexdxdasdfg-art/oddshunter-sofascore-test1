@@ -33,10 +33,19 @@ jobs:
           VPS_HOST: ${{ secrets.VPS_HOST }}
           VPS_USER: ${{ secrets.VPS_USER }}
         run: |
-          set -eEuo pipefail
+          set -Euo pipefail
+          set +e
           OUT="$(ssh -i ~/.ssh/oddshunter_live -p "$VPS_PORT" -o BatchMode=yes -o StrictHostKeyChecking=yes "$VPS_USER@$VPS_HOST" 'bash -s' 2>&1 <<'REMOTE'
           set -eEuo pipefail
           if [ "$(id -u)" -eq 0 ]; then SUDO=""; else SUDO="sudo -n"; fi
+          report_error() {
+            rc=$?
+            echo "REMOTE_ERROR line=$1 rc=$rc"
+            $SUDO systemctl status oddshunter-365scores-reconcile.service oddshunter-residual-enrichment.service --no-pager || true
+            $SUDO journalctl -u oddshunter-365scores-reconcile.service -u oddshunter-residual-enrichment.service -n 80 --no-pager -o cat || true
+            exit "$rc"
+          }
+          trap 'report_error $LINENO' ERR
           DB=/var/lib/oddshunter-hybrid/runtime/data/oddshunter.db
           SCRIPT=/opt/oddshunter/current/ovh_365scores_reconcile.py
           WRAPPER=/opt/oddshunter/current/ovh_residual_enrichment.py
@@ -233,8 +242,6 @@ jobs:
           After=network-online.target oddshunter-fotmob-reconcile.service
           [Service]
           Type=oneshot
-          User=oddshunter
-          Group=oddshunter
           ExecStart=/usr/bin/python3 /opt/oddshunter/current/ovh_365scores_reconcile.py --db /var/lib/oddshunter-hybrid/runtime/data/oddshunter.db
           UNIT
           $SUDO tee /etc/systemd/system/oddshunter-365scores-reconcile.timer >/dev/null <<'UNIT'
@@ -294,6 +301,8 @@ jobs:
           PY
           REMOTE
           )"
+          RC=$?
+          set -e
           printf '%s\n' "$OUT"
           {
             echo '## OVH provider fallback deployment'
@@ -301,3 +310,4 @@ jobs:
             printf '%s\n' "$OUT" | tail -c 30000
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
+          exit "$RC"
