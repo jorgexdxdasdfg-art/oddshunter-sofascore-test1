@@ -143,3 +143,34 @@ jobs:
           out["timers"]= [line[:180] for line in units.stdout.splitlines() if "oddshunter" in line.lower()][:20]
           print(json.dumps({"audit":"READ_ONLY_FRESHNESS","results":out},sort_keys=True,ensure_ascii=False))
           PY
+
+      - name: Identificar servicio activo y sincronizador de cuotas (sin cambios)
+        run: |
+          set -euo pipefail
+          ssh -i "$HOME/.ssh/oddshunter_audit" -p "$VPS_PORT" -o BatchMode=yes -o StrictHostKeyChecking=yes "$VPS_USER@$VPS_HOST" 'if [ "$(id -u)" -eq 0 ]; then exec python3 -; else exec sudo -n python3 -; fi' <<'PY'
+          import json,os,subprocess
+          units=["oddshunter.service","oddshunter-hybrid-sync.service",
+                 "oddshunter-live-sync.service","oddshunter-odds-sync.service"]
+          out={"services":[],"odds_files":{}}
+          for unit in units:
+              r=subprocess.run(["systemctl","show",unit,"--no-pager",
+                    "--property=LoadState,ActiveState,SubState,WorkingDirectory,FragmentPath,ExecMainStartTimestamp"],
+                    capture_output=True,text=True,timeout=12)
+              out["services"].append({"unit":unit,"properties":r.stdout.strip().splitlines()})
+          for unit in ("oddshunter.service","oddshunter-hybrid-sync.service"):
+              r=subprocess.run(["systemctl","cat",unit],capture_output=True,text=True,timeout=12)
+              out[unit+"_commands"]=[line.strip()[:260] for line in r.stdout.splitlines()
+                    if line.strip().startswith(("ExecStart=","WorkingDirectory=","Description="))][:12]
+          for p in ("/opt/oddshunter/current/five_dollar_odds_sync.py",
+                    "/opt/oddshunter/current/stage8_daemon.py",
+                    "/etc/systemd/system/oddshunter-odds-sync.timer",
+                    "/etc/systemd/system/oddshunter-odds-sync.service"):
+              if not os.path.isfile(p):continue
+              info={"exists":True,"bytes":os.stat(p).st_size}
+              if p.endswith("stage8_daemon.py"):
+                  body=open(p,encoding="utf-8",errors="replace").read()
+                  info["odds_sync_hook"]=("five_dollar_odds_sync" in body)
+                  info["odds_marker"]=("ODDS_VALUE_TODAY_TOMORROW_V3" in body)
+              out["odds_files"][p]=info
+          print(json.dumps({"audit":"READ_ONLY_SERVICES","results":out},ensure_ascii=False))
+          PY
