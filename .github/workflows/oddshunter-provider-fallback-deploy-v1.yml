@@ -52,16 +52,25 @@ jobs:
           $SUDO test -f "$DB"
           $SUDO tee "$SCRIPT" >/dev/null <<'PY'
           #!/usr/bin/env python3
-          import argparse, datetime as dt, difflib, hashlib, json, re, sqlite3, unicodedata, urllib.parse, urllib.request
+          import argparse, datetime as dt, difflib, hashlib, json, re, sqlite3, time, unicodedata, urllib.error, urllib.parse, urllib.request
 
           HEADERS={"User-Agent":"Mozilla/5.0 OddsHunter-OVH/1.0","Accept":"application/json"}
           FINAL_WORDS=("ended","finished","full time","fulltime","final")
           LIVE_WORDS=("live","playing","in progress","1st half","2nd half","first half","second half","half time","halftime","extra time","penalties")
 
           def fetch(url):
-              req=urllib.request.Request(url,headers=HEADERS)
-              with urllib.request.urlopen(req,timeout=22) as response:
-                  return json.loads(response.read().decode("utf-8"))
+              last=None
+              for attempt in range(3):
+                  try:
+                      req=urllib.request.Request(url,headers=HEADERS)
+                      with urllib.request.urlopen(req,timeout=22) as response:
+                          return json.loads(response.read().decode("utf-8"))
+                  except urllib.error.HTTPError as exc:
+                      last=exc
+                      if exc.code not in (408,425,429,500,502,503,504):raise
+                  except (urllib.error.URLError,TimeoutError) as exc:last=exc
+                  if attempt<2:time.sleep(1.5*(attempt+1))
+              raise last
 
           def norm(value):
               value=unicodedata.normalize("NFKD",str(value or "")).encode("ascii","ignore").decode().lower()
@@ -118,8 +127,11 @@ jobs:
               for offset in (-1,0,1):
                   day=(now+dt.timedelta(days=offset)).strftime("%d/%m/%Y")
                   params=urllib.parse.urlencode({"appTypeId":5,"langId":1,"timezoneName":"UTC","userCountryId":-1,"sports":1,"startDate":day,"endDate":day,"showOdds":"false","onlyMajorGames":"false","withTop":"true"})
-                  payload=fetch("https://webws.365scores.com/web/games/allscores/?"+params)
-                  games.extend(payload.get("games") or [])
+                  try:
+                      payload=fetch("https://webws.365scores.com/web/games/allscores/?"+params)
+                      games.extend(payload.get("games") or [])
+                  except Exception as exc:
+                      print("365_FEED_SKIP",day,type(exc).__name__,str(exc))
               return games
 
           def match_game(row,games):
@@ -192,8 +204,13 @@ jobs:
                   filled=0
                   if state=="FT":
                       gid=game.get("id");home=game.get("homeCompetitor") or {};away=game.get("awayCompetitor") or {}
-                      stats=fetch("https://webws.365scores.com/web/game/stats/?"+urllib.parse.urlencode({"appTypeId":5,"langId":1,"timezoneName":"UTC","userCountryId":-1,"games":gid}))
-                      incoming=extract_stats(stats,home.get("id"),away.get("id"));incoming.update({"home_goals":home_score,"away_goals":away_score})
+                      stats_error=None
+                      try:
+                          stats=fetch("https://webws.365scores.com/web/game/stats/?"+urllib.parse.urlencode({"appTypeId":5,"langId":1,"timezoneName":"UTC","userCountryId":-1,"games":gid}))
+                          incoming=extract_stats(stats,home.get("id"),away.get("id"))
+                      except Exception as exc:
+                          incoming={};stats_error=type(exc).__name__+": "+str(exc)
+                      incoming.update({"home_goals":home_score,"away_goals":away_score})
                       payload=load_doc(con,row["competition_key"],row["event_id"]);real=payload.get("real") if isinstance(payload.get("real"),dict) else {}
                       for field,value in incoming.items():
                           if real.get(field) is None and value is not None:real[field]=value;filled+=1
@@ -206,7 +223,9 @@ jobs:
                       save_doc(con,row["competition_key"],row["event_id"],payload,stamp)
                   try:con.execute("delete from mobile_match_payloads where competition_key=? and event_id=?",(row["competition_key"],row["event_id"]))
                   except sqlite3.OperationalError:pass
-                  report.append({"event_id":row["event_id"],"game_id":game.get("id"),"state":state,"score":[home_score,away_score],"filled":filled})
+                  item={"event_id":row["event_id"],"game_id":game.get("id"),"state":state,"score":[home_score,away_score],"filled":filled}
+                  if state=="FT" and stats_error:item["stats_error"]=stats_error
+                  report.append(item)
               con.commit();integrity=con.execute("pragma integrity_check").fetchone()[0];con.close()
               print(json.dumps({"status":"PASS","provider":"365scores","updated":len(report),"events":report,"integrity":integrity},ensure_ascii=False))
           if __name__=="__main__":main()
@@ -219,7 +238,7 @@ jobs:
           DB="/var/lib/oddshunter-hybrid/runtime/data/oddshunter.db"
           PYTHON="/opt/oddshunter/current/.venv-cloud/bin/python"
           ROOT="/opt/oddshunter/current"
-          env=dict(os.environ,ODDSHUNTER_RUNTIME_MODE="cloud",ODDSHUNTER_ALLOW_WORK_DB_WRITE="1",ODDSHUNTER_DISABLE_TRAINING="1",ODDSHUNTER_BROWSER_HEADLESS="1",ODDSHUNTER_CHROMIUM_SANDBOX="0",ODDSHUNTER_STAGE6_ALLOW_TURSO_WRITE="1",ODDSHUNTER_WORK_DB=DB,ODDSHUNTER_MOBILE_SQLITE="1",ODDSHUNTER_MOBILE_DB=DB)
+          env=dict(os.environ,ODDSHUNTER_RUNTIME_MODE="cloud",ODDSHUNTER_ALLOW_WORK_DB_WRITE="1",ODDSHUNTER_DISABLE_TRAINING="1",ODDSHUNTER_BROWSER_HEADLESS="1",ODDSHUNTER_CHROMIUM_SANDBOX="0",ODDSHUNTER_STAGE6_ALLOW_TURSO_WRITE="1",ODDSHUNTER_WORK_DB=DB,ODDSHUNTER_MOBILE_SQLITE="1",ODDSHUNTER_MOBILE_DB=DB,PLAYWRIGHT_BROWSERS_PATH="/var/lib/oddshunter/.cache/ms-playwright")
           con=sqlite3.connect(DB);con.row_factory=sqlite3.Row
           rows=con.execute("select e.competition_key,e.event_id from mobile_events e left join mobile_analysis_docs d on d.competition_key=e.competition_key and d.event_id=e.event_id and d.doc_name='expected_real_actuals' where upper(coalesce(e.status,'')) in ('FT','ENDED','FINISHED') and datetime(e.kickoff)>=datetime('now','-2 day') order by datetime(e.kickoff) desc limit 4").fetchall();con.close()
           results=[]
@@ -235,6 +254,17 @@ jobs:
           print(json.dumps({"generated_at":dt.datetime.now(dt.timezone.utc).isoformat(),"providers":["futbol24","flashscore"],"events":results},ensure_ascii=False))
           PY
           $SUDO chmod 0755 "$WRAPPER"
+
+          PW_PATH=/var/lib/oddshunter/.cache/ms-playwright
+          if ! $SUDO test -x "$PW_PATH/chromium_headless_shell-1234/chrome-headless-shell-linux64/chrome-headless-shell"; then
+            FREE_KB="$(df -Pk /var/lib/oddshunter | awk 'NR==2{print $4}')"
+            if [ "${FREE_KB:-0}" -ge 350000 ]; then
+              $SUDO install -d -o oddshunter -g oddshunter -m 0755 "$PW_PATH"
+              $SUDO -u oddshunter env HOME=/var/lib/oddshunter PLAYWRIGHT_BROWSERS_PATH="$PW_PATH" /opt/oddshunter/current/.venv-cloud/bin/python -m playwright install chromium-headless-shell
+            else
+              echo "PLAYWRIGHT_INSTALL_SKIPPED free_kb=${FREE_KB:-0}"
+            fi
+          fi
 
           $SUDO tee /etc/systemd/system/oddshunter-365scores-reconcile.service >/dev/null <<'UNIT'
           [Unit]
@@ -265,6 +295,7 @@ jobs:
           User=oddshunter
           Group=oddshunter
           Environment=HOME=/var/lib/oddshunter
+          Environment=PLAYWRIGHT_BROWSERS_PATH=/var/lib/oddshunter/.cache/ms-playwright
           ExecStart=/opt/oddshunter/current/.venv-cloud/bin/python /opt/oddshunter/current/ovh_residual_enrichment.py
           UNIT
           $SUDO tee /etc/systemd/system/oddshunter-residual-enrichment.timer >/dev/null <<'UNIT'
