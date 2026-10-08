@@ -1,0 +1,113 @@
+name: OddsHunter - OVH 4 Markets Read Only
+on:
+  push:
+    branches:
+      - audit/cuotas-4-mercados-20261008
+    paths:
+      - .github/workflows/oddshunter-ovh-4-markets-readonly.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  production_audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    env:
+      VPS_HOST: ${{ secrets.VPS_HOST }}
+      VPS_USER: ${{ secrets.VPS_USER }}
+      VPS_SSH_PRIVATE_KEY: ${{ secrets.VPS_SSH_PRIVATE_KEY }}
+      VPS_PORT_SECRET: ${{ secrets.VPS_PORT }}
+    steps:
+      - name: Comprobar acceso de solo lectura a OVH
+        run: |
+          set -euo pipefail
+          test -n "${VPS_HOST:-}"
+          test -n "${VPS_USER:-}"
+          test -n "${VPS_SSH_PRIVATE_KEY:-}"
+          port="${VPS_PORT_SECRET:-22}"
+          echo "VPS_PORT=$port" >> "$GITHUB_ENV"
+          install -d -m 0700 "$HOME/.ssh"
+          printf '%s\n' "$VPS_SSH_PRIVATE_KEY" > "$HOME/.ssh/oddshunter_audit"
+          chmod 600 "$HOME/.ssh/oddshunter_audit"
+          ssh-keyscan -p "$port" -H "$VPS_HOST" > "$HOME/.ssh/known_hosts"
+      - name: Auditoria de tablas de cuotas (sin escritura)
+        run: |
+          set -euo pipefail
+          ssh -i "$HOME/.ssh/oddshunter_audit" -p "$VPS_PORT" -o BatchMode=yes -o StrictHostKeyChecking=yes "$VPS_USER@$VPS_HOST" 'if [ "$(id -u)" -eq 0 ]; then exec python3 -; else exec sudo -n python3 -; fi' <<'PY'
+          import json, os, sqlite3
+          from datetime import datetime, timezone, timedelta
+
+          paths = [
+              "/var/lib/oddshunter-hybrid/runtime/data/oddshunter.db",
+              "/var/lib/oddshunter/data/oddshunter.db",
+              "/opt/oddshunter/current/data/oddshunter.db",
+          ]
+          output = {
+              "audit": "READ_ONLY",
+              "runtime_script_exists": os.path.isfile("/opt/oddshunter/current/five_dollar_odds_sync.py"),
+              "databases": [],
+          }
+          now = datetime.now(timezone.utc)
+          for path in paths:
+              if not os.path.isfile(path):
+                  continue
+              item = {"path": path}
+              try:
+                  connection = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=10)
+                  names = {r[0] for r in connection.execute(
+                      "SELECT name FROM sqlite_master WHERE type='table'"
+                  )}
+                  item["odds_tables_present"] = {"bet365_odds_state","bet365_fixture_odds_sync"}.issubset(names)
+                  if item["odds_tables_present"]:
+                      categories = {
+                          "goals": ("goals_over_%","goals_under_%"),
+                          "corners": ("corners_over_%","corners_under_%"),
+                          "cards": ("cards_over_%","cards_under_%"),
+                          "btts": ("btts_yes","btts_no"),
+                      }
+                      counts = {}
+                      for name, (side1, side2) in categories.items():
+                          totals = []
+                          for key in (side1, side2):
+                              totals.append(connection.execute(
+                                  "SELECT COUNT(*) FROM bet365_odds_state WHERE market_key LIKE ? AND current_odds>1",
+                                  (key,)
+                              ).fetchone()[0])
+                          counts[name] = {"side_1": totals[0], "side_2": totals[1]}
+                      item["actual_quote_counts"] = counts
+                      item["sync_status"] = dict(connection.execute(
+                          "SELECT status,COUNT(*) FROM bet365_fixture_odds_sync GROUP BY status"
+                      ).fetchall())
+                      sample = connection.execute(
+                          """SELECT s.competition_key,s.event_id,s.kickoff,
+                                    GROUP_CONCAT(DISTINCT o.market_key)
+                               FROM bet365_fixture_odds_sync s
+                               JOIN bet365_odds_state o
+                                 ON o.competition_key=s.competition_key AND o.event_id=s.event_id
+                              WHERE o.current_odds>1
+                              GROUP BY s.competition_key,s.event_id,s.kickoff
+                              ORDER BY s.kickoff DESC LIMIT 250"""
+                      ).fetchall()
+                      full, future = 0, 0
+                      for key,event,kickoff,markets in sample:
+                          found = set((markets or "").split(","))
+                          valid = all(
+                              any(x.startswith(prefix) for x in found)
+                              for prefix in ("goals_over_","goals_under_","corners_over_",
+                                             "corners_under_","cards_over_","cards_under_")
+                          ) and {"btts_yes","btts_no"}.issubset(found)
+                          if valid:
+                              full += 1
+                              try:
+                                  dt=datetime.fromisoformat(str(kickoff).replace("Z","+00:00"))
+                                  if dt.tzinfo is None: dt=dt.replace(tzinfo=timezone.utc)
+                                  future += int(now < dt <= now+timedelta(days=7))
+                              except ValueError: pass
+                      item["complete_four_market_matches_in_sample"] = full
+                      item["complete_four_market_upcoming_7d_in_sample"] = future
+                  connection.close()
+              except Exception as exc:
+                  item["error_type"] = type(exc).__name__
+              output["databases"].append(item)
+          print(json.dumps(output, sort_keys=True, ensure_ascii=False))
+          PY
