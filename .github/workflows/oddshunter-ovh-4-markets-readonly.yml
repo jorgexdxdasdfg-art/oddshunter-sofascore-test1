@@ -111,3 +111,35 @@ jobs:
               output["databases"].append(item)
           print(json.dumps(output, sort_keys=True, ensure_ascii=False))
           PY
+
+      - name: Diagnosticar frescura y proximos 7 dias (solo SELECT)
+        run: |
+          set -euo pipefail
+          ssh -i "$HOME/.ssh/oddshunter_audit" -p "$VPS_PORT" -o BatchMode=yes -o StrictHostKeyChecking=yes "$VPS_USER@$VPS_HOST" 'if [ "$(id -u)" -eq 0 ]; then exec python3 -; else exec sudo -n python3 -; fi' <<'PY'
+          import os,sqlite3,json,datetime,subprocess
+          out={}
+          for p in ("/var/lib/oddshunter-hybrid/runtime/data/oddshunter.db",
+                    "/var/lib/oddshunter/data/oddshunter.db",
+                    "/opt/oddshunter/current/data/oddshunter.db"):
+              if not os.path.isfile(p): continue
+              db=sqlite3.connect("file:"+p+"?mode=ro",uri=True,timeout=10)
+              t={"real_path":os.path.realpath(p),"size":os.stat(p).st_size,
+                 "last_modified_utc":datetime.datetime.fromtimestamp(os.stat(p).st_mtime,datetime.timezone.utc).isoformat()}
+              if db.execute("SELECT COUNT(*) FROM sqlite_master WHERE name='bet365_fixture_odds_sync'").fetchone()[0]:
+                  t["latest_sync_timestamp"]=db.execute("SELECT MAX(last_checked_at) FROM bet365_fixture_odds_sync").fetchone()[0]
+                  t["upcoming_7days_sync_status"]=dict(db.execute(
+                      """SELECT status,COUNT(*) FROM bet365_fixture_odds_sync
+                         WHERE datetime(kickoff)>=datetime('now')
+                           AND datetime(kickoff)<datetime('now','+7 days')
+                         GROUP BY status""").fetchall())
+                  t["upcoming_sample"]=[dict(zip(("kickoff","home","away","status","checked_at"),v)) for v in db.execute(
+                      """SELECT kickoff,home_team,away_team,status,last_checked_at
+                         FROM bet365_fixture_odds_sync
+                         WHERE datetime(kickoff)>=datetime('now') AND datetime(kickoff)<datetime('now','+7 days')
+                         ORDER BY kickoff LIMIT 10""").fetchall()]
+              db.close()
+              out[p]=t
+          units=subprocess.run(["systemctl","list-timers","--all","--no-pager"],capture_output=True,text=True,timeout=12)
+          out["timers"]= [line[:180] for line in units.stdout.splitlines() if "oddshunter" in line.lower()][:20]
+          print(json.dumps({"audit":"READ_ONLY_FRESHNESS","results":out},sort_keys=True,ensure_ascii=False))
+          PY
