@@ -1,0 +1,22 @@
+name: OddsHunter - legal rights and contact audit (READ ONLY)
+on:
+  push:
+    branches:
+      - lab/odds-chain-4markets-20261009
+    paths:
+      - audit_odds_publisher_rights_lab.py
+      - .github/workflows/oddshunter-publisher-rights-audit.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install beautifulsoup4==4.13.4
+      - run: python audit_odds_publisher_rights_lab.py
