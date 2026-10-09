@@ -33,6 +33,7 @@ for name,urls in SITES.items():
           cf.append(bytes(b^raw[0] for b in raw[1:]).decode("utf8"))
         except Exception:pass
       rec["cloudflare_emails"]=sorted(set(cf))
+      rec["public_emails"]=sorted(set(re.findall(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}",body)))[:12]
       rec["terms_links"]=[a.get("href") for a in soup.select("a[href]")
                           if any(k in a.get_text(" ",strip=True).casefold()
                                  for k in ("terms","contact","privacy"))][:15]
