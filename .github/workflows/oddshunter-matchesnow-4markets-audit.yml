@@ -1,0 +1,36 @@
+name: OddsHunter - matchesnow 4/4 real test (research only)
+on:
+  push:
+    branches:
+      - lab/odds-chain-4markets-20261009
+    paths:
+      - audit_matchesnow_four_markets.py
+      - .github/workflows/oddshunter-matchesnow-4markets-audit.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  bookmaker_quotes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install parser
+        run: python -m pip install beautifulsoup4==4.13.4
+      - name: Compile
+        run: python -m py_compile audit_matchesnow_four_markets.py
+      - name: Execute read-only quote extraction
+        run: |
+          set -o pipefail
+          python -u audit_matchesnow_four_markets.py | tee matchesnow-4markets-report.json
+      - name: Save report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: matchesnow-4markets-proof
+          path: matchesnow-4markets-report.json
+          if-no-files-found: ignore
+          retention-days: 7
