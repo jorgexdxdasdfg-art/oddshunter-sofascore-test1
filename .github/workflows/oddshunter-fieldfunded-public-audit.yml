@@ -1,0 +1,22 @@
+name: OddsHunter - FieldFunded public endpoints (READ ONLY)
+on:
+  push:
+    branches:
+      - audit/non5dollar-four-markets-20261009
+    paths:
+      - audit_fieldfunded_public_readonly.py
+      - .github/workflows/oddshunter-fieldfunded-public-audit.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  public_probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m py_compile audit_fieldfunded_public_readonly.py
+      - run: python audit_fieldfunded_public_readonly.py
