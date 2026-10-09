@@ -1,0 +1,32 @@
+name: OddsHunter - cobertura real 24score (lab)
+on:
+  push:
+    branches:
+      - lab/odds-chain-4markets-20261009
+    paths:
+      - audit_24score_coverage_lab.py
+      - .github/workflows/oddshunter-24score-coverage-lab.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Validar sintaxis
+        run: python -m py_compile audit_24score_coverage_lab.py
+      - name: Muestreo de cuotas reales por liga y mercado
+        run: python -u audit_24score_coverage_lab.py | tee coverage-report.json
+      - name: Conservar reporte
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-24score-readonly
+          path: coverage-report.json
+          if-no-files-found: ignore
+          retention-days: 7
