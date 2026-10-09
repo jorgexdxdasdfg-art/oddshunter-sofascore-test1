@@ -1,0 +1,35 @@
+name: OddsHunter - 4 markets LIVE cascade 24score MatchesNow
+on:
+  push:
+    branches:
+      - lab/odds-chain-4markets-20261009
+    paths:
+      - audit_live_chain_two_sites.py
+      - .github/workflows/oddshunter-live-2site-chain-audit.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  audit_two_sites:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install beautifulsoup4==4.13.4
+      - name: Validate scripts
+        run: python -m py_compile audit_live_chain_two_sites.py odds_cascade_lab.py odds_24score_adapter_lab.py audit_matchesnow_four_markets.py
+      - name: Live cascade proof, zero writes and no key
+        run: |
+          set -o pipefail
+          python -u audit_live_chain_two_sites.py | tee live-cascade-proof.json
+      - name: Archive proof regardless of gate
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: live-cascade-4markets-two-sites
+          path: live-cascade-proof.json
+          if-no-files-found: ignore
+          retention-days: 7
