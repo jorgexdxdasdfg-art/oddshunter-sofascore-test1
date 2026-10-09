@@ -152,9 +152,9 @@ def audit():
             row["status"]="FETCH_ERROR"
             row["error_type"]=type(exc).__name__
         report["matches"].append(row)
-        if row.get("complete_four"):
-            break
     report["four_of_four_count"]=sum(x.get("complete_four",False) for x in report["matches"])
+    report["checked_pages"]=sum(x.get("status")=="FETCH_OK" for x in report["matches"])
+    report["coverage_by_league"]={x["league"]:{"status":x.get("status"),"market_count":x.get("market_count",0),"missing":x.get("missing",list(MARKETS))} for x in report["matches"]}
     report["technical_gate"]="PASS" if report["four_of_four_count"] else "FAIL"
     report["commercial_gate"]="FAIL_NO_WRITTEN_LICENSE"
     return report
