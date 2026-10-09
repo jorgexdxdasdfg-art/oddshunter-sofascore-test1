@@ -1,0 +1,37 @@
+name: OddsHunter - Probar fuentes SIN 5Dollar (4 mercados)
+on:
+  push:
+    branches:
+      - audit/non5dollar-four-markets-20261009
+    paths:
+      - audit_non5dollar_four_markets.py
+      - .github/workflows/oddshunter-alternatives-4markets.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  read_only_alternatives:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      THE_ODDS_API_KEY: ${{ secrets.THE_ODDS_API_KEY }}
+      ODDS_API_KEY: ${{ secrets.ODDS_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Validar sintaxis
+        run: python -m py_compile audit_non5dollar_four_markets.py
+      - name: Prueba real fuentes alternativas sin cambios de produccion
+        run: |
+          set -o pipefail
+          python -u audit_non5dollar_four_markets.py | tee /tmp/audit_non5dollar_four_markets.json
+      - name: Guardar informe aunque no logre cobertura completa
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: audit-non5dollar-four-markets
+          path: /tmp/audit_non5dollar_four_markets.json
+          if-no-files-found: ignore
+          retention-days: 7
