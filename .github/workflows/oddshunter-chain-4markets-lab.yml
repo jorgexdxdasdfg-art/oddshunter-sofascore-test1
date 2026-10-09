@@ -1,0 +1,28 @@
+name: OddsHunter - Chain odds lab (4 markets)
+on:
+  push:
+    branches:
+      - lab/odds-chain-4markets-20261009
+    paths:
+      - odds_cascade_lab.py
+      - tests/test_odds_cascade_lab.py
+      - audit_chain_public_sources.py
+      - .github/workflows/oddshunter-chain-4markets-lab.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  isolated_cascade:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Compile code
+        run: python -m py_compile odds_cascade_lab.py audit_chain_public_sources.py tests/test_odds_cascade_lab.py
+      - name: Verify chain guards with offline fixtures
+        run: python -m unittest discover -s tests -p test_odds_cascade_lab.py -v
+      - name: Public source reachability and robots (NOT 4/4 proof)
+        run: python -u audit_chain_public_sources.py
